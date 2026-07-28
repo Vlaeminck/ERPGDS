@@ -1,0 +1,3105 @@
+{
+    "Oleiros SA": {
+        "keywords": [
+            "oleiros sa",
+            "oleiros",
+            "30-70808111-2",
+            "30708081112"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fadefil S.A.": {
+        "keywords": [
+            "fadefil s.a.",
+            "30-71295020-6",
+            "30712950206"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "San Jose 7167 S.A.": {
+        "keywords": [
+            "san jose 7167 s.a.",
+            "30-71267720-8",
+            "30712677208"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cencosud S A": {
+        "keywords": [
+            "cencosud s a",
+            "30-59036076-3",
+            "30590360763"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Expendedoras Automaticas Italo Argentinasrl": {
+        "keywords": [
+            "expendedoras automaticas italo argentinasrl",
+            "30-67826915-4",
+            "30678269154"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Grupo Concesionario Del Oeste SA": {
+        "keywords": [
+            "grupo concesionario del oeste sa",
+            "grupo concesionario del oeste",
+            "30-66349851-3",
+            "30663498513"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Beltran Suarez Angel Radames": {
+        "keywords": [
+            "beltran suarez angel radames",
+            "20-95821484-8",
+            "20958214848"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Coto Centro Integral De Comercializacion Sociedad Anonima": {
+        "keywords": [
+            "coto centro integral de comercializacion sociedad anonima",
+            "coto",
+            "coto centro integral",
+            "comercializacion",
+            "30-54808315-6",
+            "30548083156"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cosentino Mariano Alejandro": {
+        "keywords": [
+            "cosentino mariano alejandro",
+            "20-18505724-1",
+            "20185057241"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rubifarm S.A.": {
+        "keywords": [
+            "rubifarm s.a.",
+            "30-70987571-6",
+            "30709875716"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Organizacion Itar S.A.": {
+        "keywords": [
+            "organizacion itar s.a.",
+            "30-57230920-3",
+            "30572309203"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gastroware Company S. A.": {
+        "keywords": [
+            "gastroware company s. a.",
+            "30-71905618-7",
+            "30719056187"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "La Mision Tacaagle S.A.": {
+        "keywords": [
+            "la mision tacaagle s.a.",
+            "30-70882889-7",
+            "30708828897"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Tapalque Alimentos SA": {
+        "keywords": [
+            "tapalque alimentos sa",
+            "tapalque alimentos",
+            "33-58131161-9",
+            "33581311619"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Maxisistemas SRL": {
+        "keywords": [
+            "maxisistemas srl",
+            "maxisistemas",
+            "30-70851699-2",
+            "30708516992"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Quimica Moron SRL": {
+        "keywords": [
+            "quimica moron srl",
+            "quimica moron",
+            "30-70919002-0",
+            "30709190020"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Servicios Globales De Informatica S.A.": {
+        "keywords": [
+            "servicios globales de informatica s.a.",
+            "servicios globales",
+            "informatica s.a.",
+            "30-70773845-2",
+            "30707738452"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Bazar Depot S.R.L.": {
+        "keywords": [
+            "bazar depot s.r.l.",
+            "30-71650436-7",
+            "30716504367"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Operadora De Estaciones De Servicios SA": {
+        "keywords": [
+            "operadora de estaciones de servicios sa",
+            "operadora",
+            "estaciones",
+            "servicios",
+            "30-67877449-5",
+            "30678774495"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Podic SA": {
+        "keywords": [
+            "podic sa",
+            "podic",
+            "30-61164439-2",
+            "30611644392"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Vip Store S.R.L.": {
+        "keywords": [
+            "vip store s.r.l.",
+            "30-71521570-1",
+            "30715215701"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Francisco Agustin Rossi Y Bloch Amelia": {
+        "keywords": [
+            "francisco agustin rossi y bloch amelia",
+            "francisco agustin rossi",
+            "bloch amelia",
+            "30-71690725-9",
+            "30716907259"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Matles Claudio Luis": {
+        "keywords": [
+            "matles claudio luis",
+            "20-13264554-0",
+            "20132645540"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Jaureguy Sociedad Anonima Comercial E Industrial Y Agropecuaria": {
+        "keywords": [
+            "jaureguy sociedad anonima comercial e industrial y agropecuaria",
+            "jaureguy",
+            "jaureguy e industrial",
+            "agropecuaria",
+            "30-52101843-3",
+            "30521018433"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Villares Sociedad Anonima Comercial": {
+        "keywords": [
+            "villares sociedad anonima comercial",
+            "villares",
+            "30-53785301-4",
+            "30537853014"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lezama Energia SA": {
+        "keywords": [
+            "lezama energia sa",
+            "lezama energia",
+            "30-71681332-7",
+            "30716813327"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "G & L Cold Suppliers S.R.L.": {
+        "keywords": [
+            "g & l cold suppliers s.r.l.",
+            "30-71531863-2",
+            "30715318632"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "De Vito Y Cia SA": {
+        "keywords": [
+            "de vito y cia sa",
+            "de vito y cia",
+            "de vito",
+            "30-62574307-5",
+            "30625743075"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Aversa Carlos Francisco": {
+        "keywords": [
+            "aversa carlos francisco",
+            "20-08443853-8",
+            "20084438538"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pinamar Higiene Institucional S.R.L.": {
+        "keywords": [
+            "pinamar higiene institucional s.r.l.",
+            "30-71784729-2",
+            "30717847292"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Buño Silvia Vivian": {
+        "keywords": [
+            "buño silvia vivian",
+            "27-16463552-5",
+            "27164635525"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Silva Hernan Mauricio": {
+        "keywords": [
+            "silva hernan mauricio",
+            "20-27083406-0",
+            "20270834060"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Toñanez Mirta Mabel": {
+        "keywords": [
+            "toñanez mirta mabel",
+            "27-26370550-0",
+            "27263705500"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pacrisva Sociedad Anonima": {
+        "keywords": [
+            "pacrisva sociedad anonima",
+            "pacrisva",
+            "30-62884156-6",
+            "30628841566"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Moma Food S.R.L.": {
+        "keywords": [
+            "moma food s.r.l.",
+            "30-71238739-0",
+            "30712387390"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Deheza Sociedad Anonima Industrial Comercial Financiera Inmobiliaria": {
+        "keywords": [
+            "deheza sociedad anonima industrial comercial financiera inmobiliaria",
+            "deheza",
+            "30-51618667-0",
+            "30516186670"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Linkedstore Argentina S.R.L.": {
+        "keywords": [
+            "linkedstore argentina s.r.l.",
+            "30-71201935-9",
+            "30712019359"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mercadolibre S.R.L.": {
+        "keywords": [
+            "mercadolibre s.r.l.",
+            "30-70308853-4",
+            "30703088534"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Laza Ariel Horacio": {
+        "keywords": [
+            "laza ariel horacio",
+            "20-27559203-0",
+            "20275592030"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Chavez Alan Ezequiel": {
+        "keywords": [
+            "chavez alan ezequiel",
+            "20-44560966-9",
+            "20445609669"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lin Huizhen": {
+        "keywords": [
+            "lin huizhen",
+            "27-94030797-5",
+            "27940307975"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Aballay Sandra Gabriela": {
+        "keywords": [
+            "aballay sandra gabriela",
+            "27-20456529-0",
+            "27204565290"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Prolait SRL": {
+        "keywords": [
+            "prolait srl",
+            "prolait",
+            "30-71566489-1",
+            "30715664891"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Matafuegos Ruta 11 S.R.L.": {
+        "keywords": [
+            "matafuegos ruta 11 s.r.l.",
+            "30-71855493-0",
+            "30718554930"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Peluncha SA": {
+        "keywords": [
+            "peluncha sa",
+            "peluncha",
+            "30-71539836-9",
+            "30715398369"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Caputo Emiliano Dante Y Caputo Flavio Andres S. Cap I Secc IV": {
+        "keywords": [
+            "caputo emiliano dante y caputo flavio andres s. cap i secc iv",
+            "caputo emiliano dante y caputo flavio andres",
+            "caputo emiliano dante",
+            "caputo flavio andres",
+            "33-69652224-9",
+            "33696522249"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mayer Gomez Veronica De Las Mercedes": {
+        "keywords": [
+            "mayer gomez veronica de las mercedes",
+            "mayer gomez veronica",
+            "las mercedes",
+            "27-92395129-1",
+            "27923951291"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Delivery Hero E-commerce S. A.": {
+        "keywords": [
+            "delivery hero e-commerce s. a.",
+            "30-71198576-6",
+            "30711985766"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Verisure Argentina Monitoreo De Alarmas SA": {
+        "keywords": [
+            "verisure argentina monitoreo de alarmas sa",
+            "verisure argentina",
+            "verisure argentina monitoreo",
+            "alarmas",
+            "33-71630774-9",
+            "33716307749"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nasif Ricardo Oscar": {
+        "keywords": [
+            "nasif ricardo oscar",
+            "23-04552527-9",
+            "23045525279"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Coca Cola Femsa De Buenos Aires S A": {
+        "keywords": [
+            "coca cola femsa de buenos aires s a",
+            "coca cola femsa",
+            "buenos aires s a",
+            "30-52539008-6",
+            "30525390086"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Logistica La Serenisima SA": {
+        "keywords": [
+            "logistica la serenisima sa",
+            "logistica la serenisima",
+            "30-70721038-5",
+            "30707210385"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Aicardo Liliana Graciela": {
+        "keywords": [
+            "aicardo liliana graciela",
+            "27-22756360-0",
+            "27227563600"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Battistessa Norberto Walter": {
+        "keywords": [
+            "battistessa norberto walter",
+            "20-22626539-3",
+            "20226265393"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "First Concept Internacional SRL": {
+        "keywords": [
+            "first concept internacional srl",
+            "first concept internacional",
+            "30-71405508-5",
+            "30714055085"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Beroqui Maria Emilia": {
+        "keywords": [
+            "beroqui maria emilia",
+            "27-36110428-0",
+            "27361104280"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "S3ba S.A.": {
+        "keywords": [
+            "s3ba s.a.",
+            "30-71844205-9",
+            "30718442059"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Empresa Distribucion Norte S.R.L.": {
+        "keywords": [
+            "empresa distribucion norte s.r.l.",
+            "30-71437958-1",
+            "30714379581"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Volf S.A.": {
+        "keywords": [
+            "volf s.a.",
+            "30-50436387-9",
+            "30504363879"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Autopistas Del Sol S A": {
+        "keywords": [
+            "autopistas del sol s a",
+            "30-67723711-9",
+            "30677237119"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Carreño Nicolas Gabriel": {
+        "keywords": [
+            "carreño nicolas gabriel",
+            "20-45354057-0",
+            "20453540570"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sgaramello Daniela Evelyn": {
+        "keywords": [
+            "sgaramello daniela evelyn",
+            "27-36078837-2",
+            "27360788372"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cazon Guido Ismael David": {
+        "keywords": [
+            "cazon guido ismael david",
+            "20-22701688-5",
+            "20227016885"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pampin Ezequiel Daniel": {
+        "keywords": [
+            "pampin ezequiel daniel",
+            "20-23050312-6",
+            "20230503126"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Il Sapore Italiano S.R.L.": {
+        "keywords": [
+            "il sapore italiano s.r.l.",
+            "30-71637640-7",
+            "30716376407"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Filieres S R L": {
+        "keywords": [
+            "filieres s r l",
+            "30-70739869-4",
+            "30707398694"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Santini Clivio S.R.L.": {
+        "keywords": [
+            "santini clivio s.r.l.",
+            "30-70912659-4",
+            "30709126594"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pl3m S.A.": {
+        "keywords": [
+            "pl3m s.a.",
+            "30-71127123-2",
+            "30711271232"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sanitarios Master Gas S.R.L.": {
+        "keywords": [
+            "sanitarios master gas s.r.l.",
+            "30-70753649-3",
+            "30707536493"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sasem Logics S.R.L.": {
+        "keywords": [
+            "sasem logics s.r.l.",
+            "30-71218120-2",
+            "30712181202"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sociedad Ley 19550 Cap I Seccion IV De Staropoli Pablo Y Bertoia Franco": {
+        "keywords": [
+            "sociedad ley 19550 cap i seccion iv de staropoli pablo y bertoia franco",
+            "de staropoli pablo y bertoia franco",
+            "staropoli pablo",
+            "bertoia franco",
+            "30-71633841-6",
+            "30716338416"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Caceres Mariana": {
+        "keywords": [
+            "caceres mariana",
+            "27-16845257-3",
+            "27168452573"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Le Mane S.A.": {
+        "keywords": [
+            "le mane s.a.",
+            "30-70829824-3",
+            "30708298243"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Carrizo Gaston Ariel": {
+        "keywords": [
+            "carrizo gaston ariel",
+            "20-27787236-7",
+            "20277872367"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Barros Claudio Y Montenegro Sergio S H": {
+        "keywords": [
+            "barros claudio y montenegro sergio s h",
+            "barros claudio",
+            "montenegro sergio s h",
+            "30-68661285-2",
+            "30686612852"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Papaleo Gisela Valeria": {
+        "keywords": [
+            "papaleo gisela valeria",
+            "27-26503467-0",
+            "27265034670"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nestle Argentina S A": {
+        "keywords": [
+            "nestle argentina s a",
+            "30-54676404-0",
+            "30546764040"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Vaca Sergio Manuel": {
+        "keywords": [
+            "vaca sergio manuel",
+            "20-24853589-0",
+            "20248535890"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rugonyi Maria Laura": {
+        "keywords": [
+            "rugonyi maria laura",
+            "27-31827994-8",
+            "27318279948"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lopez Challiol Lourdes Maria": {
+        "keywords": [
+            "lopez challiol lourdes maria",
+            "27-29626451-8",
+            "27296264518"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Autopistas Urbanas S. A.": {
+        "keywords": [
+            "autopistas urbanas s. a.",
+            "30-57487647-4",
+            "30574876474"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Frio Interlogistica Sur SA": {
+        "keywords": [
+            "frio interlogistica sur sa",
+            "frio interlogistica sur",
+            "30-71069305-2",
+            "30710693052"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Tarum S.R.L.": {
+        "keywords": [
+            "tarum s.r.l.",
+            "30-71749677-5",
+            "30717496775"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Amarilla Sebastian": {
+        "keywords": [
+            "amarilla sebastian",
+            "20-33257700-0",
+            "20332577000"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Calbo Diego Christian": {
+        "keywords": [
+            "calbo diego christian",
+            "20-21938379-8",
+            "20219383798"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Moreno Hector Enrique": {
+        "keywords": [
+            "moreno hector enrique",
+            "20-14876281-4",
+            "20148762814"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Oyhanarte Guillermo Edgardo": {
+        "keywords": [
+            "oyhanarte guillermo edgardo",
+            "20-16919453-0",
+            "20169194530"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Servicios Integrados Argentinos S. A.": {
+        "keywords": [
+            "servicios integrados argentinos s. a.",
+            "30-70731662-0",
+            "30707316620"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "De Los Santos Romero Miriam Yanet": {
+        "keywords": [
+            "de los santos romero miriam yanet",
+            "27-94976131-8",
+            "27949761318"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pina Pesca Sociedad Anonima": {
+        "keywords": [
+            "pina pesca sociedad anonima",
+            "pina pesca",
+            "30-71222415-7",
+            "30712224157"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "C L P SRL": {
+        "keywords": [
+            "c l p srl",
+            "c l p",
+            "30-69459252-6",
+            "30694592526"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ypf Gas Sociedad Anonima": {
+        "keywords": [
+            "ypf gas sociedad anonima",
+            "ypf gas",
+            "30-51548847-9",
+            "30515488479"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Transporte Tbs S.R.L.": {
+        "keywords": [
+            "transporte tbs s.r.l.",
+            "30-71902421-8",
+            "30719024218"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Telefonica Moviles Argentina Sociedad Anonima": {
+        "keywords": [
+            "telefonica moviles argentina sociedad anonima",
+            "30-67881435-7",
+            "30678814357"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Superfoto S R L": {
+        "keywords": [
+            "superfoto s r l",
+            "30-70839544-3",
+            "30708395443"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "SA La Nacion": {
+        "keywords": [
+            "sa la nacion",
+            "la nacion",
+            "30-50008962-4",
+            "30500089624"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Romano Hector Esteban": {
+        "keywords": [
+            "romano hector esteban",
+            "20-38705422-8",
+            "20387054228"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pedidos Farma S. A.": {
+        "keywords": [
+            "pedidos farma s. a.",
+            "30-71704659-1",
+            "30717046591"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Golf De Pinamar Farmaceutica S.c.s.": {
+        "keywords": [
+            "golf de pinamar farmaceutica s.c.s.",
+            "golf de pinamar farmaceutica s.",
+            "golf",
+            "pinamar farmaceutica s.",
+            "33-70960867-9",
+            "33709608679"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Grupo Babystore S.R.L.": {
+        "keywords": [
+            "grupo babystore s.r.l.",
+            "30-71184733-9",
+            "30711847339"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fronza Claudio Marcelo": {
+        "keywords": [
+            "fronza claudio marcelo",
+            "20-13423271-5",
+            "20134232715"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Quinta La Perseverancia S R L": {
+        "keywords": [
+            "quinta la perseverancia s r l",
+            "30-68556237-1",
+            "30685562371"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Castro Lucas Federico": {
+        "keywords": [
+            "castro lucas federico",
+            "20-36110544-4",
+            "20361105444"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sant Energy S.A.": {
+        "keywords": [
+            "sant energy s.a.",
+            "30-71800414-0",
+            "30718004140"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Distribuidora Armando Hernando Simple Asociacion": {
+        "keywords": [
+            "distribuidora armando hernando simple asociacion",
+            "30-71775774-9",
+            "30717757749"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Alyser SA": {
+        "keywords": [
+            "alyser sa",
+            "alyser",
+            "30-70776023-7",
+            "30707760237"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rojas Manuela": {
+        "keywords": [
+            "rojas manuela",
+            "27-27217076-8",
+            "27272170768"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lopez Yamil": {
+        "keywords": [
+            "lopez yamil",
+            "23-36345341-4",
+            "23363453414"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sosa Jorge Alberto": {
+        "keywords": [
+            "sosa jorge alberto",
+            "20-24311975-9",
+            "20243119759"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Candia Denise Karina": {
+        "keywords": [
+            "candia denise karina",
+            "27-25316091-3",
+            "27253160913"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Working Deals S.R.L.": {
+        "keywords": [
+            "working deals s.r.l.",
+            "30-71867318-2",
+            "30718673182"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Smart Shopping SRL": {
+        "keywords": [
+            "smart shopping srl",
+            "smart shopping",
+            "30-70909583-4",
+            "30709095834"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Malmsten Maria Eugenia": {
+        "keywords": [
+            "malmsten maria eugenia",
+            "27-30603564-4",
+            "27306035644"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lavanderia Febo SRL": {
+        "keywords": [
+            "lavanderia febo srl",
+            "lavanderia febo",
+            "30-70786266-8",
+            "30707862668"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "S A Miguel Campodonico Ltda": {
+        "keywords": [
+            "s a miguel campodonico ltda",
+            "miguel campodonico",
+            "33-52780130-9",
+            "33527801309"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Smart It Solutions S.r.l": {
+        "keywords": [
+            "smart it solutions s.r.l",
+            "30-71727352-0",
+            "30717273520"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Moñas SA": {
+        "keywords": [
+            "moñas sa",
+            "moñas",
+            "30-71717553-7",
+            "30717175537"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Autopistas De Buenos Aires (aubasa) SA S. A.": {
+        "keywords": [
+            "autopistas de buenos aires (aubasa) sa s. a.",
+            "autopistas (aubasa) s. a.",
+            "autopistas",
+            "buenos aires (aubasa) s. a.",
+            "30-71411283-6",
+            "30714112836"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Coordinacion Ecologica Area Metropolitana Sociedad Del Estado": {
+        "keywords": [
+            "coordinacion ecologica area metropolitana sociedad del estado",
+            "coordinacion ecologica area metropolitana",
+            "30-57720719-0",
+            "30577207190"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ideas Obelisco SRL": {
+        "keywords": [
+            "ideas obelisco srl",
+            "ideas obelisco",
+            "30-71738953-7",
+            "30717389537"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Roman Equipos S.R.L.": {
+        "keywords": [
+            "roman equipos s.r.l.",
+            "30-71224791-2",
+            "30712247912"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Martino Constantino": {
+        "keywords": [
+            "martino constantino",
+            "20-14908051-2",
+            "20149080512"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sti Digital S.R.L.": {
+        "keywords": [
+            "sti digital s.r.l.",
+            "30-71730619-4",
+            "30717306194"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ferreteria Fase Bm S.R.L.": {
+        "keywords": [
+            "ferreteria fase bm s.r.l.",
+            "30-71792952-3",
+            "30717929523"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sucesion De Garcia Hector Vicente": {
+        "keywords": [
+            "sucesion de garcia hector vicente",
+            "sucesion",
+            "garcia hector vicente",
+            "20-05327316-6",
+            "20053273166"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Telecom Argentina Sociedad Anonima": {
+        "keywords": [
+            "telecom argentina sociedad anonima",
+            "30-63945373-8",
+            "30639453738"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Farmashaw S.c.s.": {
+        "keywords": [
+            "farmashaw s.c.s.",
+            "farmashaw s.",
+            "30-71078157-1",
+            "30710781571"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Farmaltea Scs": {
+        "keywords": [
+            "farmaltea scs",
+            "33-71669221-9",
+            "33716692219"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Andreozzi Facundo Cesar": {
+        "keywords": [
+            "andreozzi facundo cesar",
+            "20-21832079-2",
+            "20218320792"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Panaderia La Española De Castelar S.R.L.": {
+        "keywords": [
+            "panaderia la española de castelar s.r.l.",
+            "panaderia la española",
+            "castelar s.r.l.",
+            "30-68348825-5",
+            "30683488255"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Balnagus S.R.L.": {
+        "keywords": [
+            "balnagus s.r.l.",
+            "33-71196923-9",
+            "33711969239"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Supher SRL": {
+        "keywords": [
+            "supher srl",
+            "supher",
+            "30-70736545-1",
+            "30707365451"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Papelera Pinamar S.A": {
+        "keywords": [
+            "papelera pinamar s.a",
+            "30-71709862-1",
+            "30717098621"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Noriega Esparza Cristo Rene": {
+        "keywords": [
+            "noriega esparza cristo rene",
+            "20-94039638-8",
+            "20940396388"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gabiserv Sociedad Anonima": {
+        "keywords": [
+            "gabiserv sociedad anonima",
+            "gabiserv",
+            "30-59051417-5",
+            "30590514175"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pastorino Ariel Hernan": {
+        "keywords": [
+            "pastorino ariel hernan",
+            "20-28033675-1",
+            "20280336751"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Horeca Srl.": {
+        "keywords": [
+            "horeca srl.",
+            "horeca .",
+            "30-71209619-1",
+            "30712096191"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Distribuidora El Criollo SRL": {
+        "keywords": [
+            "distribuidora el criollo srl",
+            "distribuidora el criollo",
+            "30-70887901-7",
+            "30708879017"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cianciaruso Carlos Eugenio": {
+        "keywords": [
+            "cianciaruso carlos eugenio",
+            "20-16037082-4",
+            "20160370824"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Novo Cars SA": {
+        "keywords": [
+            "novo cars sa",
+            "novo cars",
+            "30-70979384-1",
+            "30709793841"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Villca Apaza Walter Diego": {
+        "keywords": [
+            "villca apaza walter diego",
+            "20-29330172-8",
+            "20293301728"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Bengardino Jonathan Gaston": {
+        "keywords": [
+            "bengardino jonathan gaston",
+            "20-33936305-7",
+            "20339363057"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cabaña Piedras Blancas S R L": {
+        "keywords": [
+            "cabaña piedras blancas s r l",
+            "30-66513397-0",
+            "30665133970"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Maree": {
+        "keywords": [
+            "maree",
+            "30-71715308-8",
+            "30717153088"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Perez Juarez Fernando Gabriel": {
+        "keywords": [
+            "perez juarez fernando gabriel",
+            "20-24646223-3",
+            "20246462233"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Saini Alejandro Ezequiel": {
+        "keywords": [
+            "saini alejandro ezequiel",
+            "23-35793455-9",
+            "23357934559"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fava Hnos Sacif": {
+        "keywords": [
+            "fava hnos sacif",
+            "30-50085237-9",
+            "30500852379"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Arte Grafico Editorial Argentino S. A.": {
+        "keywords": [
+            "arte grafico editorial argentino s. a.",
+            "30-50012415-2",
+            "30500124152"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Girasoles Hernan Osvaldo": {
+        "keywords": [
+            "girasoles hernan osvaldo",
+            "20-35537536-7",
+            "20355375367"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Torre Marcelo Eduardo": {
+        "keywords": [
+            "torre marcelo eduardo",
+            "23-16977572-9",
+            "23169775729"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cerri Federico": {
+        "keywords": [
+            "cerri federico",
+            "23-30493177-9",
+            "23304931779"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mayeski Juan Carlos": {
+        "keywords": [
+            "mayeski juan carlos",
+            "20-17775515-0",
+            "20177755150"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Schmitz Pablo Alejandro": {
+        "keywords": [
+            "schmitz pablo alejandro",
+            "20-29383871-3",
+            "20293838713"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Alejandro Jorge Maximiliano": {
+        "keywords": [
+            "alejandro jorge maximiliano",
+            "20-33480919-7",
+            "20334809197"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Larramendia Natalia Lorena": {
+        "keywords": [
+            "larramendia natalia lorena",
+            "27-26822557-4",
+            "27268225574"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Bekir I S.R.L.": {
+        "keywords": [
+            "bekir i s.r.l.",
+            "30-71526127-4",
+            "30715261274"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Amx Argentina Sociedad Anonima": {
+        "keywords": [
+            "amx argentina sociedad anonima",
+            "amx argentina",
+            "30-66328849-7",
+            "30663288497"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Di Paolo Ramon Angel": {
+        "keywords": [
+            "di paolo ramon angel",
+            "20-07731588-9",
+            "20077315889"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Euro Pan Pinamar S.R.L.": {
+        "keywords": [
+            "euro pan pinamar s.r.l.",
+            "30-71501985-6",
+            "30715019856"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "La Estrella De Galicia S C A": {
+        "keywords": [
+            "la estrella de galicia s c a",
+            "la estrella de galicia a",
+            "la estrella",
+            "galicia a",
+            "30-50548626-5",
+            "30505486265"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Roberto O Rodofeli Y Cia S R L": {
+        "keywords": [
+            "roberto o rodofeli y cia s r l",
+            "roberto o rodofeli",
+            "cia s r l",
+            "30-54752995-9",
+            "30547529959"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Robledo Flavia Mariangeles": {
+        "keywords": [
+            "robledo flavia mariangeles",
+            "27-28558787-0",
+            "27285587870"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Dibell 7167 S.A.": {
+        "keywords": [
+            "dibell 7167 s.a.",
+            "30-71893604-3",
+            "30718936043"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Soto Andrea Roxana": {
+        "keywords": [
+            "soto andrea roxana",
+            "27-20070634-5",
+            "27200706345"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Kaprielian Brenda Sofia": {
+        "keywords": [
+            "kaprielian brenda sofia",
+            "27-27680681-0",
+            "27276806810"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nicknat S.R.L.": {
+        "keywords": [
+            "nicknat s.r.l.",
+            "30-71557795-6",
+            "30715577956"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Eduardo Udenio Y Compañia S A Com Ind Fin E Inmob": {
+        "keywords": [
+            "eduardo udenio y compañia s a com ind fin e inmob",
+            "eduardo udenio y compañia com ind fin e inmob",
+            "eduardo udenio",
+            "compañia com ind fin e inmob",
+            "30-52014280-7",
+            "30520142807"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lodiser SA": {
+        "keywords": [
+            "lodiser sa",
+            "lodiser",
+            "30-70705980-6",
+            "30707059806"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "El Nuevo Emporio SA": {
+        "keywords": [
+            "el nuevo emporio sa",
+            "el nuevo emporio",
+            "33-70703773-9",
+            "33707037739"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Netshop Group S.R.L.": {
+        "keywords": [
+            "netshop group s.r.l.",
+            "30-71542834-9",
+            "30715428349"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Devincenzi Jeremias Emiliano": {
+        "keywords": [
+            "devincenzi jeremias emiliano",
+            "20-29247001-1",
+            "20292470011"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Bodegas Salentein SA": {
+        "keywords": [
+            "bodegas salentein sa",
+            "bodegas salentein",
+            "30-69759871-1",
+            "30697598711"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Castro Vasquez Rodrigo Javier": {
+        "keywords": [
+            "castro vasquez rodrigo javier",
+            "20-24957420-2",
+            "20249574202"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Posnet Sociedad De Responsabilidad Limitada": {
+        "keywords": [
+            "posnet sociedad de responsabilidad limitada",
+            "posnet sociedad de responsabilidad",
+            "posnet sociedad",
+            "responsabilidad",
+            "30-62017749-7",
+            "30620177497"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Yelito S.A.": {
+        "keywords": [
+            "yelito s.a.",
+            "33-71043832-9",
+            "33710438329"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Simplex Vili S. A.": {
+        "keywords": [
+            "simplex vili s. a.",
+            "30-71492857-7",
+            "30714928577"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rivagas SA": {
+        "keywords": [
+            "rivagas sa",
+            "rivagas",
+            "30-64463434-1",
+            "30644634341"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gergal SA": {
+        "keywords": [
+            "gergal sa",
+            "gergal",
+            "30-63265369-3",
+            "30632653693"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Tbcin S.A": {
+        "keywords": [
+            "tbcin s.a",
+            "30-70954660-7",
+            "30709546607"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Proyecto Electrico S.r.l": {
+        "keywords": [
+            "proyecto electrico s.r.l",
+            "30-71515533-4",
+            "30715155334"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Occ Professional SRL": {
+        "keywords": [
+            "occ professional srl",
+            "occ professional",
+            "30-71554854-9",
+            "30715548549"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ortiz Pablo Javier": {
+        "keywords": [
+            "ortiz pablo javier",
+            "20-24754218-4",
+            "20247542184"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Paradela Mercedes Soledad": {
+        "keywords": [
+            "paradela mercedes soledad",
+            "27-26725336-1",
+            "27267253361"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Papelera Raul Juan Cora S A": {
+        "keywords": [
+            "papelera raul juan cora s a",
+            "30-58891715-7",
+            "30588917157"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Herbas Espinoza Gabriel Matias": {
+        "keywords": [
+            "herbas espinoza gabriel matias",
+            "20-33811697-8",
+            "20338116978"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Reginald Lee S A": {
+        "keywords": [
+            "reginald lee s a",
+            "30-53662310-4",
+            "30536623104"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Petrov Sergei": {
+        "keywords": [
+            "petrov sergei",
+            "27-96400620-8",
+            "27964006208"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mishka SA": {
+        "keywords": [
+            "mishka sa",
+            "mishka",
+            "30-70827345-3",
+            "30708273453"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mazzotta Sergio David": {
+        "keywords": [
+            "mazzotta sergio david",
+            "20-28190714-0",
+            "20281907140"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "La Frossia Santiago": {
+        "keywords": [
+            "la frossia santiago",
+            "20-27605125-4",
+            "20276051254"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Corredores Viales Sociedad Anonima": {
+        "keywords": [
+            "corredores viales sociedad anonima",
+            "corredores viales",
+            "30-71580481-2",
+            "30715804812"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Alosweet S.A.": {
+        "keywords": [
+            "alosweet s.a.",
+            "30-71247817-5",
+            "30712478175"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Generacion 2.0 Combustibles SA": {
+        "keywords": [
+            "generacion 2.0 combustibles sa",
+            "generacion 2.0 combustibles",
+            "33-71699173-9",
+            "33716991739"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Positiva Saludable Sas": {
+        "keywords": [
+            "positiva saludable sas",
+            "positiva saludable",
+            "30-71688505-0",
+            "30716885050"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Carcaterra Alejandro Federico": {
+        "keywords": [
+            "carcaterra alejandro federico",
+            "20-16622502-8",
+            "20166225028"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "De Jesus Hernan Ariel": {
+        "keywords": [
+            "de jesus hernan ariel",
+            "20-25094366-1",
+            "20250943661"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Parallel S. A. U.": {
+        "keywords": [
+            "parallel s. a. u.",
+            "30-57921525-5",
+            "30579215255"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Terranova Lucas Hernan": {
+        "keywords": [
+            "terranova lucas hernan",
+            "20-27257135-0",
+            "20272571350"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Baraibar Sandra Patricia": {
+        "keywords": [
+            "baraibar sandra patricia",
+            "27-17823974-6",
+            "27178239746"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Paffumi Ezequiel Claudio": {
+        "keywords": [
+            "paffumi ezequiel claudio",
+            "20-39959778-2",
+            "20399597782"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Felicita Hnos Wgt S. R. L.": {
+        "keywords": [
+            "felicita hnos wgt s. r. l.",
+            "30-71829378-9",
+            "30718293789"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lagos Miguel Angel Oscar": {
+        "keywords": [
+            "lagos miguel angel oscar",
+            "20-11267919-8",
+            "20112679198"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pinamar S A Comercial Inmobiliaria": {
+        "keywords": [
+            "pinamar s a comercial inmobiliaria",
+            "pinamar comercial inmobiliaria",
+            "30-52676215-7",
+            "30526762157"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lopez Figueroa Patricio": {
+        "keywords": [
+            "lopez figueroa patricio",
+            "20-31352369-2",
+            "20313523692"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Parsom S.A": {
+        "keywords": [
+            "parsom s.a",
+            "30-70983262-6",
+            "30709832626"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Tonna S A": {
+        "keywords": [
+            "tonna s a",
+            "30-70210242-8",
+            "30702102428"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Joyri S.R.L.": {
+        "keywords": [
+            "joyri s.r.l.",
+            "30-71498161-3",
+            "30714981613"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Estacion Lima SA": {
+        "keywords": [
+            "estacion lima sa",
+            "estacion lima",
+            "30-53767985-5",
+            "30537679855"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "De La Fuente Ricardo Daniel": {
+        "keywords": [
+            "de la fuente ricardo daniel",
+            "20-13855662-0",
+            "20138556620"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Dia Argentina S A": {
+        "keywords": [
+            "dia argentina s a",
+            "30-68584975-1",
+            "30685849751"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Xantana SRL": {
+        "keywords": [
+            "xantana srl",
+            "xantana",
+            "30-71112298-9",
+            "30711122989"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gonzalez Fofe Bellatriz Gabriela": {
+        "keywords": [
+            "gonzalez fofe bellatriz gabriela",
+            "27-95794291-7",
+            "27957942917"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Route Green S.R.L.": {
+        "keywords": [
+            "route green s.r.l.",
+            "30-71566458-1",
+            "30715664581"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Chef Supply S.A.": {
+        "keywords": [
+            "chef supply s.a.",
+            "30-71505120-2",
+            "30715051202"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Guillermo Gabriel Roberts Y Hector Ricardo Lozano Sociedad De Hecho": {
+        "keywords": [
+            "guillermo gabriel roberts y hector ricardo lozano sociedad de hecho",
+            "guillermo gabriel roberts",
+            "hector ricardo lozano sociedad",
+            "hecho",
+            "30-71101029-3",
+            "30711010293"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Supermercados Mayoristas Makro S. A.": {
+        "keywords": [
+            "supermercados mayoristas makro s. a.",
+            "30-58962149-9",
+            "30589621499"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Paraisos Del Chiripa": {
+        "keywords": [
+            "paraisos del chiripa",
+            "30-71742482-0",
+            "30717424820"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Conde Rodrigo Ignacio": {
+        "keywords": [
+            "conde rodrigo ignacio",
+            "20-35941952-0",
+            "20359419520"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fernandez Maria Del Carmen": {
+        "keywords": [
+            "fernandez maria del carmen",
+            "23-17918239-4",
+            "23179182394"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nieto Micaela": {
+        "keywords": [
+            "nieto micaela",
+            "27-35532212-8",
+            "27355322128"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Tambest S. R. L.": {
+        "keywords": [
+            "tambest s. r. l.",
+            "30-71927188-6",
+            "30719271886"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Aji S.A.": {
+        "keywords": [
+            "aji s.a.",
+            "30-71152631-1",
+            "30711526311"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fransi SA": {
+        "keywords": [
+            "fransi sa",
+            "fransi",
+            "33-71423012-9",
+            "33714230129"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lvr Bazar Y Regalos S.R.L.": {
+        "keywords": [
+            "lvr bazar y regalos s.r.l.",
+            "lvr bazar",
+            "regalos s.r.l.",
+            "30-71861313-9",
+            "30718613139"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Supermercados El Abastecedor SA": {
+        "keywords": [
+            "supermercados el abastecedor sa",
+            "supermercados el abastecedor",
+            "30-71495614-7",
+            "30714956147"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Maynar SRL": {
+        "keywords": [
+            "maynar srl",
+            "maynar",
+            "30-69761670-1",
+            "30697616701"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gallo Erika Leonela": {
+        "keywords": [
+            "gallo erika leonela",
+            "27-39107855-1",
+            "27391078551"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Santagiuliana Angel Alejandro": {
+        "keywords": [
+            "santagiuliana angel alejandro",
+            "20-16204644-7",
+            "20162046447"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Alvarez Fernando Federico": {
+        "keywords": [
+            "alvarez fernando federico",
+            "20-35117431-6",
+            "20351174316"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Glutal S A": {
+        "keywords": [
+            "glutal s a",
+            "30-50198616-6",
+            "30501986166"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fernandez Diego Ezequiel": {
+        "keywords": [
+            "fernandez diego ezequiel",
+            "23-26620673-9",
+            "23266206739"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Berasaluce Jose Ignacio": {
+        "keywords": [
+            "berasaluce jose ignacio",
+            "20-14393974-0",
+            "20143939740"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Vecino Gabriel Alejandro": {
+        "keywords": [
+            "vecino gabriel alejandro",
+            "23-38531981-9",
+            "23385319819"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Boada Ramos Soleyr Del Valle": {
+        "keywords": [
+            "boada ramos soleyr del valle",
+            "27-95996434-9",
+            "27959964349"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Bs As Meat S.R.L.": {
+        "keywords": [
+            "bs as meat s.r.l.",
+            "30-71770606-0",
+            "30717706060"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fresco Pez S.A": {
+        "keywords": [
+            "fresco pez s.a",
+            "30-70823399-0",
+            "30708233990"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rodriguez Maria Valeria": {
+        "keywords": [
+            "rodriguez maria valeria",
+            "27-21392134-2",
+            "27213921342"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Claspack S.a.s.": {
+        "keywords": [
+            "claspack s.a.s.",
+            "claspack s.",
+            "30-71841081-5",
+            "30718410815"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Diaz Elsa Angelica": {
+        "keywords": [
+            "diaz elsa angelica",
+            "27-05631583-2",
+            "27056315832"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Parque Ayerza Sca": {
+        "keywords": [
+            "parque ayerza sca",
+            "33-51945952-9",
+            "33519459529"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Beauty Care Mas S.R.L.": {
+        "keywords": [
+            "beauty care mas s.r.l.",
+            "30-71886595-2",
+            "30718865952"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Burger Group S.r.l": {
+        "keywords": [
+            "burger group s.r.l",
+            "30-71112513-9",
+            "30711125139"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lemos Pablo Martin": {
+        "keywords": [
+            "lemos pablo martin",
+            "23-30780342-9",
+            "23307803429"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Elizathe Juan Miguel": {
+        "keywords": [
+            "elizathe juan miguel",
+            "20-30122040-6",
+            "20301220406"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Paulosky Nahuel": {
+        "keywords": [
+            "paulosky nahuel",
+            "20-39980102-9",
+            "20399801029"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Perez Debora Aylen": {
+        "keywords": [
+            "perez debora aylen",
+            "27-42416960-4",
+            "27424169604"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ledesma Maria Cecilia Patricia": {
+        "keywords": [
+            "ledesma maria cecilia patricia",
+            "23-29827152-4",
+            "23298271524"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Matalaf S. R. L.": {
+        "keywords": [
+            "matalaf s. r. l.",
+            "30-71884283-9",
+            "30718842839"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Novello Carlos Antonio": {
+        "keywords": [
+            "novello carlos antonio",
+            "20-22156505-4",
+            "20221565054"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Limardo Gabriel": {
+        "keywords": [
+            "limardo gabriel",
+            "20-18440920-9",
+            "20184409209"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Socorro Medico Privado S. A.": {
+        "keywords": [
+            "socorro medico privado s. a.",
+            "30-61221341-7",
+            "30612213417"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Angelinetti Maria Pia": {
+        "keywords": [
+            "angelinetti maria pia",
+            "27-32830386-3",
+            "27328303863"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lucero Marcelo Fabian": {
+        "keywords": [
+            "lucero marcelo fabian",
+            "20-21585244-0",
+            "20215852440"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Torikos S.a.s.": {
+        "keywords": [
+            "torikos s.a.s.",
+            "torikos s.",
+            "30-71608649-2",
+            "30716086492"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Andaser S.A.": {
+        "keywords": [
+            "andaser s.a.",
+            "30-71639179-1",
+            "30716391791"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pan American Energy, S.l., Sucursal Argentina": {
+        "keywords": [
+            "pan american energy, s.l., sucursal argentina",
+            "30-69554247-6",
+            "30695542476"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Audio Sudamericana S.A.": {
+        "keywords": [
+            "audio sudamericana s.a.",
+            "30-70999908-3",
+            "30709999083"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Primor Mayorista S. A. S.": {
+        "keywords": [
+            "primor mayorista s. a. s.",
+            "30-71786527-4",
+            "30717865274"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Linea Ge SA": {
+        "keywords": [
+            "linea ge sa",
+            "linea ge",
+            "30-71017661-9",
+            "30710176619"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Servivac S R L": {
+        "keywords": [
+            "servivac s r l",
+            "30-62933117-0",
+            "30629331170"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Quirino Carlos Alberto": {
+        "keywords": [
+            "quirino carlos alberto",
+            "20-16680820-1",
+            "20166808201"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Suarez Yesica": {
+        "keywords": [
+            "suarez yesica",
+            "27-33149584-6",
+            "27331495846"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Apatheia Sas": {
+        "keywords": [
+            "apatheia sas",
+            "apatheia",
+            "30-71653621-8",
+            "30716536218"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cañadas Mauricio German": {
+        "keywords": [
+            "cañadas mauricio german",
+            "23-25041409-9",
+            "23250414099"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Donato Alfredo Enrique Y Pensel Francisco Javier Sociedad De Hecho": {
+        "keywords": [
+            "donato alfredo enrique y pensel francisco javier sociedad de hecho",
+            "donato alfredo enrique",
+            "pensel francisco javier sociedad",
+            "hecho",
+            "30-71471260-4",
+            "30714712604"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Boveda Fernando Andres": {
+        "keywords": [
+            "boveda fernando andres",
+            "20-30884536-3",
+            "20308845363"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fp Paper Bags S.R.L.": {
+        "keywords": [
+            "fp paper bags s.r.l.",
+            "30-71084111-6",
+            "30710841116"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Apxer SRL": {
+        "keywords": [
+            "apxer srl",
+            "apxer",
+            "30-70913043-5",
+            "30709130435"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ump Solutions & Supplies S.R.L.": {
+        "keywords": [
+            "ump solutions & supplies s.r.l.",
+            "30-71820869-2",
+            "30718208692"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "La Boya Del Bajo S.R.L.": {
+        "keywords": [
+            "la boya del bajo s.r.l.",
+            "30-71696362-0",
+            "30716963620"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Kasami S.A.": {
+        "keywords": [
+            "kasami s.a.",
+            "30-71666151-9",
+            "30716661519"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ivan Garcia Fradusco S.R.L.": {
+        "keywords": [
+            "ivan garcia fradusco s.r.l.",
+            "30-71710566-0",
+            "30717105660"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "First Label S.R.L.": {
+        "keywords": [
+            "first label s.r.l.",
+            "30-71662063-4",
+            "30716620634"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nepomneschi Adrian": {
+        "keywords": [
+            "nepomneschi adrian",
+            "20-21022681-9",
+            "20210226819"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lastrax S.a.s.": {
+        "keywords": [
+            "lastrax s.a.s.",
+            "lastrax s.",
+            "30-71624662-7",
+            "30716246627"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sanidad Profesional SRL": {
+        "keywords": [
+            "sanidad profesional srl",
+            "sanidad profesional",
+            "30-71567480-3",
+            "30715674803"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Chazarreta Debora Vanina": {
+        "keywords": [
+            "chazarreta debora vanina",
+            "27-25483405-5",
+            "27254834055"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Barella Juan Pablo": {
+        "keywords": [
+            "barella juan pablo",
+            "20-22743693-0",
+            "20227436930"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Garcea Ignacio Leonel": {
+        "keywords": [
+            "garcea ignacio leonel",
+            "20-31915632-2",
+            "20319156322"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Compañia Exportadora SRL": {
+        "keywords": [
+            "compañia exportadora srl",
+            "compañia exportadora",
+            "33-70787660-9",
+            "33707876609"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Di Sabatino Elio Demian": {
+        "keywords": [
+            "di sabatino elio demian",
+            "20-25765841-5",
+            "20257658415"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Industrias Fernandez Garrido SA": {
+        "keywords": [
+            "industrias fernandez garrido sa",
+            "industrias fernandez garrido",
+            "30-71444018-3",
+            "30714440183"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gonzalez Nelson Raul": {
+        "keywords": [
+            "gonzalez nelson raul",
+            "20-16607314-7",
+            "20166073147"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Business Awards S. Cap I Secc IV": {
+        "keywords": [
+            "business awards s. cap i secc iv",
+            "business awards",
+            "30-71846522-9",
+            "30718465229"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nijul 24 Hs S. C. S.": {
+        "keywords": [
+            "nijul 24 hs s. c. s.",
+            "33-71794199-9",
+            "33717941999"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Alvarez Cañedo Francisco Jose": {
+        "keywords": [
+            "alvarez cañedo francisco jose",
+            "20-92420092-9",
+            "20924200929"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Grupo Babaitis Sociedad Anonima": {
+        "keywords": [
+            "grupo babaitis sociedad anonima",
+            "grupo babaitis",
+            "30-71285160-7",
+            "30712851607"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Figueroa Elizabeth Carla": {
+        "keywords": [
+            "figueroa elizabeth carla",
+            "27-26074807-1",
+            "27260748071"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Laser House S.A.": {
+        "keywords": [
+            "laser house s.a.",
+            "30-70854065-6",
+            "30708540656"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Teknium S.r.l": {
+        "keywords": [
+            "teknium s.r.l",
+            "33-71868916-9",
+            "33718689169"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "D F Megafrio S R L": {
+        "keywords": [
+            "d f megafrio s r l",
+            "30-69255874-6",
+            "30692558746"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nativa Libros SRL": {
+        "keywords": [
+            "nativa libros srl",
+            "nativa libros",
+            "30-71528078-3",
+            "30715280783"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gastrofactory On Line S.A.": {
+        "keywords": [
+            "gastrofactory on line s.a.",
+            "30-71498189-3",
+            "30714981893"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Le-fit Food S.a.s.": {
+        "keywords": [
+            "le-fit food s.a.s.",
+            "le-fit food s.",
+            "30-71652295-0",
+            "30716522950"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gatti Andrea Myriam Lorena": {
+        "keywords": [
+            "gatti andrea myriam lorena",
+            "23-20420641-4",
+            "23204206414"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gutierrez Fernando Nicolas": {
+        "keywords": [
+            "gutierrez fernando nicolas",
+            "20-29670654-0",
+            "20296706540"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Duarte Rocio Veronica": {
+        "keywords": [
+            "duarte rocio veronica",
+            "27-24212054-5",
+            "27242120545"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mieles Cor Pam SRL": {
+        "keywords": [
+            "mieles cor pam srl",
+            "mieles cor pam",
+            "30-70787970-6",
+            "30707879706"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Campili Nicolas Adrian": {
+        "keywords": [
+            "campili nicolas adrian",
+            "20-30991016-9",
+            "20309910169"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Soverna Alicia Beatriz": {
+        "keywords": [
+            "soverna alicia beatriz",
+            "27-11203322-5",
+            "27112033225"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sabo Smart SRL": {
+        "keywords": [
+            "sabo smart srl",
+            "sabo smart",
+            "30-71760806-9",
+            "30717608069"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Andrade Leandro Ezequiel": {
+        "keywords": [
+            "andrade leandro ezequiel",
+            "20-26934445-9",
+            "20269344459"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Hauff Martin Sebastian": {
+        "keywords": [
+            "hauff martin sebastian",
+            "20-30163799-4",
+            "20301637994"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Seacom SRL": {
+        "keywords": [
+            "seacom srl",
+            "seacom",
+            "30-71069056-8",
+            "30710690568"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Ledesma Luciano Ariel": {
+        "keywords": [
+            "ledesma luciano ariel",
+            "20-23769949-2",
+            "20237699492"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Antedoro Jeremias Fabian": {
+        "keywords": [
+            "antedoro jeremias fabian",
+            "20-35727588-2",
+            "20357275882"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Peinado Martin Guillermo": {
+        "keywords": [
+            "peinado martin guillermo",
+            "20-24964018-3",
+            "20249640183"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Colucci Equipamiento S.A.": {
+        "keywords": [
+            "colucci equipamiento s.a.",
+            "30-71699309-0",
+            "30716993090"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rincon Dario Javier": {
+        "keywords": [
+            "rincon dario javier",
+            "20-31349218-5",
+            "20313492185"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Benitez German Gabriel": {
+        "keywords": [
+            "benitez german gabriel",
+            "20-39436496-8",
+            "20394364968"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Despegar Com Ar SA": {
+        "keywords": [
+            "despegar com ar sa",
+            "despegar com ar",
+            "30-70130711-5",
+            "30701307115"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Degreen S A": {
+        "keywords": [
+            "degreen s a",
+            "30-69338021-5",
+            "30693380215"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cultivate La Buena Vida S.A.": {
+        "keywords": [
+            "cultivate la buena vida s.a.",
+            "30-71504024-3",
+            "30715040243"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Shen Wei Ting": {
+        "keywords": [
+            "shen wei ting",
+            "20-93884199-4",
+            "20938841994"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Speed Business S. A.": {
+        "keywords": [
+            "speed business s. a.",
+            "30-68697835-0",
+            "30686978350"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cooperativa Obrera Limitada De Consumo Y Vivienda": {
+        "keywords": [
+            "cooperativa obrera limitada de consumo y vivienda",
+            "cooperativa obrera",
+            "consumo",
+            "vivienda",
+            "30-52570593-1",
+            "30525705931"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Servinorte S A": {
+        "keywords": [
+            "servinorte s a",
+            "30-64572255-4",
+            "30645722554"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Crespo Lucas Agustin": {
+        "keywords": [
+            "crespo lucas agustin",
+            "20-43103701-8",
+            "20431037018"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Id Group S.A.": {
+        "keywords": [
+            "id group s.a.",
+            "30-70805310-0",
+            "30708053100"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Weler S.A.": {
+        "keywords": [
+            "weler s.a.",
+            "30-71679140-4",
+            "30716791404"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Shoijet Yuval": {
+        "keywords": [
+            "shoijet yuval",
+            "20-47005430-2",
+            "20470054302"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Frigorifico La Octava S A": {
+        "keywords": [
+            "frigorifico la octava s a",
+            "30-65199259-8",
+            "30651992598"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Marchionni Damian Leonardo": {
+        "keywords": [
+            "marchionni damian leonardo",
+            "20-24515871-9",
+            "20245158719"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Martinez Javier Alberto": {
+        "keywords": [
+            "martinez javier alberto",
+            "20-30800862-3",
+            "20308008623"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Las Dinas S R L": {
+        "keywords": [
+            "las dinas s r l",
+            "33-60695684-9",
+            "33606956849"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Central Oeste Leloir Sociedad En Comandita Simple": {
+        "keywords": [
+            "central oeste leloir sociedad en comandita simple",
+            "30-70854976-9",
+            "30708549769"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Viva Hernan Gonzalo": {
+        "keywords": [
+            "viva hernan gonzalo",
+            "20-24914663-4",
+            "20249146634"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Central 23 S.a.s.": {
+        "keywords": [
+            "central 23 s.a.s.",
+            "central 23 s.",
+            "30-71581156-8",
+            "30715811568"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Saitta Marcelo Daniel": {
+        "keywords": [
+            "saitta marcelo daniel",
+            "20-27419539-9",
+            "20274195399"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Viscardi Martin Ramon": {
+        "keywords": [
+            "viscardi martin ramon",
+            "20-23945714-3",
+            "20239457143"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Lopez Leandro Martin": {
+        "keywords": [
+            "lopez leandro martin",
+            "20-35363940-5",
+            "20353639405"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Rolando Alfredo Nelson": {
+        "keywords": [
+            "rolando alfredo nelson",
+            "20-04595129-5",
+            "20045951295"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Burnet Michaut Gaston Kurt": {
+        "keywords": [
+            "burnet michaut gaston kurt",
+            "20-23572390-6",
+            "20235723906"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cassini Martin": {
+        "keywords": [
+            "cassini martin",
+            "20-27182205-8",
+            "20271822058"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Graphic S.A.": {
+        "keywords": [
+            "graphic s.a.",
+            "30-70957312-4",
+            "30709573124"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Asensio Sistemas S A": {
+        "keywords": [
+            "asensio sistemas s a",
+            "30-70359813-3",
+            "30703598133"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Fernandez Gustavo Osvaldo": {
+        "keywords": [
+            "fernandez gustavo osvaldo",
+            "20-25866524-5",
+            "20258665245"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Haberkorn Elio Fernando": {
+        "keywords": [
+            "haberkorn elio fernando",
+            "20-13428298-4",
+            "20134282984"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Nario Leandro Guillermo": {
+        "keywords": [
+            "nario leandro guillermo",
+            "20-32536342-9",
+            "20325363429"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Grasso Maria": {
+        "keywords": [
+            "grasso maria",
+            "27-93236958-9",
+            "27932369589"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Chlaula Lisandro Luis": {
+        "keywords": [
+            "chlaula lisandro luis",
+            "20-23431573-1",
+            "20234315731"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Romero Julio Cesar": {
+        "keywords": [
+            "romero julio cesar",
+            "20-26440231-0",
+            "20264402310"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Coop De Trabajo La Muchachita De Los Toldos Ltda": {
+        "keywords": [
+            "coop de trabajo la muchachita de los toldos ltda",
+            "coop de trabajo la muchachita de los toldos",
+            "coop",
+            "trabajo la muchachita",
+            "los toldos",
+            "30-71717964-8",
+            "30717179648"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Chef Wear Inc S.A.": {
+        "keywords": [
+            "chef wear inc s.a.",
+            "30-71578745-4",
+            "30715787454"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pisano SA": {
+        "keywords": [
+            "pisano sa",
+            "pisano",
+            "30-52119770-2",
+            "30521197702"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Allianz Argentina Compañia De Seguros S. A.": {
+        "keywords": [
+            "allianz argentina compañia de seguros s. a.",
+            "allianz argentina compañia",
+            "seguros s. a.",
+            "30-50003721-7",
+            "30500037217"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Xh O Xb Sas": {
+        "keywords": [
+            "xh o xb sas",
+            "xh o xb",
+            "30-71632868-2",
+            "30716328682"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Mavima S.A.": {
+        "keywords": [
+            "mavima s.a.",
+            "30-70789796-8",
+            "30707897968"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Alamo Avilan Samaraim Jose": {
+        "keywords": [
+            "alamo avilan samaraim jose",
+            "20-95799168-9",
+            "20957991689"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Visuar S.A.": {
+        "keywords": [
+            "visuar s.a.",
+            "30-65553446-2",
+            "30655534462"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Telavendo.com.ar S.A.": {
+        "keywords": [
+            "telavendo.com.ar s.a.",
+            "30-71683525-8",
+            "30716835258"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Dccolucci": {
+        "keywords": [
+            "dccolucci",
+            "30-71653076-7",
+            "30716530767"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Corbalan Diego Hernan": {
+        "keywords": [
+            "corbalan diego hernan",
+            "20-32255586-6",
+            "20322555866"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sancor Cooperativa De Seguros Limitada": {
+        "keywords": [
+            "sancor cooperativa de seguros limitada",
+            "sancor cooperativa de seguros",
+            "sancor cooperativa",
+            "seguros",
+            "30-50004946-0",
+            "30500049460"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gmra S. A. U.": {
+        "keywords": [
+            "gmra s. a. u.",
+            "30-71562186-6",
+            "30715621866"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pisaroni Sandra Raquel": {
+        "keywords": [
+            "pisaroni sandra raquel",
+            "27-17610194-1",
+            "27176101941"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Codino Prado Ronny Eduardo": {
+        "keywords": [
+            "codino prado ronny eduardo",
+            "20-95856300-1",
+            "20958563001"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Simones & Simones S.R.L.": {
+        "keywords": [
+            "simones & simones s.r.l.",
+            "30-71662756-6",
+            "30716627566"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pikito S.A.": {
+        "keywords": [
+            "pikito s.a.",
+            "30-71573846-1",
+            "30715738461"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Gallozo Maria Florencia": {
+        "keywords": [
+            "gallozo maria florencia",
+            "27-28325328-2",
+            "27283253282"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Reynoso Pablo Andres": {
+        "keywords": [
+            "reynoso pablo andres",
+            "20-25678701-7",
+            "20256787017"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Tb Logistica S.R.L.": {
+        "keywords": [
+            "tb logistica s.r.l.",
+            "30-71476641-0",
+            "30714766410"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Castroviejo Juan Marcelo": {
+        "keywords": [
+            "castroviejo juan marcelo",
+            "20-22965530-3",
+            "20229655303"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Via Bariloche Sociedad Anonima": {
+        "keywords": [
+            "via bariloche sociedad anonima",
+            "via bariloche",
+            "30-64392215-7",
+            "30643922157"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Cabaña La Martina SRL": {
+        "keywords": [
+            "cabaña la martina srl",
+            "cabaña la martina",
+            "30-71513361-6",
+            "30715133616"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Central Oeste Santa Rosa Scs": {
+        "keywords": [
+            "central oeste santa rosa scs",
+            "30-70935878-9",
+            "30709358789"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "La Agricola S A": {
+        "keywords": [
+            "la agricola s a",
+            "30-51787491-0",
+            "30517874910"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Pontecorvo Ricardo Javier": {
+        "keywords": [
+            "pontecorvo ricardo javier",
+            "20-18267106-2",
+            "20182671062"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Sanitarios Neuquen S R L": {
+        "keywords": [
+            "sanitarios neuquen s r l",
+            "30-61090808-6",
+            "30610908086"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    },
+    "Br 2000 SRL": {
+        "keywords": [
+            "br 2000 srl",
+            "br 2000",
+            "33-69973275-9",
+            "33699732759"
+        ],
+        "invoice_regex": "(\\d{4,5}\\s*-\\s*\\d{8})"
+    }
+}

@@ -106,7 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchStatus();
             fetchProgress();
         }
-        if (tabName === 'cuentas-pagar') fetchCuentasPorPagar();
+        if (tabName === 'cuentas-pagar') {
+            fetchCuentasPorPagar();
+            fetchArcaCompras();
+        }
         if (tabName === 'recaudacion') fetchRecaudacion();
         if (tabName === 'estacionamiento') fetchEstacionamiento();
         if (tabName === 'caja-chica') fetchCajaChica();
@@ -2306,13 +2309,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 5. Gastos Fijos & Ganancia Neta
+    // 5. Gastos Fijos & Ganancia Neta — Editable por mes
+    const METODOS_PAGO = [
+        { key: 'Efectivo/Caja Chica', label: 'Método 1: Efectivo', color: '#34d399' },
+        { key: 'Banco/Transferencia', label: 'Método 2: Banco', color: '#60a5fa' },
+        { key: 'MercadoPago/Digital', label: 'Método 3: MercadoPago', color: '#a855f7' }
+    ];
+
     async function fetchGastosFijos() {
         try {
+            const mesParam = currentSelectedMonth ? '?mes=' + currentSelectedMonth : '';
             const resUrl = '/api/dashboard/resumen' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const gfUrl = '/api/gastos_fijos' + mesParam;
             const [resResumen, resGastos] = await Promise.all([
                 fetch(resUrl).then(r => r.json()),
-                fetch('/api/gastos_fijos').then(r => r.json())
+                fetch(gfUrl).then(r => r.json())
             ]);
             
             document.getElementById('gf-stat-bruta').textContent = formatCurrency(resResumen.ganancia_bruta);
@@ -2320,20 +2331,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('gf-stat-fijo').textContent = formatCurrency(resResumen.gasto_fijo);
             document.getElementById('gf-stat-neta').textContent = formatCurrency(resResumen.ganancia_neta);
 
-            const tbody = document.getElementById('tbl-gastos-fijos-body');
-            if (resGastos.gastos) {
-                tbody.innerHTML = resGastos.gastos.map(g => `
-                    <tr>
-                        <td><strong>${escapeHtml(g.concepto)}</strong></td>
-                        <td>${formatCurrency(g.monto_mensual)}</td>
-                    </tr>
-                `).join('') + `
-                    <tr style="background: rgba(255,255,255,0.05); font-weight: bold;">
-                        <td>TOTAL GASTOS FIJOS</td>
-                        <td style="color: #f87171;">${formatCurrency(resGastos.total)}</td>
-                    </tr>
-                `;
-            }
+            renderGastosFijosTable(resGastos.gastos || [], resGastos.total || 0);
 
             // Chart Ganancia Neta
             await waitForChart();
@@ -2355,6 +2353,266 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Error cargando gastos fijos:", e);
         }
     }
+
+    function renderGastosFijosTable(gastos, total) {
+        const tbody = document.getElementById('tbl-gastos-fijos-body');
+        if (!tbody) return;
+
+        if (!gastos || gastos.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-secondary); padding: 2rem;">
+                No hay gastos fijos para este mes. Usá "Copiar Mes Anterior" o "Agregar Concepto".
+            </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = gastos.map(g => `
+            <tr data-gf-id="${g.id}">
+                <td>
+                    <span class="gf-concepto-text" style="cursor: pointer;" ondblclick="editGastoFijoConcepto(${g.id}, this)">${escapeHtml(g.concepto)}</span>
+                </td>
+                <td>
+                    <span class="gf-monto-text" style="cursor: pointer; font-weight: 700; color: #f87171;" ondblclick="editGastoFijoMonto(${g.id}, this)">${formatCurrency(g.monto_mensual)}</span>
+                </td>
+                <td style="text-align: center;">
+                    <button class="btn btn-secondary btn-sm" style="padding: 3px 8px; font-size: 0.75rem;" onclick="eliminarGastoFijo(${g.id})" title="Eliminar este concepto">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('') + `
+            <tr style="background: rgba(255,255,255,0.05); font-weight: bold; border-top: 2px solid rgba(255,255,255,0.1);">
+                <td>TOTAL GASTOS FIJOS</td>
+                <td style="color: #f87171;">${formatCurrency(total)}</td>
+                <td></td>
+            </tr>
+        `;
+    }
+
+    window.editGastoFijoConcepto = function(id, el) {
+        const oldVal = el.textContent;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = oldVal;
+        input.className = 'form-input-inline';
+        input.style.cssText = 'width: 100%; font-size: 0.9rem;';
+        el.replaceWith(input);
+        input.focus();
+        input.select();
+
+        async function save() {
+            const newVal = input.value.trim();
+            if (!newVal || newVal === oldVal) { fetchGastosFijos(); return; }
+            try {
+                await fetch('/api/gastos_fijos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'upsert', id, concepto: newVal })
+                });
+                fetchGastosFijos();
+            } catch(e) { fetchGastosFijos(); }
+        }
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { fetchGastosFijos(); } });
+    };
+
+    window.editGastoFijoMonto = function(id, el) {
+        const raw = el.textContent.replace(/[$.,\s]/g, '').replace(/[^0-9]/g, '');
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = raw;
+        input.className = 'form-input-inline';
+        input.style.cssText = 'width: 100%; font-size: 0.9rem; font-weight: 700;';
+        el.replaceWith(input);
+        input.focus();
+        input.select();
+
+        async function save() {
+            const newVal = parseFloat(input.value) || 0;
+            try {
+                await fetch('/api/gastos_fijos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'upsert', id, monto_mensual: newVal })
+                });
+                fetchGastosFijos();
+            } catch(e) { fetchGastosFijos(); }
+        }
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { fetchGastosFijos(); } });
+    };
+
+    window.eliminarGastoFijo = async function(id) {
+        if (!confirm('¿Eliminar este concepto de gastos fijos?')) return;
+        try {
+            await fetch('/api/gastos_fijos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', id })
+            });
+            showToast('Concepto eliminado');
+            fetchGastosFijos();
+        } catch(e) { showToast('Error al eliminar', 'error'); }
+    };
+
+    // Botón Agregar Concepto
+    const btnAgregarGF = document.getElementById('btn-agregar-gasto-fijo');
+    if (btnAgregarGF) {
+        btnAgregarGF.addEventListener('click', async () => {
+            const concepto = prompt('Nombre del concepto:');
+            if (!concepto || !concepto.trim()) return;
+            const montoStr = prompt('Monto mensual ($):', '0');
+            const monto = parseFloat(montoStr) || 0;
+            try {
+                await fetch('/api/gastos_fijos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'upsert', concepto: concepto.trim(), monto_mensual: monto, mes: currentSelectedMonth })
+                });
+                showToast('Concepto agregado');
+                fetchGastosFijos();
+            } catch(e) { showToast('Error al agregar', 'error'); }
+        });
+    }
+
+    // Botón Copiar Mes Anterior
+    const btnCopiarMes = document.getElementById('btn-copiar-mes-anterior-gf');
+    if (btnCopiarMes) {
+        btnCopiarMes.addEventListener('click', async () => {
+            if (!confirm(`¿Copiar la estructura de gastos fijos del mes anterior al mes actual (${currentSelectedMonth})?`)) return;
+            try {
+                const res = await fetch('/api/gastos_fijos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'copiar_mes_anterior', mes_destino: currentSelectedMonth })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`${data.copiados} conceptos copiados desde ${data.desde}`);
+                    fetchGastosFijos();
+                } else {
+                    showToast(data.error || 'No hay datos anteriores para copiar', 'error');
+                }
+            } catch(e) { showToast('Error al copiar', 'error'); }
+        });
+    }
+
+    // 6. Compras ARCA CSV
+    async function fetchArcaCompras() {
+        try {
+            const mesParam = currentSelectedMonth ? '?mes=' + currentSelectedMonth : '';
+            const res = await fetch('/api/arca_compras' + mesParam);
+            const data = await res.json();
+            
+            const el_pend = document.getElementById('arca-count-pendientes');
+            const el_pag = document.getElementById('arca-count-pagados');
+            const el_tot = document.getElementById('arca-total-importe');
+            if (el_pend) el_pend.textContent = data.resumen.pendientes;
+            if (el_pag) el_pag.textContent = data.resumen.pagados;
+            if (el_tot) el_tot.textContent = formatCurrency(data.resumen.total_importe);
+
+            const tbody = document.getElementById('tbl-arca-compras-body');
+            if (!tbody) return;
+
+            if (!data.compras || data.compras.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 2rem;">
+                    No hay compras registradas para este período. Sincronizá ARCA para importar.
+                </td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.compras.map(c => {
+                const recibida = c.factura_recibida
+                    ? `<span title="Factura física recibida y escaneada" style="color: #34d399; font-size: 1.1rem;"><i class="fa-solid fa-circle-check"></i></span>`
+                    : `<button class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 7px;" onclick="marcarArcaRecibida(${c.id})" title="Marcar como factura recibida físicamente"><i class="fa-solid fa-qrcode"></i> Recibir</button>`;
+
+                const estadoBadge = c.estado === 'Pagado'
+                    ? `<span style="color: #34d399; font-weight: 700; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> Pagado</span>
+                       <br><small style="color: var(--text-secondary); font-size: 0.7rem;">${escapeHtml(c.metodo_pago || '')}</small>`
+                    : `<span style="color: #f59e0b; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
+
+                const metodoBtns = c.estado !== 'Pagado' ? METODOS_PAGO.map((m, i) => `
+                    <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i===0?'52,211,153':i===1?'96,165,250':'168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
+                        onclick="pagarArcaCompra(${c.id}, '${m.key}')">
+                        M${i+1}
+                    </button>`).join('')
+                    : `<button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid #f8717140; border-radius: 6px; cursor:pointer;"
+                        onclick="despagarArcaCompra(${c.id})"><i class="fa-solid fa-rotate-left"></i> Deshacer</button>`;
+
+                const rowBg = c.estado === 'Pagado' ? 'background: rgba(52,211,153,0.04);' : (c.factura_recibida ? 'background: rgba(59,130,246,0.05);' : '');
+
+                return `
+                    <tr style="${rowBg}">
+                        <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}</td>
+                        <td><strong>${escapeHtml(c.denominacion_emisor || '-')}</strong></td>
+                        <td style="text-align: right; color: #f59e0b;">${formatCurrency(c.total_iva)}</td>
+                        <td style="text-align: right; font-weight: 700; color: #f8fafc;">${formatCurrency(c.imp_total)}</td>
+                        <td style="text-align: center;">${recibida}</td>
+                        <td style="text-align: center;">${estadoBadge}</td>
+                        <td style="text-align: center; white-space: nowrap;">${metodoBtns}</td>
+                    </tr>
+                `;
+            }).join('');
+        } catch(e) {
+            console.error("Error cargando compras ARCA:", e);
+        }
+    }
+
+    window.pagarArcaCompra = async function(id, metodo) {
+        try {
+            const res = await fetch(`/api/arca_compras/${id}/marcar_pago`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ metodo_pago: metodo })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Pagado con ${metodo}`);
+                fetchArcaCompras();
+            }
+        } catch(e) { showToast('Error al marcar pago', 'error'); }
+    };
+
+    window.despagarArcaCompra = async function(id) {
+        if (!confirm('¿Deshacer el pago de esta compra?')) return;
+        try {
+            await fetch(`/api/arca_compras/${id}/desmarcar_pago`, { method: 'POST' });
+            showToast('Pago deshecho');
+            fetchArcaCompras();
+        } catch(e) { showToast('Error', 'error'); }
+    };
+
+    window.marcarArcaRecibida = async function(id) {
+        try {
+            await fetch(`/api/arca_compras/${id}/marcar_recibida`, { method: 'POST' });
+            showToast('Factura marcada como recibida');
+            fetchArcaCompras();
+        } catch(e) { showToast('Error', 'error'); }
+    };
+
+    // Botón Importar CSV ARCA manualmente
+    const btnSyncArcaCompras = document.getElementById('btn-sync-arca-compras');
+    if (btnSyncArcaCompras) {
+        btnSyncArcaCompras.addEventListener('click', async () => {
+            btnSyncArcaCompras.disabled = true;
+            btnSyncArcaCompras.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Importando...';
+            try {
+                const res = await fetch('/api/arca_compras/sync_from_csv', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message || 'Importación completada');
+                    fetchArcaCompras();
+                } else {
+                    showToast(data.message || 'Error al importar', 'error');
+                }
+            } catch(e) {
+                showToast('Error de red al importar', 'error');
+            } finally {
+                btnSyncArcaCompras.disabled = false;
+                btnSyncArcaCompras.innerHTML = '<i class="fa-solid fa-rotate"></i> Importar CSV ARCA';
+            }
+        });
+    }
+
 
     const btnNuevaRecaudacion = document.getElementById('btn-nueva-recaudacion');
     if (btnNuevaRecaudacion) {

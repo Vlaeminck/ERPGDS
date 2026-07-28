@@ -358,7 +358,9 @@
                 </div>
 
                 <div class="glass-card" style="margin-top: 2rem; padding: 1.5rem;">
-                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-list-check"></i> Listado de Facturas a Pagar</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                        <h3 style="margin: 0;"><i class="fa-solid fa-list-check"></i> Listado de Facturas a Pagar (Archivos Procesados)</h3>
+                    </div>
                     <div class="table-container">
                         <table class="data-table">
                             <thead>
@@ -375,6 +377,44 @@
                             </thead>
                             <tbody id="tbl-cuentas-pagar-body">
                                 <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sección ARCA Compras CSV -->
+                <div class="glass-card" style="margin-top: 2rem; padding: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <h3 style="margin: 0;"><i class="fa-solid fa-file-csv" style="color: #60a5fa;"></i> Compras del Mes (ARCA)</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0 0;">Facturas emitidas por proveedores según el CSV de ARCA &mdash; Sincronizar ARCA para actualizar</p>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <div id="arca-compras-stats" style="display: flex; gap: 12px;">
+                                <span class="badge" style="background: rgba(239,68,68,0.15); color: #f87171;">Pendientes: <strong id="arca-count-pendientes">0</strong></span>
+                                <span class="badge" style="background: rgba(52,211,153,0.15); color: #34d399;">Pagados: <strong id="arca-count-pagados">0</strong></span>
+                                <span class="badge" style="background: rgba(59,130,246,0.15); color: #60a5fa;">Total: <strong id="arca-total-importe">$0</strong></span>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" id="btn-sync-arca-compras" title="Importar compras desde el CSV de ARCA ya descargado">
+                                <i class="fa-solid fa-rotate"></i> Importar CSV ARCA
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container" style="max-height: 440px; overflow-y: auto;">
+                        <table class="data-table" style="font-size: 0.85rem;">
+                            <thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                <tr>
+                                    <th>Fecha Emisión</th>
+                                    <th>Denominación Emisor</th>
+                                    <th>Total IVA</th>
+                                    <th>Imp. Total</th>
+                                    <th style="text-align:center;">Factura Recibida</th>
+                                    <th style="text-align:center;">Estado</th>
+                                    <th style="text-align:center; min-width: 200px;">Método de Pago</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-arca-compras-body">
+                                <tr><td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 2rem;">Sincronizá ARCA para ver las compras del mes</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -780,20 +820,34 @@
                 </div>
 
                 <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
-                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-file-invoice"></i> Estructura de Gastos Fijos Mensuales</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                        <h3 style="margin: 0;"><i class="fa-solid fa-file-invoice"></i> Estructura de Gastos Fijos Mensuales</h3>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary btn-sm" id="btn-copiar-mes-anterior-gf" title="Copiar los conceptos y montos del mes anterior al mes actual">
+                                <i class="fa-solid fa-copy"></i> Copiar Mes Anterior
+                            </button>
+                            <button class="btn btn-primary btn-sm" id="btn-agregar-gasto-fijo">
+                                <i class="fa-solid fa-plus"></i> Agregar Concepto
+                            </button>
+                        </div>
+                    </div>
                     <div class="table-container">
-                        <table class="data-table">
+                        <table class="data-table" id="tbl-gastos-fijos">
                             <thead>
                                 <tr>
                                     <th>Concepto</th>
                                     <th>Monto Mensual</th>
+                                    <th style="width: 80px; text-align: center;">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody id="tbl-gastos-fijos-body">
-                                <!-- Filas dinámicas -->
+                                <!-- Filas dinámicas editables -->
                             </tbody>
                         </table>
                     </div>
+                    <p style="margin-top: 0.75rem; font-size: 0.78rem; color: var(--text-secondary);">
+                        <i class="fa-solid fa-circle-info"></i> Haz doble clic sobre el concepto o monto para editarlo directamente.
+                    </p>
                 </div>
             </section>
 

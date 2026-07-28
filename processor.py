@@ -877,6 +877,40 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
         shutil.move(file_path, dest_path)
         print(f"¡Éxito! Movido a: {dest_path}", flush=True)
         log_scan_time(file_path, dest_path, supplier, new_filename)
+        
+        # Hook para marcar factura recibida en ARCA Compras CSV
+        try:
+            import db_manager
+            conn = db_manager.get_connection()
+            cursor = conn.cursor()
+            inv_clean = invoice_formatted.replace(" ", "") if invoice_formatted else ""
+            if inv_clean and '-' in inv_clean:
+                pv, comp = inv_clean.split('-', 1)
+                try:
+                    pv_int = int(pv)
+                    comp_int = int(comp)
+                    fecha_str = invoice_date.strftime('%Y-%m-%d') if invoice_date else ""
+                    
+                    cursor.execute("""
+                        UPDATE arca_compras_csv 
+                        SET factura_recibida = 1 
+                        WHERE CAST(punto_venta AS INTEGER) = ? 
+                          AND (
+                              (nro_comprobante != '' AND CAST(nro_comprobante AS INTEGER) = ?) 
+                              OR 
+                              (nro_comprobante = '' AND fecha_emision = ?)
+                          )
+                          AND denominacion_emisor LIKE ?
+                    """, (pv_int, comp_int, fecha_str, f"%{supplier[:10]}%"))
+                    if cursor.rowcount > 0:
+                        print(f"  [ARCA] Factura {inv_clean} marcada como recibida físicamente en la DB.", flush=True)
+                    conn.commit()
+                except ValueError:
+                    pass
+            conn.close()
+        except Exception as e_db:
+            print(f"Error marcando factura recibida en BD: {e_db}", flush=True)
+
     except Exception as e:
         print(f"Error moviendo archivo: {e}", flush=True)
 

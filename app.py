@@ -531,6 +531,12 @@ def arca_sync():
             processor.reload_config()
         except Exception as e_reload:
             print(f"Error reordenando configuración tras sync: {e_reload}")
+        # Auto-importar compras ARCA a la DB después del sync
+        try:
+            n_importados = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER)
+            print(f"[ARCA-SYNC] {n_importados} nuevas compras importadas a arca_compras_csv.", flush=True)
+        except Exception as e_import:
+            print(f"[ARCA-SYNC] Error importando compras a DB: {e_import}", flush=True)
 
     thread = threading.Thread(target=run_async)
     thread.start()
@@ -919,26 +925,80 @@ def api_caja_chica_arqueo():
 def api_gastos_fijos():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    mes = request.args.get('mes') or datetime.now().strftime('%Y-%m')
+
     if request.method == 'POST':
         data = request.json or {}
-        concepto = data.get('concepto')
-        monto = float(data.get('monto_mensual', 0))
-        if not concepto:
-            return jsonify({"error": "Concepto requerido"}), 400
-            
-        cursor.execute('''
-            INSERT INTO gastos_fijos (concepto, monto_mensual)
-            VALUES (?, ?)
-            ON CONFLICT(concepto) DO UPDATE SET monto_mensual=excluded.monto_mensual
-        ''', (concepto, monto))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True})
+        action = data.get('action', 'upsert')  # upsert | delete | copiar_mes_anterior
         
-    cursor.execute("SELECT * FROM gastos_fijos ORDER BY id ASC")
+        if action == 'copiar_mes_anterior':
+            # Copiar estructura del mes anterior al mes actual
+            mes_dest = data.get('mes_destino', datetime.now().strftime('%Y-%m'))
+            cursor.execute(
+                "SELECT DISTINCT mes FROM gastos_fijos WHERE mes != ? ORDER BY mes DESC LIMIT 1",
+                (mes_dest,)
+            )
+            r = cursor.fetchone()
+            if not r:
+                conn.close()
+                return jsonify({"error": "No hay datos de meses anteriores para copiar"}), 404
+            mes_src = r[0]
+            cursor.execute("SELECT concepto, monto_mensual FROM gastos_fijos WHERE mes = ?", (mes_src,))
+            src_rows = cursor.fetchall()
+            # Borrar el mes destino antes de copiar
+            cursor.execute("DELETE FROM gastos_fijos WHERE mes = ?", (mes_dest,))
+            for row in src_rows:
+                cursor.execute(
+                    "INSERT INTO gastos_fijos (concepto, monto_mensual, mes) VALUES (?, ?, ?)",
+                    (row[0], row[1], mes_dest)
+                )
+            conn.commit()
+            conn.close()
+            return jsonify({"success": True, "copiados": len(src_rows), "desde": mes_src})
+        
+        elif action == 'delete':
+            item_id = data.get('id')
+            if not item_id:
+                conn.close()
+                return jsonify({"error": "ID requerido"}), 400
+            cursor.execute("DELETE FROM gastos_fijos WHERE id = ?", (item_id,))
+            conn.commit()
+            conn.close()
+            return jsonify({"success": True})
+        
+        else:  # upsert (agregar o editar)
+            concepto = data.get('concepto', '').strip()
+            monto = float(data.get('monto_mensual', 0))
+            mes_target = data.get('mes', mes)
+            item_id = data.get('id')
+            
+            if not concepto:
+                conn.close()
+                return jsonify({"error": "Concepto requerido"}), 400
+            
+            if item_id:
+                # Editar existente
+                cursor.execute(
+                    "UPDATE gastos_fijos SET concepto=?, monto_mensual=? WHERE id=?",
+                    (concepto, monto, item_id)
+                )
+            else:
+                # Nuevo concepto
+                cursor.execute(
+                    "INSERT INTO gastos_fijos (concepto, monto_mensual, mes) VALUES (?, ?, ?)",
+                    (concepto, monto, mes_target)
+                )
+            conn.commit()
+            conn.close()
+            return jsonify({"success": True})
+
+    # GET: filtrar por mes
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM gastos_fijos WHERE mes = ? ORDER BY id ASC", (mes,))
+    else:
+        cursor.execute("SELECT * FROM gastos_fijos ORDER BY mes DESC, id ASC")
     rows = [dict(r) for r in cursor.fetchall()]
-    cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos")
-    total_gasto = cursor.fetchone()[0] or 0
+    total_gasto = sum(r['monto_mensual'] for r in rows)
     conn.close()
     return jsonify({"gastos": rows, "total": total_gasto})
 
@@ -1114,6 +1174,200 @@ def api_meses_disponibles():
     return jsonify({"meses": lista_meses, "mes_actual": cur_month})
 
 
+# ==========================================
+# RUTAS COMPRAS ARCA CSV
+# ==========================================
+
+def _import_arca_csv_to_db(csv_folder):
+    """Parsea CSVs de Compras de ARCA en la carpeta y los guarda en arca_compras_csv."""
+    import csv as csv_mod
+    import io
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    total_nuevos = 0
+    
+    csv_files = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
+    for fp in csv_files:
+        encodings = ['utf-8-sig', 'latin-1', 'cp1252', 'utf-8']
+        content = None
+        for enc in encodings:
+            try:
+                with open(fp, 'r', encoding=enc) as f:
+                    content = f.read()
+                break
+            except Exception:
+                continue
+        if not content:
+            continue
+        
+        reader = csv_mod.reader(io.StringIO(content), delimiter=';')
+        rows = list(reader)
+        if not rows:
+            continue
+        header = [col.strip().replace('\"', '').strip() for col in rows[0]]
+        
+        # Mapear columnas flexiblemente
+        def find_col(names):
+            for n in names:
+                for i, h in enumerate(header):
+                    if n.lower() in h.lower():
+                        return i
+            return -1
+        
+        idx_fecha = find_col(['Fecha de Emisión', 'Fecha de emision', 'Fecha Emision'])
+        idx_pv = find_col(['Punto de Venta', 'Pto Venta'])
+        idx_nro = find_col(['Nro. Doc. Emisor', 'Nro Doc Emisor', 'Nro. Documento'])
+        idx_nombre = find_col(['Denominación Emisor', 'Denominacion Emisor', 'Emisor'])
+        idx_iva = find_col(['Total IVA', 'IVA'])
+        idx_total = find_col(['Imp. Total', 'Importe Total', 'Total'])
+        idx_cae = find_col(['Cód. Autorización', 'Cod Autorizacion', 'CAE'])
+        idx_comp = find_col(['Número Desde', 'Numero Desde', 'Nro. Comprobante', 'Nro Comprobante'])
+        
+        for row in rows[1:]:
+            def get_val(idx, default=''):
+                if idx < 0 or idx >= len(row):
+                    return default
+                return row[idx].strip().replace('"', '').strip()
+            
+            fecha_em = get_val(idx_fecha)
+            if not fecha_em:
+                continue
+            
+            # Parsear fecha y extraer mes
+            mes = ''
+            for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
+                try:
+                    d = __import__('datetime').datetime.strptime(fecha_em, fmt)
+                    mes = d.strftime('%Y-%m')
+                    fecha_em = d.strftime('%Y-%m-%d')
+                    break
+                except Exception:
+                    continue
+            
+            pv = get_val(idx_pv)
+            nro = get_val(idx_nro)
+            nombre = get_val(idx_nombre)
+            cae = get_val(idx_cae)
+            comp = get_val(idx_comp)
+            
+            try:
+                iva = float(get_val(idx_iva, '0').replace(',', '.') or 0)
+            except Exception:
+                iva = 0
+            try:
+                total = float(get_val(idx_total, '0').replace(',', '.') or 0)
+            except Exception:
+                total = 0
+            
+            # Deduplicar por fecha+nro_doc+emisor+nro_comprobante
+            cursor.execute(
+                "SELECT COUNT(*) FROM arca_compras_csv WHERE fecha_emision=? AND nro_doc_emisor=? AND denominacion_emisor=? AND nro_comprobante=?",
+                (fecha_em, nro, nombre, comp)
+            )
+            if cursor.fetchone()[0] > 0:
+                continue
+            
+            cursor.execute('''
+                INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (fecha_em, pv, nro, nombre, iva, total, mes, cae, comp))
+            total_nuevos += 1
+    
+    conn.commit()
+    conn.close()
+    return total_nuevos
+
+
+@app.route('/api/arca_compras', methods=['GET'])
+def api_arca_compras():
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    mes = request.args.get('mes')
+    
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM arca_compras_csv WHERE mes = ? ORDER BY fecha_emision DESC", (mes,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(imp_total), SUM(total_iva) FROM arca_compras_csv WHERE mes = ?", (mes,))
+    else:
+        cursor.execute("SELECT * FROM arca_compras_csv ORDER BY fecha_emision DESC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(imp_total), SUM(total_iva) FROM arca_compras_csv")
+    
+    tot_imp, tot_iva = cursor.fetchone()
+    tot_imp = tot_imp or 0
+    tot_iva = tot_iva or 0
+    
+    # Contar pendientes y pagados
+    pendientes = sum(1 for r in rows if r['estado'] == 'Pendiente')
+    pagados = sum(1 for r in rows if r['estado'] == 'Pagado')
+    
+    conn.close()
+    return jsonify({
+        "compras": rows,
+        "resumen": {
+            "total_compras": len(rows),
+            "total_importe": tot_imp,
+            "total_iva": tot_iva,
+            "pendientes": pendientes,
+            "pagados": pagados
+        }
+    })
+
+
+@app.route('/api/arca_compras/<int:item_id>/marcar_pago', methods=['POST'])
+def api_arca_marcar_pago(item_id):
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    data = request.json or {}
+    metodo = data.get('metodo_pago', '')  # 'Efectivo/Caja Chica', 'Banco/Transferencia', 'MercadoPago/Digital'
+    fecha_pago = data.get('fecha_pago', datetime.now().strftime('%Y-%m-%d'))
+    
+    cursor.execute(
+        "UPDATE arca_compras_csv SET estado='Pagado', metodo_pago=?, fecha_pago=? WHERE id=?",
+        (metodo, fecha_pago, item_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route('/api/arca_compras/<int:item_id>/desmarcar_pago', methods=['POST'])
+def api_arca_desmarcar_pago(item_id):
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE arca_compras_csv SET estado='Pendiente', metodo_pago='', fecha_pago='' WHERE id=?",
+        (item_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route('/api/arca_compras/<int:item_id>/marcar_recibida', methods=['POST'])
+def api_arca_marcar_recibida(item_id):
+    """Marca la factura del proveedor como recibida fisicamente (desde el escáner o manualmente)."""
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE arca_compras_csv SET factura_recibida=1 WHERE id=?",
+        (item_id,)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route('/api/arca_compras/sync_from_csv', methods=['POST'])
+def api_arca_sync_from_csv():
+    """Importa las compras del CSV de ARCA a la tabla arca_compras_csv."""
+    try:
+        n = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER)
+        return jsonify({"success": True, "importados": n, "message": f"{n} nuevas compras importadas desde ARCA"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 if __name__ == '__main__':
     import webbrowser
     from threading import Timer
@@ -1195,3 +1449,4 @@ if __name__ == '__main__':
     Timer(1, open_browser).start()
 
     app.run(debug=False, port=5000, use_reloader=False, threaded=True)
+

@@ -100,14 +100,71 @@ def init_db():
     )
     ''')
 
-    # Tabla 6: Gastos Fijos
+    # Tabla 6: Gastos Fijos (por mes organizacional)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS gastos_fijos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        concepto TEXT UNIQUE,
-        monto_mensual REAL DEFAULT 0
+        concepto TEXT,
+        monto_mensual REAL DEFAULT 0,
+        mes TEXT DEFAULT ''
     )
     ''')
+    # Migración: Agregar columna 'mes' y remover UNIQUE si existe
+    try:
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='gastos_fijos'")
+        schema_row = cursor.fetchone()
+        if schema_row and 'UNIQUE' in schema_row[0].upper():
+            # Migrar tabla para quitar el constraint UNIQUE
+            cursor.execute("ALTER TABLE gastos_fijos RENAME TO gastos_fijos_old")
+            cursor.execute('''
+            CREATE TABLE gastos_fijos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                concepto TEXT,
+                monto_mensual REAL DEFAULT 0,
+                mes TEXT DEFAULT ''
+            )
+            ''')
+            # Copiar datos. Verificamos si la tabla vieja tenía la columna mes
+            cursor.execute("PRAGMA table_info(gastos_fijos_old)")
+            cols = [r['name'] for r in cursor.fetchall()]
+            if 'mes' in cols:
+                cursor.execute("INSERT INTO gastos_fijos (id, concepto, monto_mensual, mes) SELECT id, concepto, monto_mensual, mes FROM gastos_fijos_old")
+            else:
+                cursor.execute("INSERT INTO gastos_fijos (id, concepto, monto_mensual, mes) SELECT id, concepto, monto_mensual, '' FROM gastos_fijos_old")
+            cursor.execute("DROP TABLE gastos_fijos_old")
+        else:
+            # Solo intentar agregar la columna si no migramos
+            cursor.execute("ALTER TABLE gastos_fijos ADD COLUMN mes TEXT DEFAULT ''")
+    except Exception:
+        pass  # Ya existe la columna o la migración ya se hizo
+
+    # Tabla 8: Compras ARCA (del CSV de 'Mis Comprobantes Recibidos')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS arca_compras_csv (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha_emision TEXT,
+        punto_venta TEXT DEFAULT '',
+        nro_doc_emisor TEXT DEFAULT '',
+        denominacion_emisor TEXT DEFAULT '',
+        total_iva REAL DEFAULT 0,
+        imp_total REAL DEFAULT 0,
+        mes TEXT DEFAULT '',
+        estado TEXT DEFAULT 'Pendiente',
+        factura_recibida INTEGER DEFAULT 0,
+        metodo_pago TEXT DEFAULT '',
+        fecha_pago TEXT DEFAULT '',
+        cae TEXT DEFAULT '',
+        nro_comprobante TEXT DEFAULT ''
+    )
+    ''')
+    try:
+        cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN cae TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN nro_comprobante TEXT DEFAULT ''")
+    except Exception:
+        pass
 
     # Tabla 7: Cuentas por Pagar (Proveedores)
     cursor.execute('''
@@ -132,19 +189,38 @@ def seed_initial_data():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Seed Gastos Fijos de Estacionamiento si no existen
-    cursor.execute("SELECT COUNT(*) FROM estacionamiento_gastos")
+    # Seed Gastos Fijos si no existen registros para el mes actual
+    now_mes = __import__('datetime').datetime.now().strftime('%Y-%m')
+    cursor.execute("SELECT COUNT(*) FROM gastos_fijos WHERE mes = ?", (now_mes,))
     if cursor.fetchone()[0] == 0:
-        est_gastos = [
-            ("Alquiler", 2330700),
-            ("Ramon", 743600),
-            ("Monotributo", 70000),
-            ("Electricidad", 50000),
-            ("Tomi Salgado", 480000),
-            ("Arba", 294135),
-            ("Municipal", 68412)
-        ]
-        cursor.executemany("INSERT INTO estacionamiento_gastos (concepto, monto) VALUES (?, ?)", est_gastos)
+        # Verificar si hay datos de meses anteriores para copiar
+        cursor.execute("SELECT concepto, monto_mensual FROM gastos_fijos ORDER BY id DESC")
+        existing = cursor.fetchall()
+        if existing:
+            # Copiar del mes más reciente
+            seen = set()
+            for row in existing:
+                if row[0] not in seen:
+                    cursor.execute(
+                        "INSERT INTO gastos_fijos (concepto, monto_mensual, mes) VALUES (?, ?, ?)",
+                        (row[0], row[1], now_mes)
+                    )
+                    seen.add(row[0])
+        else:
+            # Seed inicial con valores por defecto
+            gf_defaults = [
+                ("Alquiler", 2330700, now_mes),
+                ("Ramon", 743600, now_mes),
+                ("Monotributo", 70000, now_mes),
+                ("Electricidad", 50000, now_mes),
+                ("Tomi Salgado", 480000, now_mes),
+                ("Arba", 294135, now_mes),
+                ("Municipal", 68412, now_mes),
+            ]
+            cursor.executemany(
+                "INSERT INTO gastos_fijos (concepto, monto_mensual, mes) VALUES (?, ?, ?)",
+                gf_defaults
+            )
 
     # Seed Estacionamiento Diario sample data (from image 2) if empty
     cursor.execute("SELECT COUNT(*) FROM estacionamiento_diario")
