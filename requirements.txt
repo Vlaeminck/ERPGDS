@@ -1,0 +1,12 @@
+watchdog
+pdfplumber
+pypdfium2
+Pillow
+pytesseract
+reportlab
+flask
+werkzeug
+google-generativeai
+requests
+selenium
+webdriver-manager

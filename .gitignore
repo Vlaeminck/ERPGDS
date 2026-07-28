@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+*.sqlite3
+.vscode/
+.idea/
+Facturas_A_Procesar/*
+!Facturas_A_Procesar/.gitkeep
+Facturas_No_Reconocidas/*
+!Facturas_No_Reconocidas/.gitkeep
+Facturas_Procesadas/*
+!Facturas_Procesadas/.gitkeep
+CSV ARCA/*
+!CSV ARCA/.gitkeep
+registros/*
+!registros/.gitkeep
+dist/

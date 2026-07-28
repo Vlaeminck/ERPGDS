@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDFWatcher - Gestión de Facturas</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-chart-line logo-icon"></i>
+                <h2>ERP GDS</h2>
+            </div>
+            <ul class="nav-links">
+                <!-- Menú Padre: Facturas -->
+                <li class="nav-group active" id="group-facturas">
+                    <div class="nav-group-header" data-tab="dashboard">
+                        <i class="fa-solid fa-file-invoice-dollar"></i>
+                        <span>Facturas</span>
+                        <i class="fa-solid fa-chevron-down nav-group-arrow"></i>
+                    </div>
+                    <ul class="sub-nav-links">
+                        <li class="active" data-tab="dashboard">
+                            <i class="fa-solid fa-chart-pie"></i>
+                            <span>Panel General</span>
+                        </li>
+                        <li data-tab="processed">
+                            <i class="fa-solid fa-file-circle-check"></i>
+                            <span>Facturas Procesadas</span>
+                        </li>
+                        <li data-tab="remitos">
+                            <i class="fa-solid fa-receipt"></i>
+                            <span>Remitos y No Fiscales</span>
+                        </li>
+                        <li data-tab="upload">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                            <span>Cargar CSV</span>
+                        </li>
+                    </ul>
+                </li>
+                <li data-tab="cuentas-pagar">
+                    <i class="fa-solid fa-hand-holding-dollar"></i>
+                    <span>Proveedores a Pagar</span>
+                </li>
+                <li data-tab="recaudacion">
+                    <i class="fa-solid fa-cash-register"></i>
+                    <span>Recaudación & Maxirest</span>
+                </li>
+                <li data-tab="estacionamiento">
+                    <i class="fa-solid fa-square-parking"></i>
+                    <span>Estacionamiento</span>
+                </li>
+                <li data-tab="caja-chica">
+                    <i class="fa-solid fa-wallet"></i>
+                    <span>Caja Chica / Alivios</span>
+                </li>
+                <li data-tab="gastos-fijos">
+                    <i class="fa-solid fa-chart-gantt"></i>
+                    <span>Gastos Fijos & Netos</span>
+                </li>
+                <li data-tab="suppliers">
+                    <i class="fa-solid fa-users"></i>
+                    <span>Proveedores</span>
+                </li>
+                <li data-tab="settings">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>Ajustes</span>
+                </li>
+            </ul>
+
+            <div style="margin-top: auto; padding: 1rem; margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+                <button id="btn-help" class="btn btn-secondary" style="flex: 1;">
+                    <i class="fa-solid fa-circle-info"></i> Ayuda
+                </button>
+                <button class="btn btn-secondary" onclick="document.querySelector('[data-tab=\'doctor\']').click()"
+                    style="padding: 0.5rem 0.8rem; background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);"
+                    title="Doctor (Avanzado)">
+                    <i class="fa-solid fa-user-doctor"></i>
+                </button>
+                <li data-tab="doctor" style="display: none;"></li>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Toast Notifications Container -->
+            <div id="toast-container" class="toast-container"></div>
+
+            <!-- Tab: Dashboard -->
+            <section id="tab-dashboard" class="tab-pane active fade-in">
+                <header class="section-header"
+                    style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h1>Panel General</h1>
+                        <p>Monitoreo y estadísticas del procesamiento de facturas y remitos.</p>
+                    </div>
+                    <div id="arca-header-status-container" style="display: flex; align-items: center;">
+                        <span id="arca-header-badge" class="badge"
+                            style="display: none; padding: 0.6rem 1rem; font-size: 0.85rem; border-radius: 20px; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4);">
+                            <i id="arca-header-icon" class="fa-solid fa-arrows-rotate fa-spin"
+                                style="margin-right: 6px;"></i>
+                            <span id="arca-header-status-text">Sincronizando ARCA...</span>
+                        </span>
+                    </div>
+                </header>
+
+                <!-- Watcher Controls -->
+                <div class="glass-card watcher-control-panel">
+                    <div class="watcher-status">
+                        <h3>Estado del Vigía</h3>
+                        <div class="status-badge" id="watcher-status-badge">
+                            <span class="pulse-dot"></span>
+                            <span id="watcher-status-text">Desconocido</span>
+                        </div>
+                    </div>
+                    <div class="watcher-actions">
+                        <button id="btn-sync-arca" class="btn btn-secondary"
+                            style="background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4);"
+                            title="Descargar CSV de ARCA y actualizar proveedores">
+                            <i class="fa-solid fa-arrows-rotate"></i> Sincronizar ARCA
+                        </button>
+                        <button id="btn-open-scanner" class="btn btn-secondary">
+                            <i class="fa-solid fa-print"></i> Escáner Automático
+                        </button>
+                        <button id="btn-start-watcher" class="btn btn-primary">
+                            <i class="fa-solid fa-play"></i> Iniciar
+                        </button>
+                        <button id="btn-stop-watcher" class="btn btn-danger">
+                            <i class="fa-solid fa-stop"></i> Detener
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Progress Bar (Hidden by default) -->
+                <div id="progress-container" class="glass-card" style="display: none; margin-bottom: 2rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span
+                            style="color: var(--text-secondary); font-size: 0.9rem; text-transform: uppercase;">Procesando
+                            Lote Inicial...</span>
+                        <span id="progress-text" style="font-weight: 600;">0 / 0</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                    </div>
+                </div>
+
+                <!-- AI Processing Indicator (Hidden by default) -->
+                <div id="ai-processing-indicator" class="glass-card"
+                    style="display: none; margin-bottom: 2rem; background: linear-gradient(135deg, rgba(74,144,226,0.1), rgba(155,89,182,0.1)); border-left: 4px solid var(--accent-primary);">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div class="ai-robot-icon" style="font-size: 2rem; color: var(--accent-primary);">
+                            <i class="fa-solid fa-robot fa-bounce"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin-bottom: 0.2rem; color: var(--accent-primary);">IA Analizando Documento...
+                            </h3>
+                            <p style="color: var(--text-secondary); font-size: 0.9rem;">Gemini está leyendo una factura
+                                difícil. Esto puede tardar unos segundos.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="stats-grid">
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon pending-icon">
+                            <i class="fa-solid fa-clock"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>A Procesar</h3>
+                            <p class="stat-number" id="stat-pending">0</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-card stat-card" id="card-processed" style="cursor: pointer;"
+                        title="Ver Facturas Procesadas">
+                        <div class="stat-icon processed-icon">
+                            <i class="fa-solid fa-check-circle"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Procesadas</h3>
+                            <p class="stat-number" id="stat-processed">0</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-card stat-card" id="card-remitos" style="cursor: pointer;"
+                        title="Ver Remitos y Documentos No Fiscales">
+                        <div class="stat-icon" style="background: rgba(155, 89, 182, 0.2); color: #9b59b6;">
+                            <i class="fa-solid fa-receipt"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Remitos / No Fiscales</h3>
+                            <p class="stat-number" id="stat-remitos">0</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-card stat-card" id="card-unrecognized" style="cursor: pointer;"
+                        title="Ver Facturas No Reconocidas y Diagnóstico">
+                        <div class="stat-icon unrecognized-icon">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>No Reconocidas</h3>
+                            <p class="stat-number" id="stat-unrecognized">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Subtle Invoice Upload -->
+                <div class="glass-card" style="margin-top: 2rem; padding: 1.5rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 2rem;">
+                        <div style="flex: 1;">
+                            <h3 style="margin-bottom: 0.5rem; font-size: 1.1rem;"><i class="fa-solid fa-file-invoice"
+                                    style="margin-right: 8px; color: var(--text-secondary);"></i> Carga Rápida Manual
+                            </h3>
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">Arrastra tu factura
+                                (PDF o Imagen) al área gris o haz clic para seleccionarla.</p>
+                        </div>
+                        <div id="invoice-drop-zone" class="drop-zone"
+                            style="flex: 1; min-height: unset; padding: 1rem; margin: 0; border: 2px dashed rgba(255,255,255,0.1); background: rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.3s ease;">
+                            <i class="fa-solid fa-cloud-arrow-up"
+                                style="color: var(--text-secondary); font-size: 1.2rem;"></i>
+                            <label for="invoice-file-upload"
+                                style="cursor: pointer; color: var(--text-primary); font-weight: 500; margin: 0; width: 100%; text-align: center;">Soltar
+                                archivo aquí o Explorar</label>
+                            <input type="file" id="invoice-file-upload" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp"
+                                style="display: none;" multiple>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Historial Reciente de Procesamiento para el Usuario -->
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <div
+                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-clock-rotate-left"
+                                    style="color: var(--accent-color, #a855f7);"></i>
+                                Historial Reciente de Procesamiento
+                            </h3>
+                            <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 4px 0 0 0;">Verificación
+                                rápida de estado, tiempos y uso de IA por factura.</p>
+                        </div>
+                        <button id="btn-clear-user-history" class="btn btn-secondary"
+                            style="padding: 0.4rem 0.8rem; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-trash-can"></i> Limpiar Historial
+                        </button>
+                    </div>
+
+                    <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+                        <table class="modern-table" style="font-size: 0.88rem;">
+                            <thead>
+                                <tr>
+                                    <th>Hora</th>
+                                    <th>Proveedor</th>
+                                    <th>Nº Comprobante / Archivo</th>
+                                    <th>Método / IA</th>
+                                    <th>Tiempo</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="user-history-table-body">
+                                <tr>
+                                    <td colspan="6"
+                                        style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">
+                                        Sin comprobantes procesados en esta sesión.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Cuentas por Pagar (Proveedores) -->
+            <section id="tab-cuentas-pagar" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <div>
+                        <h1>Proveedores a Pagar</h1>
+                        <p>Facturas cargadas automáticamente vs pagos registrados este mes.</p>
+                    </div>
+                </header>
+
+                <div class="stats-grid">
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6;">
+                            <i class="fa-solid fa-file-invoice-dollar"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Total Facturado</h3>
+                            <p class="stat-number" id="cp-stat-facturado">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">
+                            <i class="fa-solid fa-check-double"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Total Pagado</h3>
+                            <p class="stat-number" id="cp-stat-pagado">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Pendiente de Pago</h3>
+                            <p class="stat-number" id="cp-stat-pendiente">$0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 2rem; padding: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-list-check"></i> Listado de Facturas a Pagar</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Proveedor</th>
+                                    <th>Factura N°</th>
+                                    <th>Fecha</th>
+                                    <th>Monto Total</th>
+                                    <th>Monto Pagado</th>
+                                    <th>Estado</th>
+                                    <th>Medio Pago</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-cuentas-pagar-body">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Recaudación & Maxirest -->
+            <section id="tab-recaudacion" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h1>Control Diario de Recaudación</h1>
+                        <p>Conciliación diaria entre Maxirest y cada pasarela/plataforma real.</p>
+                    </div>
+                    <button class="btn btn-primary" id="btn-nueva-recaudacion">
+                        <i class="fa-solid fa-plus"></i> Cargar Recaudación
+                    </button>
+                </header>
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+                    <div class="glass-card" style="padding: 1.5rem;">
+                        <h3><i class="fa-solid fa-chart-line"></i> Tendencia de Recaudación vs Proyección</h3>
+                        <div style="height: 260px; margin-top: 1rem;">
+                            <canvas id="chartRecaudacion"></canvas>
+                        </div>
+                    </div>
+                    <div class="glass-card" style="padding: 1.5rem;">
+                        <h3><i class="fa-solid fa-chart-pie"></i> Medios de Pago</h3>
+                        <div style="height: 260px; margin-top: 1rem;">
+                            <canvas id="chartMediosPago"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="padding: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-table-list"></i> Planilla Diaria de Conciliación</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Día</th>
+                                    <th>Cubiertos</th>
+                                    <th>Nave (Real vs Maxi | Diff)</th>
+                                    <th>Efectivo (Real vs Maxi | Diff)</th>
+                                    <th>PedidosYa (Real vs Maxi | Diff)</th>
+                                    <th>MP (Real vs Maxi | Diff)</th>
+                                    <th>Banco (Real vs Maxi | Diff)</th>
+                                    <th>Total Diario</th>
+                                    <th>Diff Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-recaudacion-body">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Estacionamiento -->
+            <section id="tab-estacionamiento" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h1>Control de Estacionamiento</h1>
+                        <p>Arqueo diario de TicketControl vs Efectivo / MercadoPago y Gastos Operativos.</p>
+                    </div>
+                    <button class="btn btn-secondary" id="btn-open-modal-gastos-est">
+                        <i class="fa-solid fa-calculator"></i> Gastos Fijos Estacionamiento
+                    </button>
+                </header>
+
+                <div class="stats-grid">
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">
+                            <i class="fa-solid fa-money-bill-wave"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Efectivo Contado</h3>
+                            <p class="stat-number" id="est-stat-cash">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6;">
+                            <i class="fa-solid fa-qrcode"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>MercadoPago</h3>
+                            <p class="stat-number" id="est-stat-mp">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(139, 92, 246, 0.2); color: #8b5cf6;">
+                            <i class="fa-solid fa-coins"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Ganancia Total</h3>
+                            <p class="stat-number" id="est-stat-total">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">
+                            <i class="fa-solid fa-receipt"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Gastos Estacionamiento</h3>
+                            <p class="stat-number" id="est-stat-gasto">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(52, 211, 153, 0.2); color: #34d399;">
+                            <i class="fa-solid fa-chart-line"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Ganancia Neta Estacionamiento</h3>
+                            <p class="stat-number" id="est-stat-neta">$0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <h3><i class="fa-solid fa-chart-simple"></i> Tendencia de Ingresos Estacionamiento</h3>
+                    <div style="height: 220px; margin-top: 1rem;">
+                        <canvas id="chartEstacionamiento"></canvas>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin: 0;"><i class="fa-solid fa-table"></i> Registros Diarios TicketControl vs Cobrado</h3>
+                        <button class="btn btn-primary" id="btn-toggle-inline-est">
+                            <i class="fa-solid fa-plus"></i> Cargar Día
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Día</th>
+                                    <th>Caja TicketControl</th>
+                                    <th>Controlado Cash</th>
+                                    <th>Controlado MP</th>
+                                    <th>Total Cobrado</th>
+                                    <th>Diferencia</th>
+                                    <th>Comentario</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-estacionamiento-body">
+                                <!-- Fila de carga en línea y filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Caja Chica / Alivios -->
+            <section id="tab-caja-chica" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h1>Caja Chica & Alivios</h1>
+                        <p>Movimientos diarios de fondos, retiros de gastos y arqueo billete por billete.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary" id="btn-abrir-arqueo">
+                            <i class="fa-solid fa-calculator"></i> Arqueo de Billetes
+                        </button>
+                        <button class="btn btn-primary" id="btn-nuevo-movimiento-caja">
+                            <i class="fa-solid fa-plus"></i> Nuevo Movimiento
+                        </button>
+                    </div>
+                </header>
+
+                <div class="stats-grid">
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">
+                            <i class="fa-solid fa-arrow-down-left"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Ingresado Acumulado</h3>
+                            <p class="stat-number" id="cc-stat-ingresado">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">
+                            <i class="fa-solid fa-arrow-up-right"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Gasto Total (Retiros)</h3>
+                            <p class="stat-number" id="cc-stat-gasto">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6;">
+                            <i class="fa-solid fa-vault"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Fondo Disponible</h3>
+                            <p class="stat-number" id="cc-stat-fondo">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">
+                            <i class="fa-solid fa-percent"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>% Caja Utilizado</h3>
+                            <p class="stat-number" id="cc-stat-pct">0%</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Arqueo de Billetes Panel -->
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;" id="arqueo-panel">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3><i class="fa-solid fa-money-bill-1-wave"></i> Arqueo Físico de Billetes (Conteo de Caja)</h3>
+                        <button class="btn btn-primary" id="btn-guardar-arqueo">
+                            <i class="fa-solid fa-floppy-disk"></i> Guardar Arqueo
+                        </button>
+                    </div>
+                    <div class="arqueo-grid">
+                        <div class="billete-card">
+                            <span class="billete-label">$20.000</span>
+                            <input type="number" class="billete-input" id="b-20000" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-20000">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$10.000</span>
+                            <input type="number" class="billete-input" id="b-10000" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-10000">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$2.000</span>
+                            <input type="number" class="billete-input" id="b-2000" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-2000">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$1.000</span>
+                            <input type="number" class="billete-input" id="b-1000" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-1000">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$500</span>
+                            <input type="number" class="billete-input" id="b-500" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-500">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$200</span>
+                            <input type="number" class="billete-input" id="b-200" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-200">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$100</span>
+                            <input type="number" class="billete-input" id="b-100" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-100">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$50</span>
+                            <input type="number" class="billete-input" id="b-50" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-50">$0</span>
+                        </div>
+                        <div class="billete-card">
+                            <span class="billete-label">$20</span>
+                            <input type="number" class="billete-input" id="b-20" value="0" min="0">
+                            <span class="subtotal-billete" id="sub-20">$0</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding: 1rem; background: rgba(30,41,59,0.8); border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 600; font-size: 1rem;">Total Efectivo Físico Contado:</span>
+                        <span style="font-weight: 700; font-size: 1.3rem; color: #10b981;" id="arqueo-total-contado">$0</span>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-list"></i> Histórico de Movimientos de Caja Chica</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Retirado (Egreso)</th>
+                                    <th>Ingresado (Fondo)</th>
+                                    <th>Motivo / Descripción</th>
+                                    <th>Responsable</th>
+                                    <th>Categoría</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-caja-chica-body">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Gastos Fijos & Dashboards -->
+            <section id="tab-gastos-fijos" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <div>
+                        <h1>Dashboard de Gastos Fijos & Ganancia Neta</h1>
+                        <p>Consolidado general de ingresos vs gastos de caja y costos fijos estructurales.</p>
+                    </div>
+                </header>
+
+                <div class="stats-grid">
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">
+                            <i class="fa-solid fa-sack-dollar"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Ganancia Bruta Total</h3>
+                            <p class="stat-number" id="gf-stat-bruta">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">
+                            <i class="fa-solid fa-hand-holding-hand"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Gastos de Caja</h3>
+                            <p class="stat-number" id="gf-stat-caja">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">
+                            <i class="fa-solid fa-building"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Gastos Fijos Estructurales</h3>
+                            <p class="stat-number" id="gf-stat-fijo">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6;">
+                            <i class="fa-solid fa-chart-column"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Ganancia Neta</h3>
+                            <p class="stat-number" id="gf-stat-neta">$0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <h3><i class="fa-solid fa-chart-bar"></i> Ganancia Neta contra Mes</h3>
+                    <div style="height: 260px; margin-top: 1rem;">
+                        <canvas id="chartGananciaNeta"></canvas>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;"><i class="fa-solid fa-file-invoice"></i> Estructura de Gastos Fijos Mensuales</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Concepto</th>
+                                    <th>Monto Mensual</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-gastos-fijos-body">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Suppliers -->
+            <section id="tab-suppliers" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h1>Proveedores Configurados</h1>
+                        <p>Lista de proveedores detectados y sus reglas de coincidencia.</p>
+                    </div>
+                    <div class="supplier-stats-wrapper">
+                        <button id="btn-supplier-stats" class="supplier-stats-pill" title="Ver desglose Top 10 proveedores con más facturas">
+                            <div class="pill-icon"><i class="fa-solid fa-users"></i></div>
+                            <span class="pill-label">Proveedores totales: <strong id="header-total-suppliers">0</strong></span>
+                            <i class="fa-solid fa-chevron-down pill-arrow"></i>
+                        </button>
+
+                        <div id="supplier-stats-dropdown" class="supplier-stats-dropdown glass-card">
+                            <div class="stats-dropdown-header">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-trophy" style="color: #f59e0b;"></i>
+                                    <h4 style="margin: 0; font-size: 0.95rem;">Top 10 Proveedores con Más Facturas</h4>
+                                </div>
+                                <span class="year-badge" id="stats-year-badge">Año 2026</span>
+                            </div>
+                            <div id="top-suppliers-list" class="top-suppliers-list">
+                                <!-- Filas dinámicas del Top 10 -->
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="glass-card full-height-card">
+                    <div class="table-toolbar">
+                        <div class="search-box">
+                            <i class="fa-solid fa-search"></i>
+                            <input type="text" id="search-suppliers"
+                                placeholder="Filtrar proveedores por nombre o CUIT...">
+                        </div>
+                        <div class="toolbar-actions">
+                            <span id="supplier-count" class="badge">0 proveedores</span>
+                            <button id="btn-refresh-suppliers" class="btn btn-secondary btn-icon">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre del Proveedor</th>
+                                    <th>Palabras Clave (Keywords)</th>
+                                    <th>Regex de Factura</th>
+                                </tr>
+                            </thead>
+                            <tbody id="suppliers-table-body">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-results-msg" class="empty-state" style="display: none;">
+                        <i class="fa-regular fa-face-frown-open"></i>
+                        <p>No se encontraron proveedores que coincidan con la búsqueda.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Processed Invoices -->
+            <section id="tab-processed" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <h1>Facturas Procesadas</h1>
+                    <p>Historial de facturas que han sido procesadas exitosamente.</p>
+                </header>
+
+                <div class="glass-card full-height-card">
+                    <div class="table-toolbar">
+                        <div class="search-box">
+                            <i class="fa-solid fa-search"></i>
+                            <input type="text" id="search-processed"
+                                placeholder="Filtrar por proveedor o nombre de archivo...">
+                        </div>
+                        <div class="toolbar-actions">
+                            <span id="processed-count" class="badge">0 facturas</span>
+                            <button id="btn-refresh-processed" class="btn btn-secondary btn-icon">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <div id="processed-tree-container" class="tree-container">
+                            <!-- Dynamic tree content -->
+                        </div>
+                    </div>
+                    <div id="no-processed-msg" class="empty-state" style="display: none;">
+                        <i class="fa-regular fa-folder-open"></i>
+                        <p>No se encontraron facturas procesadas.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Remitos y Documentos No Fiscales -->
+            <section id="tab-remitos" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <h1>Remitos y Documentos No Fiscales</h1>
+                    <p>Comprobantes comerciales, presupuestos, remitos, notas de pedido y documentos de uso interno.</p>
+                </header>
+
+                <div class="glass-card full-height-card">
+                    <div class="table-toolbar">
+                        <div class="search-box">
+                            <i class="fa-solid fa-search"></i>
+                            <input type="text" id="search-remitos"
+                                placeholder="Filtrar por nombre de remito o archivo...">
+                        </div>
+                        <div class="toolbar-actions">
+                            <span id="remitos-count" class="badge">0 remitos</span>
+                            <button id="btn-refresh-remitos" class="btn btn-secondary btn-icon">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <div id="remitos-tree-container" class="tree-container">
+                            <!-- Dynamic tree content -->
+                        </div>
+                    </div>
+                    <div id="no-remitos-msg" class="empty-state" style="display: none;">
+                        <i class="fa-regular fa-folder-open"></i>
+                        <p>No se encontraron remitos o documentos no fiscales procesados.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Unrecognized Invoices -->
+            <section id="tab-unrecognized" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <h1>Facturas No Reconocidas</h1>
+                    <p>Archivos que no pudieron ser clasificados automáticamente y sus diagnósticos de error.</p>
+                </header>
+
+                <div class="glass-card full-height-card">
+                    <div class="table-toolbar">
+                        <div class="search-box">
+                            <i class="fa-solid fa-search"></i>
+                            <input type="text" id="search-unrecognized"
+                                placeholder="Filtrar por nombre de archivo o tipo de error...">
+                        </div>
+                        <div class="toolbar-actions">
+                            <span id="unrecognized-count" class="badge">0 archivos</span>
+                            <button id="btn-refresh-unrecognized" class="btn btn-secondary btn-icon">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th>Archivo</th>
+                                    <th>Tipo de Error</th>
+                                    <th>Fecha de Intento</th>
+                                    <th>Diagnóstico / Explicación del Error</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="unrecognized-table-body">
+                                <!-- Filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-unrecognized-msg" class="empty-state" style="display: none;">
+                        <i class="fa-solid fa-circle-check" style="color: #2ecc71;"></i>
+                        <p>¡Excelente! No hay facturas sin reconocer actualmente.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Upload CSV -->
+            <section id="tab-upload" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <h1>Cargar CSV de ARCA</h1>
+                    <p>Sube los comprobantes exportados de ARCA para actualizar los proveedores y extraer CAEs.</p>
+                </header>
+
+                <div class="glass-card"
+                    style="margin-bottom: 1.5rem; background: linear-gradient(135deg, rgba(155, 89, 182, 0.1), rgba(52, 152, 219, 0.1)); border-left: 4px solid #9b59b6;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;">
+                        <div>
+                            <h3 style="color: #9b59b6; margin-bottom: 0.3rem;"><i class="fa-solid fa-robot"
+                                    style="margin-right: 8px;"></i> Sincronización Automática con ARCA</h3>
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0;">
+                                Descarga automáticamente el CSV de comprobantes recibidos del mes actual (hasta el día
+                                de hoy) y actualiza tus proveedores en un solo clic.
+                            </p>
+                            <span id="arca-sync-status-msg"
+                                style="font-size: 0.85rem; color: var(--text-primary); display: block; margin-top: 0.4rem;"></span>
+                        </div>
+                        <button id="btn-sync-arca-upload" class="btn btn-primary"
+                            style="background: #9b59b6; border-color: #8e44ad; min-width: 220px;">
+                            <i class="fa-solid fa-arrows-rotate"></i> Sincronizar con ARCA
+                        </button>
+                    </div>
+                </div>
+
+                <div class="glass-card upload-card">
+                    <div class="upload-area" id="drop-zone">
+                        <div class="upload-icon-container">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                        </div>
+                        <h3>Arrastra y suelta tu archivo CSV o ZIP aquí</h3>
+                        <p>o</p>
+                        <label for="file-upload" class="btn btn-outline">Seleccionar archivo</label>
+                        <input type="file" id="file-upload" accept=".csv,.zip" style="display: none;">
+                        <p class="file-hint">Solo se admiten archivos .csv o .zip de ARCA</p>
+                        <div
+                            style="margin-top: 1.5rem; padding: 1rem; background: rgba(74,144,226,0.1); border-radius: 8px; border-left: 4px solid var(--accent-primary);">
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0; text-align: left;">
+                                <i class="fa-solid fa-lightbulb"
+                                    style="color: var(--accent-primary); margin-right: 5px;"></i>
+                                <strong>Recomendación:</strong> Descarga de ARCA al menos <strong>6 meses</strong> de
+                                comprobantes recibidos para inicializar tus proveedores. Luego, actualiza subiendo
+                                nuevos archivos <strong>cada 3 meses</strong>.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="upload-status" class="upload-status" style="display: none;">
+                        <div class="loader"></div>
+                        <p>Procesando e identificando nuevos proveedores...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Settings -->
+            <section id="tab-settings" class="tab-pane fade-in" style="display: none;">
+                <header class="section-header">
+                    <h1>Ajustes de la Aplicación</h1>
+                    <p>Configura las opciones de Inteligencia Artificial para reconocer facturas borrosas e información
+                        de tu Licencia.</p>
+                </header>
+
+                <div class="glass-card" style="margin-bottom: 2rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <h3>Licencia de Uso</h3>
+                            <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9rem;">
+                                Identificador único de tu computadora. Debes registrar este ID con el administrador para
+                                habilitar el uso de todas las funciones.
+                            </p>
+                        </div>
+                        <div class="status-badge" id="license-status-badge"
+                            style="margin: 0; background: rgba(255, 255, 255, 0.1);">
+                            <span id="license-status-text">Verificando...</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <input type="text" id="input-hardware-id" readonly placeholder="Cargando ID..."
+                            style="flex: 1; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-primary); font-family: monospace; font-size: 1.1rem; letter-spacing: 1px; text-align: center; cursor: text;">
+                        <button id="btn-copy-hwid" class="btn btn-secondary">
+                            <i class="fa-solid fa-copy"></i> Copiar ID
+                        </button>
+                        <button id="btn-sync-license" class="btn btn-primary" title="Forzar actualización con Firebase">
+                            <i class="fa-solid fa-rotate"></i> Sincronizar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <h3>API Key de Gemini (Opcional)</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9rem;">
+                        Esta clave se guarda EXCLUSIVAMENTE a nivel local en tu computadora. NO se subirá a ningún lado
+                        y respeta todas las normas de privacidad. Tus datos sensibles nunca saldrán de tu PC de forma
+                        insegura.
+                    </p>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <input type="password" id="input-api-key" placeholder="Pega tu API Key aquí..."
+                            style="flex: 1; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;">
+                        <button id="btn-save-api-key" class="btn btn-primary">
+                            <i class="fa-solid fa-save"></i> Guardar
+                        </button>
+                    </div>
+                </div>
+                <div class="glass-card" style="margin-top: 1rem;">
+                    <h3>Mi CUIT (Receptor)</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9rem;">
+                        Ingresa el CUIT de tu empresa. El sistema lo ignorará al escanear facturas para evitar
+                        confundirlo con el CUIT del proveedor.
+                    </p>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <input type="text" id="input-my-cuit" placeholder="Ej: 30714817767"
+                            style="flex: 1; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;">
+                        <button id="btn-save-cuit" class="btn btn-primary">
+                            <i class="fa-solid fa-save"></i> Guardar CUIT
+                        </button>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="margin-top: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <h3>Credenciales de ARCA / AFIP (Para Bot Sincronizador)</h3>
+                            <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9rem;">
+                                Ingresa tu CUIT y Clave Fiscal para automatizar la descarga del CSV de comprobantes
+                                recibidos. Tus datos se guardan exclusivamente de forma local y encriptada en tu equipo.
+                            </p>
+                        </div>
+                        <div class="status-badge" id="arca-status-badge"
+                            style="margin: 0; background: rgba(255, 255, 255, 0.1);">
+                            <span id="arca-status-text">Verificando...</span>
+                        </div>
+                    </div>
+                    <div
+                        style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: center;">
+                        <input type="text" id="input-arca-cuit" placeholder="CUIT Usuario ARCA"
+                            style="padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;"
+                            title="CUIT titular del usuario con Clave Fiscal">
+                        <input type="password" id="input-arca-clave" placeholder="Clave Fiscal de ARCA"
+                            style="padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;">
+                        <input type="text" id="input-arca-representada"
+                            placeholder="CUIT / Razón Social Empresa (Ej. 30714817767)"
+                            style="padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;"
+                            title="CUIT o Razón Social a seleccionar si administrás múltiples empresas">
+                        <button id="btn-save-arca-creds" class="btn btn-primary">
+                            <i class="fa-solid fa-save"></i> Guardar Credenciales
+                        </button>
+                    </div>
+                    <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+                        <button id="btn-view-arca-logs" class="btn btn-secondary" style="font-size: 0.85rem;">
+                            <i class="fa-solid fa-terminal"></i> Ver Logs de Depuración (`registros/arca_error_log.txt`)
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab: Doctor -->
+            <section id="tab-doctor" class="tab-pane" style="display: none;">
+                <header class="section-header">
+                    <h1>Doctor 🩺</h1>
+                    <p>Auditoría y corrección automática de la base de datos de facturas.</p>
+                </header>
+
+                <div class="card glass-effect" style="margin-bottom: 2rem;">
+                    <h2>Centro de Diagnóstico</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                        Esta herramienta escaneará la carpeta de facturas procesadas en busca de anomalías (archivos
+                        desubicados, carpetas vacías o nombres incorrectos) y te permitirá arreglarlos automáticamente.
+                    </p>
+                    <div style="display: flex; gap: 1rem;">
+                        <button id="btn-doctor-scan" class="btn btn-primary" style="flex: 1;">
+                            <i class="fa-solid fa-magnifying-glass"></i> Escanear Base de Datos
+                        </button>
+                        <button id="btn-doctor-fix" class="btn btn-secondary" style="flex: 1;" disabled>
+                            <i class="fa-solid fa-notes-medical"></i> Aplicar Curas Automáticas
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card glass-effect" id="doctor-results-container" style="display: none;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h2>Reporte Médico</h2>
+                        <span id="doctor-count" class="badge">0 anomalías</span>
+                    </div>
+                    <div id="doctor-results-list" style="display: flex; flex-direction: column; gap: 1rem;">
+                        <!-- JS renders here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal para Vista Previa -->
+    <div id="file-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Visor de Documento</h2>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <iframe id="modal-iframe" src="" frameborder="0" width="100%" height="600px"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Logs de ARCA -->
+    <div id="arca-logs-modal" class="modal" style="display: none;">
+        <div class="modal-content glass-card" style="max-width: 800px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3><i class="fa-solid fa-terminal" style="color: var(--accent-primary); margin-right: 8px;"></i>
+                    Registros de Depuración de ARCA (<code>registros/arca_error_log.txt</code>)</h3>
+                <span class="close-modal close-arca-modal" style="cursor: pointer; font-size: 1.5rem;">&times;</span>
+            </div>
+            <pre id="arca-logs-content"
+                style="background: rgba(0,0,0,0.5); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.85rem; color: #a6e22e; max-height: 450px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin: 0;"></pre>
+            <div style="margin-top: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                <button id="btn-refresh-arca-logs" class="btn btn-secondary"><i class="fa-solid fa-rotate"></i>
+                    Actualizar Logs</button>
+                <button class="btn btn-primary close-arca-modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Credenciales ARCA -->
+    <div id="arca-credentials-modal" class="modal" style="display: none;">
+        <div class="modal-content glass-card" style="max-width: 550px; width: 90%;">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.8rem;">
+                <h3
+                    style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 10px; color: #9b59b6;">
+                    <i class="fa-solid fa-key"></i> Credenciales de ARCA / AFIP
+                </h3>
+                <span class="close-modal close-arca-creds-modal"
+                    style="cursor: pointer; font-size: 1.5rem;">&times;</span>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                Ingresa los datos para descargar tus comprobantes de ARCA automáticamente sin depender de archivos CSV
+                cargados manualmente.
+            </p>
+            <form id="arca-modal-form" onsubmit="return false;">
+                <div style="display: flex; flex-direction: column; gap: 0.9rem;">
+                    <div>
+                        <label
+                            style="display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.3rem;">CUIT
+                            Usuario (11 dígitos, sin guiones)</label>
+                        <input type="text" id="modal-arca-cuit" placeholder="Ej: 30310000005"
+                            style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;">
+                    </div>
+                    <div>
+                        <label
+                            style="display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.3rem;">Clave
+                            Fiscal de ARCA</label>
+                        <input type="password" id="modal-arca-clave" placeholder="Ingresa tu Clave Fiscal"
+                            style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;">
+                    </div>
+                    <div>
+                        <label
+                            style="display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.3rem;">Razón
+                            Social / CUIT Empresa a Representar</label>
+                        <input type="text" id="modal-arca-representada" placeholder="Ej: PDFWATCHER S.A"
+                            style="width: 100%; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-family: inherit;">
+                    </div>
+
+                    <!-- API Key section optional in modal -->
+                    <div id="modal-api-key-container"
+                        style="background: rgba(74, 144, 226, 0.08); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(74, 144, 226, 0.2);">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
+                            <label style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">API Key de
+                                Gemini (Opcional)</label>
+                            <span id="modal-api-key-status" class="badge"
+                                style="font-size: 0.75rem;">Verificando...</span>
+                        </div>
+                        <input type="password" id="modal-api-key" placeholder="Pega tu API Key de Gemini aquí..."
+                            style="width: 100%; padding: 0.6rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-size: 0.85rem;">
+                        <small id="modal-api-key-hint"
+                            style="color: var(--text-secondary); font-size: 0.78rem; display: block; margin-top: 0.3rem;">
+                            Si posees una API Key, ingresala para habilitar la lectura con IA.
+                        </small>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 0.3rem;">
+                        <input type="checkbox" id="modal-arca-full-year" checked
+                            style="cursor: pointer; width: 16px; height: 16px; accent-color: #9b59b6;">
+                        <label for="modal-arca-full-year"
+                            style="font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; margin: 0;">
+                            Descargar comprobantes desde el 1 de enero del año actual (01/01 a la fecha)
+                        </label>
+                    </div>
+                </div>
+                <div style="margin-top: 1.3rem; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" class="btn btn-secondary close-arca-creds-modal">Cancelar</button>
+                    <button type="button" id="btn-modal-save-sync-arca" class="btn btn-primary"
+                        style="background: #9b59b6; border-color: #8e44ad;">
+                        <i class="fa-solid fa-arrows-rotate"></i> Guardar y Sincronizar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Gestor de Gastos Fijos del Estacionamiento -->
+    <div id="modal-gastos-estacionamiento" class="modal-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="glass-card" style="width: 600px; max-width: 90vw; max-height: 85vh; overflow-y: auto; padding: 2rem; border: 1px solid var(--border-color); background: rgba(15, 23, 42, 0.95); box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.8rem;">
+                <h3 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-square-parking" style="color: #3b82f6;"></i> Gastos Fijos (Negocio Estacionamiento)
+                </h3>
+                <button type="button" class="btn btn-secondary btn-icon" id="btn-close-modal-gastos-est"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.2rem;">
+                Configuración independiente de costos estructurales asignados a la unidad del estacionamiento.
+            </p>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 1.5rem; background: rgba(30,41,59,0.5); padding: 1rem; border-radius: 10px; border: 1px solid var(--border-color);">
+                <input type="text" id="est-gasto-concepto" placeholder="Ej: Alquiler, Sueldo..." style="flex: 2; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(15,23,42,0.8); color: white; font-size: 0.85rem;">
+                <input type="number" id="est-gasto-monto" placeholder="Monto $" style="flex: 1; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(15,23,42,0.8); color: white; font-size: 0.85rem;">
+                <button class="btn btn-primary btn-sm" id="btn-add-est-gasto"><i class="fa-solid fa-plus"></i> Guardar Gasto</button>
+            </div>
+
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Concepto</th>
+                            <th>Monto Mensual ($)</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbl-est-gastos-body">
+                        <!-- Carga dinámica -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-close-modal-gastos-est-footer">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expiration Banner -->
+    <div id="expiration-banner"
+        style="display: none; position: fixed; bottom: 0; right: 0; left: 250px; background: rgba(231, 76, 60, 0.9); color: white; text-align: center; padding: 10px; font-weight: 500; z-index: 9999; backdrop-filter: blur(5px); border-top: 1px solid rgba(255,255,255,0.2);">
+        <i class="fa-solid fa-clock"></i> <span id="expiration-text">Tu licencia expirará en X días.</span>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.js.iife.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+
+</html>

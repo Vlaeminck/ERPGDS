@@ -1,0 +1,2311 @@
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Utility: HTML Escape ---
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // --- Navigation ---
+    const allTabItems = document.querySelectorAll('[data-tab]');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    const groupFacturas = document.getElementById('group-facturas');
+
+    function switchTab(tabName) {
+        // Remover active de todos los ítems de navegación
+        allTabItems.forEach(l => l.classList.remove('active'));
+        document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
+        tabPanes.forEach(p => p.style.display = 'none');
+        
+        const activeLink = document.querySelector(`[data-tab="${tabName}"]`);
+        if (activeLink) activeLink.classList.add('active');
+
+        // Gestionar estado del grupo Facturas
+        const facturasSubTabs = ['dashboard', 'processed', 'remitos', 'upload'];
+        if (facturasSubTabs.includes(tabName)) {
+            if (groupFacturas) groupFacturas.classList.add('active');
+        } else {
+            if (groupFacturas) groupFacturas.classList.remove('active');
+        }
+
+        const targetTab = document.getElementById(`tab-${tabName}`);
+        if (targetTab) {
+            targetTab.style.display = 'block';
+            targetTab.classList.remove('fade-in');
+            void targetTab.offsetWidth;
+            targetTab.classList.add('fade-in');
+        }
+
+        if (tabName === 'dashboard') {
+            fetchStatus();
+            fetchProgress();
+        }
+        if (tabName === 'cuentas-pagar') fetchCuentasPorPagar();
+        if (tabName === 'recaudacion') fetchRecaudacion();
+        if (tabName === 'estacionamiento') fetchEstacionamiento();
+        if (tabName === 'caja-chica') fetchCajaChica();
+        if (tabName === 'gastos-fijos') fetchGastosFijos();
+        if (tabName === 'suppliers') fetchSuppliers();
+        if (tabName === 'processed') fetchProcessedInvoices();
+        if (tabName === 'remitos') fetchProcessedRemitos();
+        if (tabName === 'unrecognized') fetchUnrecognizedInvoices();
+    }
+
+    allTabItems.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+            switchTab(link.dataset.tab);
+        });
+    });
+
+    // --- Toast Notifications ---
+    function showToast(message, type = 'success') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        let icon = 'fa-check-circle';
+        if (type === 'error') icon = 'fa-circle-xmark';
+        if (type === 'warning') icon = 'fa-triangle-exclamation';
+        
+        toast.innerHTML = `
+            <i class="fa-solid ${icon}"></i>
+            <div class="toast-content"><p>${message}</p></div>
+        `;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'fadeOut 0.3s ease forwards';
+            setTimeout(() => {
+                if(container.contains(toast)) container.removeChild(toast);
+            }, 300);
+        }, 5000);
+    }
+
+    // --- License Check ---
+    const licenseStatusBadge = document.getElementById('license-status-badge');
+    const licenseStatusText = document.getElementById('license-status-text');
+    const inputHardwareId = document.getElementById('input-hardware-id');
+    const btnCopyHwId = document.getElementById('btn-copy-hwid');
+    const expBanner = document.getElementById('expiration-banner');
+    const expText = document.getElementById('expiration-text');
+    const btnSyncLicense = document.getElementById('btn-sync-license');
+    let isLicenseValid = true; // Default to true until checked, or default to false and let check enable it
+
+    async function fetchLicenseStatus(force = false) {
+        try {
+            const url = force ? '/api/license/status?force=true' : '/api/license/status';
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (inputHardwareId) {
+                inputHardwareId.value = data.hw_id || 'ERROR';
+            }
+
+            if (data.valid) {
+                isLicenseValid = true;
+                if (licenseStatusBadge) {
+                    licenseStatusBadge.className = 'status-badge status-active';
+                    licenseStatusText.textContent = data.message || 'Activa';
+                }
+                
+                if (data.days_left !== undefined && data.days_left !== null && data.days_left <= 15) {
+                    if (expBanner && expText) {
+                        expBanner.style.display = 'block';
+                        expText.textContent = `Atención: Tu licencia expirará en ${data.days_left} día(s).`;
+                    }
+                } else {
+                    if (expBanner) expBanner.style.display = 'none';
+                }
+            } else {
+                isLicenseValid = false;
+                if (licenseStatusBadge) {
+                    licenseStatusBadge.className = 'status-badge status-inactive';
+                    licenseStatusText.textContent = 'Inactiva / No Registrada';
+                }
+                
+                // Deshabilitar botones principales si hay referencias
+                const bStart = document.getElementById('btn-start-watcher');
+                const bStop = document.getElementById('btn-stop-watcher');
+                const bScan = document.getElementById('btn-open-scanner');
+                
+                if (bStart) bStart.disabled = true;
+                if (bStop) bStop.disabled = true;
+                if (bScan) bScan.disabled = true;
+                
+                // Force update UI
+                updateWatcherStatusUI(false);
+                
+                if (expBanner) expBanner.style.display = 'none';
+                
+                showToast(`Licencia Inválida: ${data.message || 'Contacta al administrador'}`, 'error');
+            }
+        } catch (error) {
+            console.error("Error fetching license status:", error);
+            if (licenseStatusBadge) {
+                licenseStatusBadge.className = 'status-badge status-inactive';
+                licenseStatusText.textContent = 'Error de Conexión';
+            }
+        }
+    }
+
+    if (btnCopyHwId) {
+        btnCopyHwId.addEventListener('click', () => {
+            if (inputHardwareId && inputHardwareId.value) {
+                navigator.clipboard.writeText(inputHardwareId.value)
+                    .then(() => showToast('Hardware ID copiado al portapapeles', 'success'))
+                    .catch(err => showToast('Error al copiar ID', 'error'));
+            }
+        });
+    }
+
+    if (btnSyncLicense) {
+        btnSyncLicense.addEventListener('click', async () => {
+            const icon = btnSyncLicense.querySelector('i');
+            icon.classList.add('fa-spin');
+            await fetchLicenseStatus(true);
+            icon.classList.remove('fa-spin');
+            showToast('Licencia sincronizada con Firebase', 'success');
+        });
+    }
+
+    // --- Dashboard & Watcher Controls ---
+    const btnStart = document.getElementById('btn-start-watcher');
+    const btnStop = document.getElementById('btn-stop-watcher');
+    const btnScanner = document.getElementById('btn-open-scanner');
+
+    const statusText = document.getElementById('watcher-status-text');
+    const statusBadge = document.getElementById('watcher-status-badge');
+
+    let prevUnrecognizedCount = null;
+
+    const cardProcessed = document.getElementById('card-processed');
+    const cardRemitos = document.getElementById('card-remitos');
+    const cardUnrecognized = document.getElementById('card-unrecognized');
+
+    if (cardProcessed) {
+        cardProcessed.addEventListener('click', () => switchTab('processed'));
+    }
+    if (cardRemitos) {
+        cardRemitos.addEventListener('click', () => switchTab('remitos'));
+    }
+    if (cardUnrecognized) {
+        cardUnrecognized.addEventListener('click', () => switchTab('unrecognized'));
+    }
+
+    async function fetchStatus() {
+        try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            
+            updateWatcherStatusUI(data.watcher_running);
+            
+            document.getElementById('stat-pending').textContent = data.stats.pending;
+            document.getElementById('stat-processed').textContent = data.stats.processed;
+            document.getElementById('stat-unrecognized').textContent = data.stats.unrecognized;
+            if (document.getElementById('stat-remitos')) {
+                document.getElementById('stat-remitos').textContent = data.stats.remitos || 0;
+            }
+            
+            if (prevUnrecognizedCount !== null && data.stats.unrecognized > prevUnrecognizedCount) {
+                showToast("¡Atención! Una factura no reconocida requiere revisión.", "warning");
+            }
+            prevUnrecognizedCount = data.stats.unrecognized;
+
+            fetchUserHistory();
+        } catch (error) {
+            console.error("Error fetching status:", error);
+        }
+    }
+
+    const progressContainer = document.getElementById('progress-container');
+    const progressBarFill = document.getElementById('progress-bar-fill');
+    const progressText = document.getElementById('progress-text');
+    const aiIndicator = document.getElementById('ai-processing-indicator');
+
+    async function fetchProgress() {
+        try {
+            const res = await fetch('/api/progress');
+            const data = await res.json();
+            
+            if (data.is_processing_batch) {
+                progressContainer.style.display = 'block';
+                let percent = 0;
+                if (data.total > 0) {
+                    percent = Math.round((data.processed / data.total) * 100);
+                }
+                progressBarFill.style.width = `${percent}%`;
+                progressText.textContent = `${data.processed} / ${data.total} (${percent}%)`;
+            } else {
+                progressContainer.style.display = 'none';
+            }
+            
+            if (data.is_ai_processing) {
+                aiIndicator.style.display = 'block';
+            } else {
+                aiIndicator.style.display = 'none';
+            }
+        } catch (error) {
+            console.error("Error fetching progress:", error);
+        }
+    }
+
+    function updateWatcherStatusUI(isRunning) {
+        if (!isLicenseValid) {
+            statusText.textContent = 'BLOQUEADO (Sin Licencia)';
+            statusBadge.className = 'status-badge status-inactive';
+            if (btnStart) btnStart.disabled = true;
+            if (btnStop) btnStop.disabled = true;
+            return;
+        }
+        
+        if (isRunning) {
+            statusText.textContent = 'ACTIVO (Escuchando...)';
+            statusBadge.className = 'status-badge status-active';
+            btnStart.disabled = true;
+            btnStop.disabled = false;
+        } else {
+            statusText.textContent = 'DETENIDO';
+            statusBadge.className = 'status-badge status-inactive';
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+        }
+    }
+
+    btnStart.addEventListener('click', async () => {
+        try {
+            const res = await fetch('/api/watcher/start', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message, 'success');
+                updateWatcherStatusUI(true);
+            } else {
+                showToast(data.message, 'error');
+            }
+        } catch (e) {
+            showToast("Error al iniciar el vigía", 'error');
+        }
+    });
+
+    btnStop.addEventListener('click', async () => {
+        try {
+            const res = await fetch('/api/watcher/stop', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message, 'success');
+                updateWatcherStatusUI(false);
+            } else {
+                showToast(data.message, 'error');
+            }
+        } catch (e) {
+            showToast("Error al detener el vigía", 'error');
+        }
+    });
+
+    if (btnScanner) {
+        btnScanner.addEventListener('click', async () => {
+            // Animación temporal en el botón
+            const originalHTML = btnScanner.innerHTML;
+            btnScanner.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
+            btnScanner.disabled = true;
+
+            try {
+                const res = await fetch('/api/open_scanner', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast("Error al abrir escáner automático", 'error');
+                }
+            } catch (e) {
+                showToast("Error de conexión con el escáner", 'error');
+            }
+            
+            // Habilitar botón de nuevo después de 5s para que no se quede pegado 
+            // (el script de pywinauto funciona de fondo)
+            setTimeout(() => {
+                btnScanner.innerHTML = originalHTML;
+                btnScanner.disabled = false;
+            }, 5000);
+        });
+    }
+
+
+
+    // --- Suppliers Tab ---
+    const suppliersTableBody = document.getElementById('suppliers-table-body');
+    const searchInput = document.getElementById('search-suppliers');
+    const btnRefreshSuppliers = document.getElementById('btn-refresh-suppliers');
+    const noResultsMsg = document.getElementById('no-results-msg');
+    const supplierCount = document.getElementById('supplier-count');
+    
+    // Stats Pill & Dropdown Elements
+    const btnSupplierStats = document.getElementById('btn-supplier-stats');
+    const supplierStatsDropdown = document.getElementById('supplier-stats-dropdown');
+    const supplierStatsWrapper = document.querySelector('.supplier-stats-wrapper');
+    const headerTotalSuppliers = document.getElementById('header-total-suppliers');
+    const statsYearBadge = document.getElementById('stats-year-badge');
+    const topSuppliersList = document.getElementById('top-suppliers-list');
+
+    if (btnSupplierStats && supplierStatsDropdown) {
+        btnSupplierStats.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isShowing = supplierStatsDropdown.classList.contains('show');
+            if (isShowing) {
+                supplierStatsDropdown.classList.remove('show');
+                if (supplierStatsWrapper) supplierStatsWrapper.classList.remove('active');
+            } else {
+                supplierStatsDropdown.classList.add('show');
+                if (supplierStatsWrapper) supplierStatsWrapper.classList.add('active');
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (supplierStatsWrapper && !supplierStatsWrapper.contains(e.target)) {
+                supplierStatsDropdown.classList.remove('show');
+                supplierStatsWrapper.classList.remove('active');
+            }
+        });
+    }
+
+    let allSuppliers = [];
+
+    async function fetchSuppliers() {
+        try {
+            const res = await fetch('/api/suppliers');
+            allSuppliers = await res.json();
+            renderSuppliers(allSuppliers);
+            fetchSupplierStats();
+        } catch (error) {
+            console.error("Error fetching suppliers:", error);
+            showToast("Error al cargar proveedores", "error");
+        }
+    }
+
+    async function fetchSupplierStats() {
+        try {
+            const res = await fetch('/api/suppliers/stats');
+            const data = await res.json();
+            
+            if (headerTotalSuppliers) {
+                headerTotalSuppliers.textContent = data.total_suppliers || 0;
+            }
+            if (statsYearBadge) {
+                statsYearBadge.textContent = `Año ${data.current_year || new Date().getFullYear()}`;
+            }
+
+            renderTopSuppliers(data.top_suppliers || [], data.total_invoices_ytd || 0);
+        } catch (error) {
+            console.error("Error fetching supplier stats:", error);
+        }
+    }
+
+    function renderTopSuppliers(topSuppliers, totalInvoicesYtd) {
+        if (!topSuppliersList) return;
+        topSuppliersList.innerHTML = '';
+
+        if (topSuppliers.length === 0) {
+            topSuppliersList.innerHTML = `
+                <div style="text-align: center; padding: 1.5rem; color: var(--text-secondary); font-size: 0.85rem;">
+                    <i class="fa-regular fa-folder-open" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block;"></i>
+                    No hay registros de facturas en el año actual.
+                </div>
+            `;
+            return;
+        }
+
+        const maxCount = topSuppliers[0]?.count || 1;
+
+        topSuppliers.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'top-supplier-item';
+
+            let rankClass = '';
+            if (item.rank === 1) rankClass = 'rank-1';
+            else if (item.rank === 2) rankClass = 'rank-2';
+            else if (item.rank === 3) rankClass = 'rank-3';
+
+            const barWidth = Math.max(8, Math.round((item.count / maxCount) * 100));
+
+            row.innerHTML = `
+                <div class="rank-number ${rankClass}">${item.rank}</div>
+                <div class="supplier-info">
+                    <span class="supplier-name-text" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+                    <div class="supplier-progress-bg">
+                        <div class="supplier-progress-fill" style="width: ${barWidth}%;"></div>
+                    </div>
+                </div>
+                <div class="supplier-invoice-count">
+                    <span class="count-number">${item.count}</span>
+                    <span class="count-label">facturas</span>
+                </div>
+            `;
+            topSuppliersList.appendChild(row);
+        });
+    }
+
+    function renderSuppliers(suppliersList) {
+        suppliersTableBody.innerHTML = '';
+        
+        supplierCount.textContent = `${suppliersList.length} proveedores`;
+        
+        if (suppliersList.length === 0) {
+            noResultsMsg.style.display = 'flex';
+            document.querySelector('.table-container').style.display = 'none';
+            return;
+        }
+        
+        noResultsMsg.style.display = 'none';
+        document.querySelector('.table-container').style.display = 'block';
+        
+        suppliersList.forEach(sup => {
+            const tr = document.createElement('tr');
+            
+            // Name
+            const tdName = document.createElement('td');
+            tdName.innerHTML = `<strong>${sup.name}</strong>`;
+            
+            // Keywords
+            const tdKw = document.createElement('td');
+            let kwHtml = '';
+            sup.keywords.forEach(kw => {
+                kwHtml += `<span class="kw-tag">${kw}</span>`;
+            });
+            tdKw.innerHTML = kwHtml;
+            
+            // Regex
+            const tdRegex = document.createElement('td');
+            tdRegex.innerHTML = `<span class="code-snippet">${sup.regex}</span>`;
+            
+            tr.appendChild(tdName);
+            tr.appendChild(tdKw);
+            tr.appendChild(tdRegex);
+            suppliersTableBody.appendChild(tr);
+        });
+    }
+
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        const filtered = allSuppliers.filter(sup => {
+            return sup.name.toLowerCase().includes(query) || 
+                   sup.keywords.some(k => k.toLowerCase().includes(query));
+        });
+        renderSuppliers(filtered);
+    });
+
+    btnRefreshSuppliers.addEventListener('click', () => {
+        searchInput.value = '';
+        fetchSuppliers();
+        showToast("Lista actualizada");
+    });
+
+    // --- Processed Invoices Tab ---
+    const processedTreeContainer = document.getElementById('processed-tree-container');
+    const searchProcessedInput = document.getElementById('search-processed');
+    const btnRefreshProcessed = document.getElementById('btn-refresh-processed');
+    const noProcessedMsg = document.getElementById('no-processed-msg');
+    const processedCount = document.getElementById('processed-count');
+    
+    let allProcessedInvoices = [];
+
+    async function fetchProcessedInvoices() {
+        try {
+            const res = await fetch('/api/processed_invoices');
+            allProcessedInvoices = await res.json();
+            renderProcessedTree(allProcessedInvoices);
+        } catch (error) {
+            console.error("Error fetching processed invoices:", error);
+            showToast("Error al cargar facturas procesadas", "error");
+        }
+    }
+
+    function renderProcessedTree(invoicesList) {
+        processedTreeContainer.innerHTML = '';
+        processedCount.textContent = `${invoicesList.length} facturas`;
+        
+        if (invoicesList.length === 0) {
+            noProcessedMsg.style.display = 'flex';
+            document.querySelector('#tab-processed .table-container').style.display = 'none';
+            return;
+        }
+        
+        noProcessedMsg.style.display = 'none';
+        document.querySelector('#tab-processed .table-container').style.display = 'block';
+
+        // Group by Year -> Month -> Supplier
+        const tree = {};
+        invoicesList.forEach(inv => {
+            const parts = inv.date.split(' ');
+            const month = parts[0] || 'N/A';
+            const year = parts[1] || 'N/A';
+            const s = inv.supplier || 'N/A';
+            
+            if (!tree[year]) tree[year] = {};
+            if (!tree[year][month]) tree[year][month] = {};
+            if (!tree[year][month][s]) tree[year][month][s] = [];
+            
+            tree[year][month][s].push(inv);
+        });
+
+        function buildFolder(name, contentHtml, isOpen = false) {
+            const folderDiv = document.createElement('div');
+            folderDiv.className = `tree-folder ${isOpen ? 'open' : ''}`;
+            
+            const folderNameDiv = document.createElement('div');
+            folderNameDiv.className = 'tree-folder-name';
+            folderNameDiv.innerHTML = `<i class="fa-solid fa-folder${isOpen ? '-open' : ''}"></i> <strong>${name}</strong>`;
+            
+            const folderContentDiv = document.createElement('div');
+            folderContentDiv.className = 'tree-folder-content';
+            folderContentDiv.appendChild(contentHtml);
+
+            folderNameDiv.addEventListener('click', () => {
+                const isOpenNow = folderDiv.classList.toggle('open');
+                folderNameDiv.querySelector('i').className = `fa-solid fa-folder${isOpenNow ? '-open' : ''}`;
+            });
+
+            folderDiv.appendChild(folderNameDiv);
+            folderDiv.appendChild(folderContentDiv);
+            return folderDiv;
+        }
+
+        const rootDiv = document.createElement('div');
+        const hasSearch = searchProcessedInput.value.trim().length > 0;
+
+        Object.keys(tree).sort().reverse().forEach(year => {
+            const yearContent = document.createElement('div');
+            Object.keys(tree[year]).sort().forEach(month => {
+                const monthContent = document.createElement('div');
+                Object.keys(tree[year][month]).sort().forEach(supplier => {
+                    const supplierContent = document.createElement('div');
+                    tree[year][month][supplier].forEach(inv => {
+                        const fileDiv = document.createElement('div');
+                        fileDiv.className = 'tree-file';
+                        fileDiv.innerHTML = `<i class="fa-solid fa-file-pdf"></i> <span>${inv.filename}</span>`;
+                        fileDiv.addEventListener('click', () => openModal(inv));
+                        supplierContent.appendChild(fileDiv);
+                    });
+                    monthContent.appendChild(buildFolder(supplier, supplierContent, true));
+                });
+                yearContent.appendChild(buildFolder(month, monthContent, true));
+            });
+            rootDiv.appendChild(buildFolder(year, yearContent, true));
+        });
+
+        processedTreeContainer.appendChild(rootDiv);
+    }
+
+    searchProcessedInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        const filtered = allProcessedInvoices.filter(inv => {
+            return inv.filename.toLowerCase().includes(query) || 
+                   inv.supplier.toLowerCase().includes(query) ||
+                   inv.date.toLowerCase().includes(query);
+        });
+        renderProcessedTree(filtered);
+    });
+
+    btnRefreshProcessed.addEventListener('click', () => {
+        searchProcessedInput.value = '';
+        fetchProcessedInvoices();
+        showToast("Historial actualizado");
+    });
+
+    // --- Remitos y Documentos No Fiscales ---
+    const remitosTreeContainer = document.getElementById('remitos-tree-container');
+    const remitosCount = document.getElementById('remitos-count');
+    const noRemitosMsg = document.getElementById('no-remitos-msg');
+    const searchRemitosInput = document.getElementById('search-remitos');
+    const btnRefreshRemitos = document.getElementById('btn-refresh-remitos');
+    let rawRemitosList = [];
+
+    async function fetchProcessedRemitos() {
+        try {
+            const res = await fetch('/api/processed_remitos');
+            rawRemitosList = await res.json();
+            renderRemitosTree(rawRemitosList);
+        } catch (e) {
+            console.error("Error fetching processed remitos:", e);
+            showToast("Error al cargar remitos", "error");
+        }
+    }
+
+    function renderRemitosTree(list) {
+        if (!remitosTreeContainer) return;
+        remitosTreeContainer.innerHTML = '';
+        remitosCount.textContent = `${list.length} remitos`;
+
+        if (list.length === 0) {
+            noRemitosMsg.style.display = 'flex';
+            if (document.querySelector('#tab-remitos .table-container')) {
+                document.querySelector('#tab-remitos .table-container').style.display = 'none';
+            }
+            return;
+        }
+
+        noRemitosMsg.style.display = 'none';
+        if (document.querySelector('#tab-remitos .table-container')) {
+            document.querySelector('#tab-remitos .table-container').style.display = 'block';
+        }
+
+        const tree = {};
+        list.forEach(item => {
+            const parts = item.date.split(' ');
+            const month = parts[0] || 'N/A';
+            const year = parts[1] || 'N/A';
+
+            if (!tree[year]) tree[year] = {};
+            if (!tree[year][month]) tree[year][month] = [];
+            tree[year][month].push(item);
+        });
+
+        function buildFolder(name, contentHtml, isOpen = true) {
+            const folderDiv = document.createElement('div');
+            folderDiv.className = `tree-folder ${isOpen ? 'open' : ''}`;
+
+            const folderNameDiv = document.createElement('div');
+            folderNameDiv.className = 'tree-folder-name';
+            folderNameDiv.innerHTML = `<i class="fa-solid fa-folder${isOpen ? '-open' : ''}"></i> <strong>${name}</strong>`;
+
+            const folderContentDiv = document.createElement('div');
+            folderContentDiv.className = 'tree-folder-content';
+            folderContentDiv.appendChild(contentHtml);
+
+            folderNameDiv.addEventListener('click', () => {
+                const isOpenNow = folderDiv.classList.toggle('open');
+                folderNameDiv.querySelector('i').className = `fa-solid fa-folder${isOpenNow ? '-open' : ''}`;
+            });
+
+            folderDiv.appendChild(folderNameDiv);
+            folderDiv.appendChild(folderContentDiv);
+            return folderDiv;
+        }
+
+        const rootDiv = document.createElement('div');
+
+        Object.keys(tree).sort().reverse().forEach(year => {
+            const yearContent = document.createElement('div');
+            Object.keys(tree[year]).sort().forEach(month => {
+                const monthContent = document.createElement('div');
+                tree[year][month].forEach(item => {
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = 'tree-file';
+                    fileDiv.innerHTML = `<i class="fa-solid fa-receipt" style="color: #9b59b6;"></i> <span>${item.filename}</span>`;
+                    fileDiv.addEventListener('click', () => openModal(item, '/api/remito_file/'));
+                    monthContent.appendChild(fileDiv);
+                });
+                yearContent.appendChild(buildFolder(month, monthContent, true));
+            });
+            rootDiv.appendChild(buildFolder(year, yearContent, true));
+        });
+
+        remitosTreeContainer.appendChild(rootDiv);
+    }
+
+    if (searchRemitosInput) {
+        searchRemitosInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            const filtered = rawRemitosList.filter(item => 
+                item.filename.toLowerCase().includes(query) ||
+                item.date.toLowerCase().includes(query)
+            );
+            renderRemitosTree(filtered);
+        });
+    }
+
+    if (btnRefreshRemitos) {
+        btnRefreshRemitos.addEventListener('click', () => {
+            if (searchRemitosInput) searchRemitosInput.value = '';
+            fetchProcessedRemitos();
+            showToast("Remitos actualizados");
+        });
+    }
+
+    // --- Facturas No Reconocidas con Diagnóstico ---
+    const unrecognizedTableBody = document.getElementById('unrecognized-table-body');
+    const unrecognizedCount = document.getElementById('unrecognized-count');
+    const noUnrecognizedMsg = document.getElementById('no-unrecognized-msg');
+    const searchUnrecognizedInput = document.getElementById('search-unrecognized');
+    const btnRefreshUnrecognized = document.getElementById('btn-refresh-unrecognized');
+    let rawUnrecognizedList = [];
+
+    async function fetchUnrecognizedInvoices() {
+        try {
+            const res = await fetch('/api/unrecognized_invoices');
+            rawUnrecognizedList = await res.json();
+            renderUnrecognizedTable(rawUnrecognizedList);
+        } catch (e) {
+            console.error("Error fetching unrecognized invoices:", e);
+            showToast("Error al cargar facturas no reconocidas", "error");
+        }
+    }
+
+    function renderUnrecognizedTable(list) {
+        if (!unrecognizedTableBody) return;
+        unrecognizedTableBody.innerHTML = '';
+        unrecognizedCount.textContent = `${list.length} archivos`;
+
+        if (list.length === 0) {
+            noUnrecognizedMsg.style.display = 'flex';
+            if (document.querySelector('#tab-unrecognized .table-container')) {
+                document.querySelector('#tab-unrecognized .table-container').style.display = 'none';
+            }
+            return;
+        }
+
+        noUnrecognizedMsg.style.display = 'none';
+        if (document.querySelector('#tab-unrecognized .table-container')) {
+            document.querySelector('#tab-unrecognized .table-container').style.display = 'block';
+        }
+
+        list.forEach(item => {
+            const tr = document.createElement('tr');
+            
+            const tdFile = document.createElement('td');
+            tdFile.innerHTML = `<i class="fa-solid fa-file-pdf" style="color: #e74c3c; margin-right: 8px;"></i><strong>${item.filename}</strong>`;
+
+            const tdErrorType = document.createElement('td');
+            tdErrorType.innerHTML = `<span class="badge" style="background: rgba(231,76,60,0.2); color: #e74c3c; border: 1px solid rgba(231,76,60,0.3);">${item.error_type}</span>`;
+
+            const tdDate = document.createElement('td');
+            tdDate.textContent = item.date || '-';
+
+            const tdDetails = document.createElement('td');
+            tdDetails.style.maxWidth = '380px';
+            tdDetails.style.fontSize = '0.85rem';
+            tdDetails.style.color = 'var(--text-secondary)';
+            tdDetails.style.whiteSpace = 'pre-line';
+            tdDetails.textContent = item.details;
+
+            const tdAction = document.createElement('td');
+            const btnPreview = document.createElement('button');
+            btnPreview.className = 'btn btn-secondary btn-icon';
+            btnPreview.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            btnPreview.title = 'Previsualizar archivo';
+            btnPreview.addEventListener('click', () => {
+                openModal({ filename: item.filename, path: item.path, supplier: 'No Reconocida' }, '/api/unrecognized_file/');
+            });
+            tdAction.appendChild(btnPreview);
+
+            tr.appendChild(tdFile);
+            tr.appendChild(tdErrorType);
+            tr.appendChild(tdDate);
+            tr.appendChild(tdDetails);
+            tr.appendChild(tdAction);
+
+            unrecognizedTableBody.appendChild(tr);
+        });
+    }
+
+    if (searchUnrecognizedInput) {
+        searchUnrecognizedInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            const filtered = rawUnrecognizedList.filter(item => 
+                item.filename.toLowerCase().includes(query) ||
+                item.error_type.toLowerCase().includes(query) ||
+                item.details.toLowerCase().includes(query)
+            );
+            renderUnrecognizedTable(filtered);
+        });
+    }
+
+    if (btnRefreshUnrecognized) {
+        btnRefreshUnrecognized.addEventListener('click', () => {
+            if (searchUnrecognizedInput) searchUnrecognizedInput.value = '';
+            fetchUnrecognizedInvoices();
+            showToast("No reconocidas actualizadas");
+        });
+    }
+
+    // --- Modal Logic ---
+    const modal = document.getElementById('file-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalIframe = document.getElementById('modal-iframe');
+    const closeModalBtn = document.querySelector('.close-modal');
+
+    function openModal(inv, baseUrl = '/api/file/') {
+        modalTitle.textContent = inv.supplier ? `${inv.supplier} - ${inv.filename}` : inv.filename;
+        const encodedPath = inv.path.split('/').map(encodeURIComponent).join('/');
+        modalIframe.src = `${baseUrl}${encodedPath}`;
+        modal.style.display = 'flex';
+        modal.classList.add('fade-in');
+    }
+
+    closeModalBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+        modalIframe.src = '';
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target == modal) {
+            modal.style.display = 'none';
+            modalIframe.src = '';
+        }
+    });
+
+    // --- Upload CSV Tab ---
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-upload');
+    const uploadStatus = document.getElementById('upload-status');
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('dragover');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('dragover');
+        }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        let dt = e.dataTransfer;
+        let files = dt.files;
+        handleFiles(files);
+    });
+
+    fileInput.addEventListener('change', function() {
+        handleFiles(this.files);
+    });
+
+    function handleFiles(files) {
+        if (files.length === 0) return;
+        const file = files[0];
+        if (!file.name.toLowerCase().endsWith('.csv') && !file.name.toLowerCase().endsWith('.zip')) {
+            showToast("Solo se admiten archivos .csv o .zip", "error");
+            return;
+        }
+        uploadFile(file);
+    }
+
+    async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        dropZone.style.display = 'none';
+        uploadStatus.style.display = 'block';
+
+        try {
+            const response = await fetch('/api/upload_csv', {
+                method: 'POST',
+                body: formData
+            });
+            
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                throw new Error(`Respuesta no válida del servidor (${response.status})`);
+            }
+            
+            if (response.ok && data.success) {
+                showToast(data.message || "Archivo procesado exitosamente", 'success');
+                fetchSuppliers();
+            } else {
+                showToast(data.message || `Error al procesar el archivo (${response.status})`, 'error');
+            }
+        } catch (error) {
+            console.error("Error upload:", error);
+            showToast(error.message || "Error al subir el archivo", 'error');
+        } finally {
+            // Reset UI
+            setTimeout(() => {
+                uploadStatus.style.display = 'none';
+                dropZone.style.display = 'block';
+                fileInput.value = ''; // clear input
+            }, 3000);
+        }
+    }
+
+    // --- Invoice Upload ---
+    const invoiceDropZone = document.getElementById('invoice-drop-zone');
+    const invoiceFileInput = document.getElementById('invoice-file-upload');
+
+    if (invoiceDropZone && invoiceFileInput) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            invoiceDropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            invoiceDropZone.addEventListener(eventName, () => {
+                invoiceDropZone.classList.add('dragover');
+                invoiceDropZone.style.background = 'rgba(74, 144, 226, 0.2)';
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            invoiceDropZone.addEventListener(eventName, () => {
+                invoiceDropZone.classList.remove('dragover');
+                invoiceDropZone.style.background = 'rgba(0,0,0,0.1)';
+            }, false);
+        });
+
+        invoiceDropZone.addEventListener('drop', (e) => {
+            let dt = e.dataTransfer;
+            let files = dt.files;
+            handleInvoiceFiles(files);
+        });
+
+        invoiceFileInput.addEventListener('change', function() {
+            handleInvoiceFiles(this.files);
+        });
+
+        function handleInvoiceFiles(files) {
+            if (files.length === 0) return;
+            for (let i = 0; i < files.length; i++) {
+                uploadInvoice(files[i]);
+            }
+            invoiceFileInput.value = '';
+        }
+
+        async function uploadInvoice(file) {
+            const validExts = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'];
+            const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+            
+            if (!validExts.includes(fileExt)) {
+                showToast(`Tipo de archivo no permitido: ${file.name}`, 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Cambiar icono temporalmente
+            const icon = invoiceDropZone.querySelector('i');
+            const oldClass = icon.className;
+            icon.className = 'fa-solid fa-spinner fa-spin';
+
+            try {
+                const response = await fetch('/api/upload_invoice', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(`Carga exitosa: ${file.name}`, 'success');
+                    fetchStatus(); // Refrescar contadores
+                } else {
+                    showToast(data.message || `Error al subir ${file.name}`, 'error');
+                }
+            } catch (error) {
+                console.error("Error invoice upload:", error);
+                showToast(`Error de red al subir ${file.name}`, 'error');
+            } finally {
+                icon.className = oldClass;
+            }
+        }
+    }
+
+    // --- Settings Tab ---
+    const btnSaveApiKey = document.getElementById('btn-save-api-key');
+    const inputApiKey = document.getElementById('input-api-key');
+
+    if (btnSaveApiKey && inputApiKey) {
+        // Cargar clave actual
+        fetch('/api/settings/get_api_key')
+            .then(res => res.json())
+            .then(data => {
+                if (data.api_key) inputApiKey.value = data.api_key;
+            }).catch(e => console.error("Error loading API Key", e));
+
+        btnSaveApiKey.addEventListener('click', async () => {
+            const apiKey = inputApiKey.value.trim();
+            if (!apiKey) {
+                showToast("Por favor ingresa una API Key", "warning");
+                return;
+            }
+            // Add loading state
+            const originalHTML = btnSaveApiKey.innerHTML;
+            btnSaveApiKey.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando...';
+            btnSaveApiKey.disabled = true;
+
+            try {
+                const res = await fetch('/api/settings/api_key', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch (error) {
+                showToast("Error de conexión al guardar", 'error');
+            } finally {
+                btnSaveApiKey.innerHTML = originalHTML;
+                btnSaveApiKey.disabled = false;
+            }
+        });
+    }
+
+    // --- Driver.js Tutorial ---
+    if (window.driver) {
+        const driver = window.driver.js.driver;
+        
+        const driverObj = driver({
+            showProgress: true,
+            nextBtnText: 'Siguiente',
+            prevBtnText: 'Anterior',
+            doneBtnText: 'Entendido',
+            steps: [
+                { element: 'li[data-tab="dashboard"]', popover: { title: 'Panel General', description: 'Aquí podrás ver las estadísticas y controlar el inicio/fin del vigía de facturas.' } },
+                { element: 'li[data-tab="processed"]', popover: { title: 'Facturas Procesadas', description: 'Revisa tus facturas organizadas automáticamente por año, mes y proveedor.' } },
+                { element: 'li[data-tab="upload"]', popover: { title: 'Cargar CSV o ZIP', description: 'Sube aquí el archivo descargado de ARCA para registrar tus comprobantes.' } },
+                { element: 'li[data-tab="settings"]', popover: { title: 'Ajustes de IA', description: 'Configura tu API Key de Gemini para que la IA lea automáticamente facturas difíciles o borrosas.' } }
+            ]
+        });
+
+        const btnHelp = document.getElementById('btn-help');
+        if (btnHelp) {
+            btnHelp.addEventListener('click', () => {
+                driverObj.drive();
+            });
+        }
+
+        // Auto-start si es la primera vez
+        if (!localStorage.getItem('pdfwatcher_tutorial_seen')) {
+            setTimeout(() => {
+                driverObj.drive();
+                localStorage.setItem('pdfwatcher_tutorial_seen', 'true');
+            }, 1000);
+        }
+    }
+
+    // --- Heartbeat Ping ---
+    // Enviar ping cada 3 segundos para mantener el proceso vivo.
+    // Si cerramos la pestaña, el backend no recibe pings y se auto-apagará en 15s.
+    setInterval(() => {
+        fetch('/api/ping', { method: 'POST' }).catch(() => {});
+    }, 3000);
+
+    // Init polling for status every 2 seconds if dashboard is active
+    fetchLicenseStatus(); // Initial fetch
+    fetchStatus();
+    setInterval(() => {
+        const activeTab = document.querySelector('.nav-links li.active');
+        if (activeTab && activeTab.dataset.tab === 'dashboard') {
+            fetchStatus();
+            fetchProgress();
+            // We can also poll license periodically if we want, e.g. every 10 mins
+        }
+    }, 2000);
+
+    // --- Doctor Tab Logic ---
+    const btnDoctorScan = document.getElementById('btn-doctor-scan');
+    const btnDoctorFix = document.getElementById('btn-doctor-fix');
+    const doctorResultsContainer = document.getElementById('doctor-results-container');
+    const doctorResultsList = document.getElementById('doctor-results-list');
+    const doctorCount = document.getElementById('doctor-count');
+    
+    let currentAnomalies = [];
+
+    if (btnDoctorScan) {
+        btnDoctorScan.addEventListener('click', async () => {
+            const originalHTML = btnDoctorScan.innerHTML;
+            btnDoctorScan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
+            btnDoctorScan.disabled = true;
+            btnDoctorFix.disabled = true;
+            
+            try {
+                const res = await fetch('/api/doctor/scan');
+                const data = await res.json();
+                
+                if (data.success) {
+                    currentAnomalies = data.anomalies;
+                    renderDoctorResults(currentAnomalies);
+                } else {
+                    showToast("Error al escanear: " + data.message, "error");
+                }
+            } catch (error) {
+                showToast("Error de conexión con el Doctor", "error");
+            } finally {
+                btnDoctorScan.innerHTML = originalHTML;
+                btnDoctorScan.disabled = false;
+            }
+        });
+    }
+
+    if (btnDoctorFix) {
+        btnDoctorFix.addEventListener('click', async () => {
+            if (currentAnomalies.length === 0) return;
+            
+            const originalHTML = btnDoctorFix.innerHTML;
+            btnDoctorFix.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Curando...';
+            btnDoctorFix.disabled = true;
+            btnDoctorScan.disabled = true;
+            
+            try {
+                const res = await fetch('/api/doctor/fix', { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.success) {
+                    showToast(`Se aplicaron ${data.fixes} curas automáticas.`, "success");
+                    if (data.errors.length > 0) {
+                        showToast(`Hubo ${data.errors.length} errores al curar. Revisa la consola.`, "warning");
+                        console.error("Errores del doctor:", data.errors);
+                    }
+                    // Rescan
+                    btnDoctorScan.click();
+                } else {
+                    showToast("Error al aplicar curas: " + data.message, "error");
+                }
+            } catch (error) {
+                showToast("Error de red al aplicar curas", "error");
+            } finally {
+                btnDoctorFix.innerHTML = originalHTML;
+                btnDoctorScan.disabled = false;
+            }
+        });
+    }
+
+    function renderDoctorResults(anomalies) {
+        doctorResultsContainer.style.display = 'block';
+        doctorResultsList.innerHTML = '';
+        doctorCount.textContent = `${anomalies.length} anomalías`;
+        
+        if (anomalies.length === 0) {
+            doctorCount.className = "badge status-active";
+            doctorResultsList.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--success);"><i class="fa-solid fa-check-circle" style="font-size: 2rem; margin-bottom: 0.5rem;"></i><br>¡Todo está perfecto! No se encontraron anomalías.</div>';
+            btnDoctorFix.disabled = true;
+            return;
+        }
+        
+        doctorCount.className = "badge status-inactive";
+        btnDoctorFix.disabled = false;
+        
+        anomalies.forEach(anom => {
+            const div = document.createElement('div');
+            
+            let color = "var(--text)";
+            let icon = "fa-triangle-exclamation";
+            
+            if (anom.severity === 'high') { color = "var(--danger)"; icon = "fa-circle-xmark"; }
+            else if (anom.severity === 'medium') { color = "var(--warning)"; }
+            else if (anom.severity === 'low') { color = "var(--text-secondary)"; icon = "fa-info-circle"; }
+            
+            div.style.padding = "1rem";
+            div.style.border = "1px solid rgba(255,255,255,0.1)";
+            div.style.borderRadius = "0.5rem";
+            div.style.background = "rgba(0,0,0,0.2)";
+            
+            div.innerHTML = `
+                <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                    <i class="fa-solid ${icon}" style="color: ${color}; margin-top: 0.2rem;"></i>
+                    <div>
+                        <strong style="color: ${color}; text-transform: uppercase; font-size: 0.8rem;">${anom.type.replace(/_/g, ' ')}</strong>
+                        <p style="margin: 0.2rem 0; font-size: 0.95rem;">${anom.message}</p>
+                        <small style="color: var(--text-secondary); word-break: break-all;"><code>${anom.path}</code></small>
+                    </div>
+                </div>
+            `;
+            doctorResultsList.appendChild(div);
+        });
+    }
+
+    // --- ARCA Credentials & Bot Sync ---
+    const inputArcaCuit = document.getElementById('input-arca-cuit');
+    const inputArcaClave = document.getElementById('input-arca-clave');
+    const inputArcaRepresentada = document.getElementById('input-arca-representada');
+    const btnSaveArcaCreds = document.getElementById('btn-save-arca-creds');
+    const arcaStatusBadge = document.getElementById('arca-status-badge');
+    const arcaStatusText = document.getElementById('arca-status-text');
+    const btnSyncArca = document.getElementById('btn-sync-arca');
+    const btnSyncArcaUpload = document.getElementById('btn-sync-arca-upload');
+    const arcaSyncStatusMsg = document.getElementById('arca-sync-status-msg');
+
+    // Modal elements
+    const arcaCredsModal = document.getElementById('arca-credentials-modal');
+    const modalArcaCuit = document.getElementById('modal-arca-cuit');
+    const modalArcaClave = document.getElementById('modal-arca-clave');
+    const modalArcaRepresentada = document.getElementById('modal-arca-representada');
+    const modalArcaFullYear = document.getElementById('modal-arca-full-year');
+    const modalApiKey = document.getElementById('modal-api-key');
+    const modalApiKeyStatus = document.getElementById('modal-api-key-status');
+    const modalApiKeyHint = document.getElementById('modal-api-key-hint');
+    const btnModalSaveSyncArca = document.getElementById('btn-modal-save-sync-arca');
+    const closeArcaCredsModalBtns = document.querySelectorAll('.close-arca-creds-modal');
+
+    let isArcaConfigured = false;
+
+    async function checkApiKeyStatus() {
+        try {
+            const res = await fetch('/api/settings/get_api_key');
+            const data = await res.json();
+            const hasKey = data && data.api_key && data.api_key !== "TU_API_KEY_AQUI";
+            if (modalApiKeyStatus) {
+                if (hasKey) {
+                    modalApiKeyStatus.className = 'badge badge-success';
+                    modalApiKeyStatus.textContent = 'Configurada';
+                    if (modalApiKey && !modalApiKey.value) modalApiKey.placeholder = '•••••••• (Clave activa)';
+                    if (modalApiKeyHint) modalApiKeyHint.textContent = 'Tu API Key de Gemini está guardada y lista para usarse.';
+                } else {
+                    modalApiKeyStatus.className = 'badge badge-warning';
+                    modalApiKeyStatus.textContent = 'Sin API Key';
+                    if (modalApiKeyHint) modalApiKeyHint.textContent = 'Si posees una API Key, ingresala para habilitar el procesamiento por IA.';
+                }
+            }
+            return hasKey;
+        } catch (e) {
+            console.error("Error checking API Key status:", e);
+            return false;
+        }
+    }
+
+    async function fetchArcaCredentials(autoShowModalIfMissing = false) {
+        try {
+            const res = await fetch('/api/arca/credentials');
+            const data = await res.json();
+            
+            checkApiKeyStatus();
+
+            if (data.configured) {
+                isArcaConfigured = true;
+                if (inputArcaCuit) inputArcaCuit.value = data.cuit || '';
+                if (inputArcaRepresentada) inputArcaRepresentada.value = data.representada || '';
+                if (inputArcaClave && data.has_clave) inputArcaClave.value = '••••••••';
+                
+                if (modalArcaCuit) modalArcaCuit.value = data.cuit || '';
+                if (modalArcaRepresentada) modalArcaRepresentada.value = data.representada || '';
+                if (modalArcaClave && data.has_clave) modalArcaClave.value = '••••••••';
+
+                if (arcaStatusBadge && arcaStatusText) {
+                    arcaStatusBadge.className = 'status-badge status-active';
+                    arcaStatusText.textContent = 'Configurada';
+                }
+            } else {
+                isArcaConfigured = false;
+                if (arcaStatusBadge && arcaStatusText) {
+                    arcaStatusBadge.className = 'status-badge status-inactive';
+                    arcaStatusText.textContent = 'Sin configurar';
+                }
+                if (autoShowModalIfMissing && arcaCredsModal) {
+                    showArcaCredsModal();
+                }
+            }
+        } catch (e) {
+            console.error("Error fetching ARCA credentials:", e);
+        }
+    }
+
+    function showArcaCredsModal() {
+        if (!arcaCredsModal) return;
+        checkApiKeyStatus();
+        arcaCredsModal.style.display = 'flex';
+        arcaCredsModal.classList.add('fade-in');
+    }
+
+    function hideArcaCredsModal() {
+        if (arcaCredsModal) arcaCredsModal.style.display = 'none';
+    }
+
+    closeArcaCredsModalBtns.forEach(btn => {
+        btn.addEventListener('click', hideArcaCredsModal);
+    });
+
+    if (btnSaveArcaCreds) {
+        btnSaveArcaCreds.addEventListener('click', async () => {
+            const cuit = inputArcaCuit.value.trim();
+            const clave = inputArcaClave.value.trim();
+            const representada = inputArcaRepresentada ? inputArcaRepresentada.value.trim() : '';
+            
+            if (!cuit || cuit.length !== 11) {
+                showToast("Ingresa un CUIT de usuario válido (11 dígitos)", "error");
+                return;
+            }
+            if (!clave) {
+                showToast("Ingresa la Clave Fiscal de ARCA", "error");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/arca/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cuit, clave, representada })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, "success");
+                    inputArcaClave.value = '••••••••';
+                    fetchArcaCredentials();
+                } else {
+                    showToast(data.message || "Error al guardar credenciales", "error");
+                }
+            } catch (e) {
+                console.error("Error saving ARCA creds:", e);
+                showToast("Error de red al guardar credenciales de ARCA", "error");
+            }
+        });
+    }
+
+    if (btnModalSaveSyncArca) {
+        btnModalSaveSyncArca.addEventListener('click', async () => {
+            const cuit = modalArcaCuit ? modalArcaCuit.value.trim() : '';
+            const clave = modalArcaClave ? modalArcaClave.value.trim() : '';
+            const representada = modalArcaRepresentada ? modalArcaRepresentada.value.trim() : '';
+            const apiKey = modalApiKey ? modalApiKey.value.trim() : '';
+            const fullYear = modalArcaFullYear ? modalArcaFullYear.checked : true;
+
+            if (!cuit || cuit.length !== 11) {
+                showToast("Ingresa un CUIT de usuario válido (11 dígitos)", "error");
+                return;
+            }
+            if (!clave) {
+                showToast("Ingresa la Clave Fiscal de ARCA", "error");
+                return;
+            }
+
+            const originalText = btnModalSaveSyncArca.innerHTML;
+            btnModalSaveSyncArca.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando...';
+            btnModalSaveSyncArca.disabled = true;
+
+            try {
+                const res = await fetch('/api/arca/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cuit, clave, representada, api_key: apiKey })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Credenciales guardadas con éxito", "success");
+                    hideArcaCredsModal();
+                    await fetchArcaCredentials();
+                    startArcaSync(fullYear);
+                } else {
+                    showToast(data.message || "Error al guardar credenciales", "error");
+                }
+            } catch (e) {
+                console.error("Error in modal save & sync:", e);
+                showToast("Error de red al procesar credenciales", "error");
+            } finally {
+                btnModalSaveSyncArca.innerHTML = originalText;
+                btnModalSaveSyncArca.disabled = false;
+            }
+        });
+    }
+
+    let arcaPollInterval = null;
+
+    async function startArcaSync(fullYear = false) {
+        if (!isArcaConfigured) {
+            showArcaCredsModal();
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/arca/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ full_year: fullYear })
+            });
+            const data = await res.json();
+            
+            if (!data.success) {
+                if (data.configured === false) {
+                    showArcaCredsModal();
+                } else {
+                    showToast(data.message, "error");
+                }
+                return;
+            }
+
+            showToast(data.message, "success");
+            if (btnSyncArca) btnSyncArca.disabled = true;
+            if (btnSyncArcaUpload) btnSyncArcaUpload.disabled = true;
+
+            if (arcaPollInterval) clearInterval(arcaPollInterval);
+            arcaPollInterval = setInterval(pollArcaStatus, 2000);
+        } catch (e) {
+            console.error("Error starting ARCA sync:", e);
+            showToast("Error al iniciar la sincronización con ARCA", "error");
+        }
+    }
+
+    const arcaHeaderBadge = document.getElementById('arca-header-badge');
+    const arcaHeaderIcon = document.getElementById('arca-header-icon');
+    const arcaHeaderStatusText = document.getElementById('arca-header-status-text');
+
+    async function pollArcaStatus() {
+        try {
+            const res = await fetch('/api/arca/status');
+            const status = await res.json();
+
+            if (arcaSyncStatusMsg) {
+                arcaSyncStatusMsg.textContent = status.message || status.step;
+            }
+
+            if (arcaHeaderBadge && arcaHeaderStatusText) {
+                if (status.running) {
+                    arcaHeaderBadge.style.display = 'inline-flex';
+                    arcaHeaderBadge.style.background = 'rgba(155, 89, 182, 0.2)';
+                    arcaHeaderBadge.style.color = '#9b59b6';
+                    arcaHeaderBadge.style.borderColor = 'rgba(155, 89, 182, 0.4)';
+                    if (arcaHeaderIcon) arcaHeaderIcon.className = 'fa-solid fa-arrows-rotate fa-spin';
+                    arcaHeaderStatusText.textContent = status.message || status.step;
+                } else if (status.step === 'COMPLETED') {
+                    arcaHeaderBadge.style.display = 'inline-flex';
+                    arcaHeaderBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+                    arcaHeaderBadge.style.color = '#34d399';
+                    arcaHeaderBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                    if (arcaHeaderIcon) arcaHeaderIcon.className = 'fa-solid fa-circle-check';
+                    arcaHeaderStatusText.textContent = 'ARCA Sincronizado';
+                } else if (status.step === 'ERROR') {
+                    arcaHeaderBadge.style.display = 'inline-flex';
+                    arcaHeaderBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+                    arcaHeaderBadge.style.color = '#f87171';
+                    arcaHeaderBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                    if (arcaHeaderIcon) arcaHeaderIcon.className = 'fa-solid fa-triangle-exclamation';
+                    arcaHeaderStatusText.textContent = 'Error en ARCA';
+                }
+            }
+
+            if (!status.running) {
+                clearInterval(arcaPollInterval);
+                arcaPollInterval = null;
+                if (btnSyncArca) btnSyncArca.disabled = false;
+                if (btnSyncArcaUpload) btnSyncArcaUpload.disabled = false;
+
+                if (status.step === 'COMPLETED') {
+                    showToast(status.message, "success");
+                    fetchSuppliers();
+                } else if (status.step === 'ERROR') {
+                    showToast(status.message || status.last_error, "error");
+                }
+            }
+        } catch (e) {
+            console.error("Error polling ARCA status:", e);
+        }
+    }
+
+    if (btnSyncArca) btnSyncArca.addEventListener('click', () => startArcaSync(false));
+    if (btnSyncArcaUpload) btnSyncArcaUpload.addEventListener('click', () => startArcaSync(false));
+
+    window.addEventListener('click', (e) => {
+        if (e.target == arcaCredsModal) {
+            hideArcaCredsModal();
+        }
+    });
+
+    // --- Modal de Logs de ARCA ---
+    const btnViewArcaLogs = document.getElementById('btn-view-arca-logs');
+    const arcaLogsModal = document.getElementById('arca-logs-modal');
+    const arcaLogsContent = document.getElementById('arca-logs-content');
+    const btnRefreshArcaLogs = document.getElementById('btn-refresh-arca-logs');
+    const closeArcaModalBtns = document.querySelectorAll('.close-arca-modal');
+
+    async function fetchArcaLogs() {
+        if (!arcaLogsContent) return;
+        arcaLogsContent.textContent = 'Cargando registros...';
+        try {
+            const res = await fetch('/api/arca/logs');
+            const data = await res.json();
+            arcaLogsContent.textContent = data.logs || 'No se registraron entradas.';
+            arcaLogsContent.scrollTop = arcaLogsContent.scrollHeight;
+        } catch (e) {
+            arcaLogsContent.textContent = `Error al cargar logs: ${e}`;
+        }
+    }
+
+    if (btnViewArcaLogs) {
+        btnViewArcaLogs.addEventListener('click', () => {
+            fetchArcaLogs();
+            if (arcaLogsModal) {
+                arcaLogsModal.style.display = 'flex';
+                arcaLogsModal.classList.add('fade-in');
+            }
+        });
+    }
+
+    if (btnRefreshArcaLogs) {
+        btnRefreshArcaLogs.addEventListener('click', fetchArcaLogs);
+    }
+
+    closeArcaModalBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (arcaLogsModal) arcaLogsModal.style.display = 'none';
+        });
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target == arcaLogsModal) {
+            arcaLogsModal.style.display = 'none';
+        }
+    });
+
+    // --- Historial Reciente de Procesamiento para el Usuario ---
+    const userHistoryTableBody = document.getElementById('user-history-table-body');
+    const btnClearUserHistory = document.getElementById('btn-clear-user-history');
+
+    async function fetchUserHistory() {
+        if (!userHistoryTableBody) return;
+        try {
+            const res = await fetch('/api/user_history');
+            if (res.ok) {
+                const history = await res.json();
+                renderUserHistory(history);
+            }
+        } catch (e) {
+            console.error("Error fetching user history:", e);
+        }
+    }
+
+    function renderUserHistory(history) {
+        if (!userHistoryTableBody) return;
+        if (!history || history.length === 0) {
+            userHistoryTableBody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">
+                        Sin comprobantes procesados en esta sesión.
+                    </td>
+                </tr>`;
+            return;
+        }
+
+        userHistoryTableBody.innerHTML = history.map(item => {
+            let statusBadge = '';
+            if (item.status_code === 'ok') {
+                statusBadge = `<span class="badge badge-success" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-check"></i> ${escapeHtml(item.status || 'Procesada')}</span>`;
+            } else if (item.status_code === 'remito') {
+                statusBadge = `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-receipt"></i> ${escapeHtml(item.status || 'Remito')}</span>`;
+            } else {
+                statusBadge = `<span class="badge badge-danger" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-xmark"></i> ${escapeHtml(item.status || 'No Reconocida')}</span>`;
+            }
+
+            let iaBadge = '';
+            if (item.used_ai) {
+                iaBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Rescatado con IA</span>`;
+            } else {
+                iaBadge = `<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-bolt"></i> Directo (OCR/CAE)</span>`;
+            }
+
+            const timeFormatted = item.elapsed_seconds !== undefined ? `${item.elapsed_seconds}s` : '< 1s';
+
+            return `
+                <tr>
+                    <td style="white-space: nowrap; color: var(--text-secondary); font-family: monospace;">${escapeHtml(item.time_str || item.timestamp || '-')}</td>
+                    <td style="font-weight: 500; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.supplier || 'Desconocido')}</td>
+                    <td style="color: var(--text-primary); font-family: monospace;">${escapeHtml(item.invoice_number || item.filename || '-')}</td>
+                    <td>${iaBadge}</td>
+                    <td style="color: var(--text-secondary); font-family: monospace;">${timeFormatted}</td>
+                    <td>${statusBadge}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    if (btnClearUserHistory) {
+        btnClearUserHistory.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/user_history', { method: 'DELETE' });
+                if (res.ok) {
+                    showToast("Historial limpiado correctamente");
+                    renderUserHistory([]);
+                }
+            } catch (e) {
+                console.error("Error clearing user history:", e);
+                showToast("Error al limpiar historial", "error");
+            }
+        });
+    }
+
+    // --- Utility: Format Currency ---
+    function formatCurrency(val) {
+        if (val === null || val === undefined || isNaN(val)) return '$0';
+        return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(val);
+    }
+
+    function renderDiffTag(diff) {
+        if (!diff || diff === 0) return `<span class="diff-tag zero">$0</span>`;
+        if (diff > 0) return `<span class="diff-tag positive">+${formatCurrency(diff)}</span>`;
+        return `<span class="diff-tag negative">${formatCurrency(diff)}</span>`;
+    }
+
+    // Chart instances
+    let chartRecaudacionInst = null;
+    let chartMediosPagoInst = null;
+    let chartEstacionamientoInst = null;
+    let chartGananciaNetaInst = null;
+
+    // 1. Cuentas por Pagar
+    async function fetchCuentasPorPagar() {
+        try {
+            const res = await fetch('/api/cuentas_por_pagar');
+            const data = await res.json();
+            
+            document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
+            document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
+            document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
+            
+            const tbody = document.getElementById('tbl-cuentas-pagar-body');
+            if (!data.cuentas || data.cuentas.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color: var(--text-secondary);">No hay facturas cargadas en cuentas por pagar</td></tr>`;
+                return;
+            }
+            
+            tbody.innerHTML = data.cuentas.map(c => {
+                let badgeClass = 'badge-pending';
+                if (c.estado === 'Pagado') badgeClass = 'badge-paid';
+                if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
+                
+                const actionBtn = c.estado !== 'Pagado' ? 
+                    `<button class="btn btn-secondary btn-sm" onclick="registrarPagoProveedor(${c.id}, ${c.monto_total - c.monto_pagado})">Registrar Pago</button>` : 
+                    `<span style="color: #34d399;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+                    
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
+                        <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
+                        <td>${escapeHtml(c.fecha || '-')}</td>
+                        <td>${formatCurrency(c.monto_total)}</td>
+                        <td>${formatCurrency(c.monto_pagado)}</td>
+                        <td><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
+                        <td>${escapeHtml(c.medio_pago || '-')}</td>
+                        <td>${actionBtn}</td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error("Error cargando cuentas por pagar:", e);
+        }
+    }
+
+    window.registrarPagoProveedor = async function(id, pendiente) {
+        const montoStr = prompt(`Ingrese el monto a pagar (Pendiente: ${formatCurrency(pendiente)}):`, pendiente);
+        if (!montoStr) return;
+        const monto = parseFloat(montoStr);
+        if (isNaN(monto) || monto <= 0) {
+            alert("Monto inválido");
+            return;
+        }
+        const medio = prompt("Medio de pago (Caja Chica / Banco / MercadoPago):", "Caja Chica") || "Caja Chica";
+        
+        try {
+            const res = await fetch('/api/cuentas_por_pagar/registrar_pago', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, monto, medio_pago: medio })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast("Pago registrado correctamente");
+                fetchCuentasPorPagar();
+            } else {
+                showToast(data.error || "Error al registrar pago", "error");
+            }
+        } catch (e) {
+            showToast("Error de red", "error");
+        }
+    };
+
+    // 2. Recaudación & Conciliación Maxirest
+    async function fetchRecaudacion() {
+        try {
+            const res = await fetch('/api/recaudacion');
+            const data = await res.json();
+            
+            const tbody = document.getElementById('tbl-recaudacion-body');
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-secondary);">No hay registros de recaudación</td></tr>`;
+                return;
+            }
+            
+            tbody.innerHTML = data.map(r => `
+                <tr>
+                    <td>${escapeHtml(r.fecha)}</td>
+                    <td>${escapeHtml(r.dia_nombre)}</td>
+                    <td>${r.cubiertos}</td>
+                    <td>${formatCurrency(r.nave_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.nave_maxi)})</small><br>${renderDiffTag(r.diff_nave)}</td>
+                    <td>${formatCurrency(r.efectivo_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.efectivo_maxi)})</small><br>${renderDiffTag(r.diff_efectivo)}</td>
+                    <td>${formatCurrency(r.py_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.py_maxi)})</small><br>${renderDiffTag(r.diff_py)}</td>
+                    <td>${formatCurrency(r.mp_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.mp_maxi)})</small><br>${renderDiffTag(r.diff_mp)}</td>
+                    <td>${formatCurrency(r.banco_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.banco_maxi)})</small><br>${renderDiffTag(r.diff_banco)}</td>
+                    <td><strong>${formatCurrency(r.total_diario)}</strong></td>
+                    <td>${renderDiffTag(r.diferencia_total)}</td>
+                </tr>
+            `).join('');
+            
+            // Charts
+            const labels = data.map(r => r.fecha.substring(5));
+            const totales = data.map(r => r.total_diario);
+            const proyecciones = data.map(r => r.proyeccion_recaudacion || r.total_diario * 0.9);
+            
+            if (chartRecaudacionInst) chartRecaudacionInst.destroy();
+            const ctx1 = document.getElementById('chartRecaudacion').getContext('2d');
+            chartRecaudacionInst = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Recaudación Real', data: totales, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.3 },
+                        { label: 'Proyección', data: proyecciones, borderColor: '#8b5cf6', borderDash: [5, 5], fill: false }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } } } }
+            });
+
+            // Pie chart medios de pago
+            let totNave = data.reduce((s, r) => s + (r.nave_real || 0), 0);
+            let totEfectivo = data.reduce((s, r) => s + (r.efectivo_real || 0), 0);
+            let totPY = data.reduce((s, r) => s + (r.py_real || 0), 0);
+            let totMP = data.reduce((s, r) => s + (r.mp_real || 0), 0);
+            let totBanco = data.reduce((s, r) => s + (r.banco_real || 0), 0);
+
+            if (chartMediosPagoInst) chartMediosPagoInst.destroy();
+            const ctx2 = document.getElementById('chartMediosPago').getContext('2d');
+            chartMediosPagoInst = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: ['NAVE', 'Efectivo', 'PedidosYa', 'MercadoPago', 'Banco'],
+                    datasets: [{
+                        data: [totNave, totEfectivo, totPY, totMP, totBanco],
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } } }
+            });
+
+        } catch (e) {
+            console.error("Error cargando recaudación:", e);
+        }
+    }
+
+    // 3. Estacionamiento (Módulo Independiente con Carga en Línea y Gestor de Gastos Fijos)
+    async function fetchEstacionamiento() {
+        try {
+            const res = await fetch('/api/estacionamiento');
+            const data = await res.json();
+            
+            document.getElementById('est-stat-cash').textContent = formatCurrency(data.totales.total_cash);
+            document.getElementById('est-stat-mp').textContent = formatCurrency(data.totales.total_mp);
+            document.getElementById('est-stat-total').textContent = formatCurrency(data.totales.total_ganancia);
+            document.getElementById('est-stat-gasto').textContent = formatCurrency(data.totales.gasto_operativo);
+            if (document.getElementById('est-stat-neta')) {
+                document.getElementById('est-stat-neta').textContent = formatCurrency(data.totales.ganancia_neta);
+                document.getElementById('est-stat-neta').style.color = data.totales.ganancia_neta >= 0 ? '#34d399' : '#f87171';
+            }
+            
+            const tbody = document.getElementById('tbl-estacionamiento-body');
+            const todayStr = new Date().toISOString().split('T')[0];
+            const daysMap = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+            const dayNameStr = daysMap[new Date().getDay()];
+
+            let inlineRowHtml = `
+                <tr class="tr-inline-add" id="row-inline-add-est">
+                    <td><input type="date" class="form-input-inline" id="est-in-fecha" value="${todayStr}"></td>
+                    <td><input type="text" class="form-input-inline" id="est-in-dia" value="${dayNameStr}" style="width: 100px;"></td>
+                    <td><input type="number" class="form-input-inline" id="est-in-tc" placeholder="0"></td>
+                    <td><input type="number" class="form-input-inline" id="est-in-cash" placeholder="0"></td>
+                    <td><input type="number" class="form-input-inline" id="est-in-mp" placeholder="0"></td>
+                    <td><span id="est-in-total-val" style="font-weight:700; color:#10b981;">$0</span></td>
+                    <td><span id="est-in-diff-val" class="diff-tag zero">$0</span></td>
+                    <td><input type="text" class="form-input-inline" id="est-in-comentario" placeholder="Comentario u observación..."></td>
+                    <td>
+                        <button class="btn btn-primary btn-sm" id="btn-save-inline-est" title="Guardar nuevo día">
+                            <i class="fa-solid fa-floppy-disk"></i> Guardar
+                        </button>
+                    </td>
+                </tr>
+            `;
+
+            let recordsHtml = '';
+            if (data.registros && data.registros.length > 0) {
+                recordsHtml = data.registros.map(r => `
+                    <tr>
+                        <td>${escapeHtml(r.fecha)}</td>
+                        <td>${escapeHtml(r.dia_nombre)}</td>
+                        <td>${formatCurrency(r.caja_ticketcontrol)}</td>
+                        <td>${formatCurrency(r.controlado_cash)}</td>
+                        <td>${formatCurrency(r.controlado_mp)}</td>
+                        <td><strong>${formatCurrency(r.total)}</strong></td>
+                        <td>${renderDiffTag(r.diferencia)}</td>
+                        <td>${escapeHtml(r.comentario || '')}</td>
+                        <td><button class="btn btn-secondary btn-sm" onclick="eliminarDiaEstacionamiento('${r.fecha}')"><i class="fa-solid fa-trash-can"></i></button></td>
+                    </tr>
+                `).join('');
+            } else {
+                recordsHtml = `<tr><td colspan="9" style="text-align:center; color: var(--text-secondary);">No hay registros anteriores de estacionamiento</td></tr>`;
+            }
+
+            tbody.innerHTML = recordsHtml + inlineRowHtml;
+
+            // Event listeners para cálculo en línea
+            ['est-in-tc', 'est-in-cash', 'est-in-mp'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('input', updateInlineEstCalculations);
+            });
+
+            // Event listener guardar en línea
+            const btnSaveInline = document.getElementById('btn-save-inline-est');
+            if (btnSaveInline) {
+                btnSaveInline.addEventListener('click', saveInlineEstacionamiento);
+            }
+
+            // Event listener para scroll a la fila de carga desde el botón del encabezado de la tarjeta
+            const btnToggleInlineEst = document.getElementById('btn-toggle-inline-est');
+            if (btnToggleInlineEst) {
+                btnToggleInlineEst.addEventListener('click', () => {
+                    const inlineRow = document.getElementById('row-inline-add-est');
+                    if (inlineRow) {
+                        inlineRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        const inputTc = document.getElementById('est-in-tc');
+                        if (inputTc) inputTc.focus();
+                    }
+                });
+            }
+
+            // Chart
+            const labels = data.registros ? data.registros.map(r => r.fecha.substring(5)) : [];
+            const totales = data.registros ? data.registros.map(r => r.total) : [];
+            
+            if (chartEstacionamientoInst) chartEstacionamientoInst.destroy();
+            const ctx = document.getElementById('chartEstacionamiento').getContext('2d');
+            chartEstacionamientoInst = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Total Diario ($)', data: totales, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } } } }
+            });
+
+            // Cargar gastos fijos independientes del Estacionamiento
+            fetchEstacionamientoGastos();
+        } catch (e) {
+            console.error("Error cargando estacionamiento:", e);
+        }
+    }
+
+    function updateInlineEstCalculations() {
+        const tc = parseFloat(document.getElementById('est-in-tc')?.value || 0);
+        const cash = parseFloat(document.getElementById('est-in-cash')?.value || 0);
+        const mp = parseFloat(document.getElementById('est-in-mp')?.value || 0);
+        const total = cash + mp;
+        const diff = total - tc;
+
+        const totalEl = document.getElementById('est-in-total-val');
+        if (totalEl) totalEl.textContent = formatCurrency(total);
+
+        const diffEl = document.getElementById('est-in-diff-val');
+        if (diffEl) diffEl.innerHTML = renderDiffTag(diff);
+    }
+
+    async function saveInlineEstacionamiento() {
+        const fecha = document.getElementById('est-in-fecha')?.value;
+        const diaNombre = document.getElementById('est-in-dia')?.value || '';
+        const tc = parseFloat(document.getElementById('est-in-tc')?.value || 0);
+        const cash = parseFloat(document.getElementById('est-in-cash')?.value || 0);
+        const mp = parseFloat(document.getElementById('est-in-mp')?.value || 0);
+        const comentario = document.getElementById('est-in-comentario')?.value || '';
+
+        if (!fecha) {
+            showToast("Por favor selecciona una fecha", "warning");
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/estacionamiento', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fecha,
+                    dia_nombre: diaNombre,
+                    caja_ticketcontrol: tc,
+                    controlado_cash: cash,
+                    controlado_mp: mp,
+                    comentario
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast("Día de estacionamiento guardado correctamente");
+                fetchEstacionamiento();
+            } else {
+                showToast(data.error || "Error al guardar", "error");
+            }
+        } catch (e) {
+            showToast("Error de conexión", "error");
+        }
+    }
+
+    // Gestor independiente de Gastos Fijos del Estacionamiento
+    async function fetchEstacionamientoGastos() {
+        try {
+            const res = await fetch('/api/estacionamiento/gastos');
+            const data = await res.json();
+            
+            const tbody = document.getElementById('tbl-est-gastos-body');
+            if (!data.gastos || data.gastos.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-secondary);">No hay gastos fijos registrados para estacionamiento</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.gastos.map(g => `
+                <tr>
+                    <td><strong>${escapeHtml(g.concepto)}</strong></td>
+                    <td style="color: #f87171; font-weight:600;">${formatCurrency(g.monto)}</td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="eliminarGastoEstacionamiento('${escapeHtml(g.concepto)}')">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('') + `
+                <tr style="background: rgba(255,255,255,0.04); font-weight:bold;">
+                    <td>TOTAL GASTOS ESTACIONAMIENTO</td>
+                    <td style="color:#f87171; font-size:1rem;">${formatCurrency(data.total)}</td>
+                    <td></td>
+                </tr>
+            `;
+        } catch (e) {
+            console.error("Error cargando gastos fijos de estacionamiento:", e);
+        }
+    }
+
+    // Agregar nuevo gasto fijo al estacionamiento
+    const btnAddEstGasto = document.getElementById('btn-add-est-gasto');
+    if (btnAddEstGasto) {
+        btnAddEstGasto.addEventListener('click', async () => {
+            const concepto = document.getElementById('est-gasto-concepto')?.value?.trim();
+            const monto = parseFloat(document.getElementById('est-gasto-monto')?.value || 0);
+
+            if (!concepto || monto <= 0) {
+                showToast("Ingresa un concepto y monto válido", "warning");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/estacionamiento/gastos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ concepto, monto })
+                });
+                if (res.ok) {
+                    showToast("Gasto fijo de estacionamiento guardado");
+                    document.getElementById('est-gasto-concepto').value = '';
+                    document.getElementById('est-gasto-monto').value = '';
+                    fetchEstacionamiento();
+                }
+            } catch (e) {
+                showToast("Error guardando gasto de estacionamiento", "error");
+            }
+        });
+    }
+
+    window.eliminarGastoEstacionamiento = async function(concepto) {
+        if (!confirm(`¿Eliminar el gasto '${concepto}' del estacionamiento?`)) return;
+        try {
+            const res = await fetch('/api/estacionamiento/gastos', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ concepto })
+            });
+            if (res.ok) {
+                showToast("Gasto eliminado");
+                fetchEstacionamiento();
+            }
+        } catch (e) {
+            showToast("Error eliminando gasto", "error");
+        }
+    };
+
+    // 4. Caja Chica / Alivios & Arqueo
+    async function fetchCajaChica() {
+        try {
+            const res = await fetch('/api/caja_chica/movimientos');
+            const data = await res.json();
+            
+            document.getElementById('cc-stat-ingresado').textContent = formatCurrency(data.resumen.ingresado_acumulado);
+            document.getElementById('cc-stat-gasto').textContent = formatCurrency(data.resumen.gasto_total);
+            document.getElementById('cc-stat-fondo').textContent = formatCurrency(data.resumen.fondo_total);
+            document.getElementById('cc-stat-pct').textContent = `${data.resumen.porcentaje_caja}%`;
+            
+            const tbody = document.getElementById('tbl-caja-chica-body');
+            if (!data.movimientos || data.movimientos.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No hay movimientos registrados</td></tr>`;
+                return;
+            }
+            
+            tbody.innerHTML = data.movimientos.map(m => `
+                <tr>
+                    <td>${escapeHtml(m.fecha)}</td>
+                    <td style="color: #f87171;">${m.monto_retirado > 0 ? '-' + formatCurrency(m.monto_retirado) : '-'}</td>
+                    <td style="color: #34d399;">${m.monto_ingresado > 0 ? '+' + formatCurrency(m.monto_ingresado) : '-'}</td>
+                    <td>${escapeHtml(m.motivo)}</td>
+                    <td>${escapeHtml(m.responsable || 'Admin')}</td>
+                    <td><span class="badge" style="background: rgba(255,255,255,0.08);">${escapeHtml(m.categoria || 'General')}</span></td>
+                </tr>
+            `).join('');
+
+            // Cargar arqueo guardado
+            fetchArqueoGuardado();
+        } catch (e) {
+            console.error("Error cargando caja chica:", e);
+        }
+    }
+
+    function calculateArqueo() {
+        const b20k = parseInt(document.getElementById('b-20000')?.value || 0) * 20000;
+        const b10k = parseInt(document.getElementById('b-10000')?.value || 0) * 10000;
+        const b2k = parseInt(document.getElementById('b-2000')?.value || 0) * 2000;
+        const b1k = parseInt(document.getElementById('b-1000')?.value || 0) * 1000;
+        const b500 = parseInt(document.getElementById('b-500')?.value || 0) * 500;
+        const b200 = parseInt(document.getElementById('b-200')?.value || 0) * 200;
+        const b100 = parseInt(document.getElementById('b-100')?.value || 0) * 100;
+        const b50 = parseInt(document.getElementById('b-50')?.value || 0) * 50;
+        const b20 = parseInt(document.getElementById('b-20')?.value || 0) * 20;
+
+        if (document.getElementById('sub-20000')) document.getElementById('sub-20000').textContent = formatCurrency(b20k);
+        if (document.getElementById('sub-10000')) document.getElementById('sub-10000').textContent = formatCurrency(b10k);
+        if (document.getElementById('sub-2000')) document.getElementById('sub-2000').textContent = formatCurrency(b2k);
+        if (document.getElementById('sub-1000')) document.getElementById('sub-1000').textContent = formatCurrency(b1k);
+        if (document.getElementById('sub-500')) document.getElementById('sub-500').textContent = formatCurrency(b500);
+        if (document.getElementById('sub-200')) document.getElementById('sub-200').textContent = formatCurrency(b200);
+        if (document.getElementById('sub-100')) document.getElementById('sub-100').textContent = formatCurrency(b100);
+        if (document.getElementById('sub-50')) document.getElementById('sub-50').textContent = formatCurrency(b50);
+        if (document.getElementById('sub-20')) document.getElementById('sub-20').textContent = formatCurrency(b20);
+
+        const total = b20k + b10k + b2k + b1k + b500 + b200 + b100 + b50 + b20;
+        if (document.getElementById('arqueo-total-contado')) document.getElementById('arqueo-total-contado').textContent = formatCurrency(total);
+    }
+
+    document.querySelectorAll('.billete-input').forEach(input => {
+        input.addEventListener('input', calculateArqueo);
+    });
+
+    async function fetchArqueoGuardado() {
+        try {
+            const res = await fetch('/api/caja_chica/arqueo');
+            const data = await res.json();
+            if (data.id) {
+                if (document.getElementById('b-20000')) document.getElementById('b-20000').value = data.b_20000 || 0;
+                if (document.getElementById('b-10000')) document.getElementById('b-10000').value = data.b_10000 || 0;
+                if (document.getElementById('b-2000')) document.getElementById('b-2000').value = data.b_2000 || 0;
+                if (document.getElementById('b-1000')) document.getElementById('b-1000').value = data.b_1000 || 0;
+                if (document.getElementById('b-500')) document.getElementById('b-500').value = data.b_500 || 0;
+                if (document.getElementById('b-200')) document.getElementById('b-200').value = data.b_200 || 0;
+                if (document.getElementById('b-100')) document.getElementById('b-100').value = data.b_100 || 0;
+                if (document.getElementById('b-50')) document.getElementById('b-50').value = data.b_50 || 0;
+                if (document.getElementById('b-20')) document.getElementById('b-20').value = data.b_20 || 0;
+                calculateArqueo();
+            }
+        } catch (e) {}
+    }
+
+    const btnGuardarArqueo = document.getElementById('btn-guardar-arqueo');
+    if (btnGuardarArqueo) {
+        btnGuardarArqueo.addEventListener('click', async () => {
+            const payload = {
+                b_20000: parseInt(document.getElementById('b-20000').value || 0),
+                b_10000: parseInt(document.getElementById('b-10000').value || 0),
+                b_2000: parseInt(document.getElementById('b-2000').value || 0),
+                b_1000: parseInt(document.getElementById('b-1000').value || 0),
+                b_500: parseInt(document.getElementById('b-500').value || 0),
+                b_200: parseInt(document.getElementById('b-200').value || 0),
+                b_100: parseInt(document.getElementById('b-100').value || 0),
+                b_50: parseInt(document.getElementById('b-50').value || 0),
+                b_20: parseInt(document.getElementById('b-20').value || 0)
+            };
+            try {
+                const res = await fetch('/api/caja_chica/arqueo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Arqueo guardado: Total ${formatCurrency(data.total_contado)}`);
+                }
+            } catch (e) {
+                showToast("Error guardando arqueo", "error");
+            }
+        });
+    }
+
+    const btnNuevoMovCaja = document.getElementById('btn-nuevo-movimiento-caja');
+    if (btnNuevoMovCaja) {
+        btnNuevoMovCaja.addEventListener('click', async () => {
+            const tipo = prompt("Tipo de movimiento ('E' para Egreso/Gasto, 'I' para Ingreso/Fondo):", "E");
+            if (!tipo) return;
+            const montoStr = prompt("Monto:");
+            if (!montoStr) return;
+            const monto = parseFloat(montoStr);
+            if (isNaN(monto) || monto <= 0) return alert("Monto inválido");
+            const motivo = prompt("Motivo / Descripción:", "Gasto diario") || "Gasto diario";
+            const responsable = prompt("Responsable:", "Tomás") || "Tomás";
+
+            const payload = {
+                monto_retirado: tipo.toUpperCase() === 'E' ? monto : 0,
+                monto_ingresado: tipo.toUpperCase() === 'I' ? monto : 0,
+                motivo,
+                responsable
+            };
+
+            try {
+                const res = await fetch('/api/caja_chica/movimientos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    showToast("Movimiento registrado");
+                    fetchCajaChica();
+                }
+            } catch (e) {
+                showToast("Error guardando movimiento", "error");
+            }
+        });
+    }
+
+    // 5. Gastos Fijos & Ganancia Neta
+    async function fetchGastosFijos() {
+        try {
+            const [resResumen, resGastos] = await Promise.all([
+                fetch('/api/dashboard/resumen').then(r => r.json()),
+                fetch('/api/gastos_fijos').then(r => r.json())
+            ]);
+            
+            document.getElementById('gf-stat-bruta').textContent = formatCurrency(resResumen.ganancia_bruta);
+            document.getElementById('gf-stat-caja').textContent = formatCurrency(resResumen.gasto_caja);
+            document.getElementById('gf-stat-fijo').textContent = formatCurrency(resResumen.gasto_fijo);
+            document.getElementById('gf-stat-neta').textContent = formatCurrency(resResumen.ganancia_neta);
+
+            const tbody = document.getElementById('tbl-gastos-fijos-body');
+            if (resGastos.gastos) {
+                tbody.innerHTML = resGastos.gastos.map(g => `
+                    <tr>
+                        <td><strong>${escapeHtml(g.concepto)}</strong></td>
+                        <td>${formatCurrency(g.monto_mensual)}</td>
+                    </tr>
+                `).join('') + `
+                    <tr style="background: rgba(255,255,255,0.05); font-weight: bold;">
+                        <td>TOTAL GASTOS FIJOS</td>
+                        <td style="color: #f87171;">${formatCurrency(resGastos.total)}</td>
+                    </tr>
+                `;
+            }
+
+            // Chart Ganancia Neta
+            if (chartGananciaNetaInst) chartGananciaNetaInst.destroy();
+            const ctx = document.getElementById('chartGananciaNeta').getContext('2d');
+            chartGananciaNetaInst = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Mayo', 'Junio', 'Julio'],
+                    datasets: [{
+                        label: 'Ganancia Neta ($)',
+                        data: [1582258, -492925, resResumen.ganancia_neta],
+                        backgroundColor: [1582258 >= 0 ? '#34d399' : '#f87171', -492925 >= 0 ? '#34d399' : '#f87171', resResumen.ganancia_neta >= 0 ? '#34d399' : '#f87171']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        } catch (e) {
+            console.error("Error cargando gastos fijos:", e);
+        }
+    }
+
+    const btnNuevaRecaudacion = document.getElementById('btn-nueva-recaudacion');
+    if (btnNuevaRecaudacion) {
+        btnNuevaRecaudacion.addEventListener('click', async () => {
+            const fecha = prompt("Fecha (AAAA-MM-DD):", new Date().toISOString().split('T')[0]);
+            if (!fecha) return;
+            const diaNombre = prompt("Día de la semana (ej. lunes):", "miércoles") || "miércoles";
+            const cubiertos = parseInt(prompt("Cubiertos:", "150") || "0");
+            const naveReal = parseFloat(prompt("NAVE Real ($):", "0") || "0");
+            const naveMaxi = parseFloat(prompt("NAVE según Maxirest ($):", "0") || "0");
+            const efecReal = parseFloat(prompt("Efectivo Real ($):", "0") || "0");
+            const efecMaxi = parseFloat(prompt("Efectivo según Maxirest ($):", "0") || "0");
+            const pyReal = parseFloat(prompt("PedidosYa Real ($):", "0") || "0");
+            const pyMaxi = parseFloat(prompt("PedidosYa según Maxirest ($):", "0") || "0");
+            const mpReal = parseFloat(prompt("MercadoPago Real ($):", "0") || "0");
+            const mpMaxi = parseFloat(prompt("MercadoPago según Maxirest ($):", "0") || "0");
+            const bancoReal = parseFloat(prompt("Banco Real ($):", "0") || "0");
+            const bancoMaxi = parseFloat(prompt("Banco según Maxirest ($):", "0") || "0");
+
+            const payload = {
+                fecha, dia_nombre: diaNombre, cubiertos,
+                nave_real: naveReal, nave_maxi: naveMaxi,
+                efectivo_real: efecReal, efectivo_maxi: efecMaxi,
+                py_real: pyReal, py_maxi: pyMaxi,
+                mp_real: mpReal, mp_maxi: mpMaxi,
+                banco_real: bancoReal, banco_maxi: bancoMaxi
+            };
+
+            try {
+                const res = await fetch('/api/recaudacion', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    showToast("Registro de recaudación guardado");
+                    fetchRecaudacion();
+                }
+            } catch (e) {
+                showToast("Error guardando recaudación", "error");
+            }
+        });
+    }
+
+    // Manejadores Modal Gastos Fijos de Estacionamiento
+    const modalGastosEst = document.getElementById('modal-gastos-estacionamiento');
+    const btnOpenModalGastosEst = document.getElementById('btn-open-modal-gastos-est');
+    const btnCloseModalGastosEst = document.getElementById('btn-close-modal-gastos-est');
+    const btnCloseModalGastosEstFooter = document.getElementById('btn-close-modal-gastos-est-footer');
+
+    if (btnOpenModalGastosEst) {
+        btnOpenModalGastosEst.addEventListener('click', () => {
+            if (modalGastosEst) modalGastosEst.style.display = 'flex';
+            fetchEstacionamientoGastos();
+        });
+    }
+    if (btnCloseModalGastosEst) {
+        btnCloseModalGastosEst.addEventListener('click', () => {
+            if (modalGastosEst) modalGastosEst.style.display = 'none';
+        });
+    }
+    if (btnCloseModalGastosEstFooter) {
+        btnCloseModalGastosEstFooter.addEventListener('click', () => {
+            if (modalGastosEst) modalGastosEst.style.display = 'none';
+        });
+    }
+
+    window.eliminarDiaEstacionamiento = async function(fecha) {
+        if (!confirm(`¿Deseas eliminar el registro de la fecha ${fecha}?`)) return;
+        try {
+            const res = await fetch('/api/estacionamiento', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fecha })
+            });
+            if (res.ok) {
+                showToast("Registro de estacionamiento eliminado");
+                fetchEstacionamiento();
+            }
+        } catch (e) {
+            showToast("Error al eliminar registro", "error");
+        }
+    };
+
+    fetchArcaCredentials(true);
+    fetchUserHistory();
+});
