@@ -700,7 +700,11 @@ def api_recaudacion():
         conn.close()
         return jsonify({"success": True})
         
-    cursor.execute("SELECT * FROM recaudacion_diaria ORDER BY fecha ASC")
+    mes = request.args.get('mes')
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM recaudacion_diaria WHERE fecha LIKE ? ORDER BY fecha ASC", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT * FROM recaudacion_diaria ORDER BY fecha ASC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return jsonify(rows)
@@ -747,11 +751,16 @@ def api_estacionamiento():
         conn.close()
         return jsonify({"success": True})
         
-    cursor.execute("SELECT * FROM estacionamiento_diario ORDER BY fecha ASC")
-    rows = [dict(r) for r in cursor.fetchall()]
-    
-    # Calcular totales
-    cursor.execute("SELECT SUM(controlado_cash), SUM(controlado_mp), SUM(total), SUM(diferencia) FROM estacionamiento_diario")
+    mes = request.args.get('mes')
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM estacionamiento_diario WHERE fecha LIKE ? ORDER BY fecha ASC", (f"{mes}%",))
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(controlado_cash), SUM(controlado_mp), SUM(total), SUM(diferencia) FROM estacionamiento_diario WHERE fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT * FROM estacionamiento_diario ORDER BY fecha ASC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(controlado_cash), SUM(controlado_mp), SUM(total), SUM(diferencia) FROM estacionamiento_diario")
+        
     tot_cash, tot_mp, tot_total, tot_diff = cursor.fetchone()
     tot_cash = tot_cash or 0
     tot_mp = tot_mp or 0
@@ -835,10 +844,16 @@ def api_caja_chica_movimientos():
         conn.close()
         return jsonify({"success": True})
         
-    cursor.execute("SELECT * FROM caja_chica_movimientos ORDER BY id DESC")
-    rows = [dict(r) for r in cursor.fetchall()]
-    
-    cursor.execute("SELECT SUM(monto_ingresado), SUM(monto_retirado) FROM caja_chica_movimientos")
+    mes = request.args.get('mes')
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM caja_chica_movimientos WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(monto_ingresado), SUM(monto_retirado) FROM caja_chica_movimientos WHERE fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT * FROM caja_chica_movimientos ORDER BY id DESC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(monto_ingresado), SUM(monto_retirado) FROM caja_chica_movimientos")
+        
     tot_ing, tot_egr = cursor.fetchone()
     tot_ing = tot_ing or 0
     tot_egr = tot_egr or 0
@@ -954,10 +969,16 @@ def api_cuentas_por_pagar():
                     ''', (supplier, file, datetime.now().strftime('%Y-%m-%d'), 0))
         conn.commit()
         
-    cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
-    rows = [dict(r) for r in cursor.fetchall()]
-    
-    cursor.execute("SELECT SUM(monto_total), SUM(monto_pagado) FROM proveedores_cuentas_pagar")
+    mes = request.args.get('mes')
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(monto_total), SUM(monto_pagado) FROM proveedores_cuentas_pagar WHERE fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(monto_total), SUM(monto_pagado) FROM proveedores_cuentas_pagar")
+        
     tot_fact, tot_pag = cursor.fetchone()
     tot_fact = tot_fact or 0
     tot_pag = tot_pag or 0
@@ -1018,16 +1039,27 @@ def api_dashboard_resumen():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria")
-    tot_rec = cursor.fetchone()[0] or 0
-    
-    cursor.execute("SELECT SUM(total) FROM estacionamiento_diario")
-    tot_est = cursor.fetchone()[0] or 0
-    
+    mes = request.args.get('mes')
+    if mes and mes != 'all':
+        cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria WHERE fecha LIKE ?", (f"{mes}%",))
+        tot_rec = cursor.fetchone()[0] or 0
+        
+        cursor.execute("SELECT SUM(total) FROM estacionamiento_diario WHERE fecha LIKE ?", (f"{mes}%",))
+        tot_est = cursor.fetchone()[0] or 0
+        
+        cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos WHERE fecha LIKE ?", (f"{mes}%",))
+        gasto_caja = cursor.fetchone()[0] or 0
+    else:
+        cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria")
+        tot_rec = cursor.fetchone()[0] or 0
+        
+        cursor.execute("SELECT SUM(total) FROM estacionamiento_diario")
+        tot_est = cursor.fetchone()[0] or 0
+        
+        cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos")
+        gasto_caja = cursor.fetchone()[0] or 0
+        
     ganancia_bruta = tot_rec + tot_est
-    
-    cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos")
-    gasto_caja = cursor.fetchone()[0] or 0
     
     cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos")
     gasto_fijo = cursor.fetchone()[0] or 0
@@ -1043,6 +1075,43 @@ def api_dashboard_resumen():
         "recaudacion_total": tot_rec,
         "estacionamiento_total": tot_est
     })
+
+
+@app.route('/api/meses_disponibles', methods=['GET'])
+def api_meses_disponibles():
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    
+    queries = [
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM recaudacion_diaria WHERE fecha IS NOT NULL AND fecha != ''",
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM estacionamiento_diario WHERE fecha IS NOT NULL AND fecha != ''",
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM caja_chica_movimientos WHERE fecha IS NOT NULL AND fecha != ''",
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM proveedores_cuentas_pagar WHERE fecha IS NOT NULL AND fecha != ''"
+    ]
+    
+    meses_set = set()
+    for q in queries:
+        try:
+            cursor.execute(q)
+            for r in cursor.fetchall():
+                if r[0] and len(r[0]) == 7:
+                    meses_set.add(r[0])
+        except Exception:
+            pass
+            
+    now = datetime.now()
+    cur_month = now.strftime('%Y-%m')
+    meses_set.add(cur_month)
+    
+    # Agregar mes siguiente (ej. 2026-08)
+    next_m = (now.month % 12) + 1
+    next_y = now.year + (1 if now.month == 12 else 0)
+    meses_set.add(f"{next_y}-{next_m:02d}")
+    
+    conn.close()
+    
+    lista_meses = sorted(list(meses_set), reverse=True)
+    return jsonify({"meses": lista_meses, "mes_actual": cur_month})
 
 
 if __name__ == '__main__':

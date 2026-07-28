@@ -15,7 +15,69 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabPanes = document.querySelectorAll('.tab-pane');
     const groupFacturas = document.getElementById('group-facturas');
 
+    let currentSelectedMonth = '';
+    let currentActiveTab = 'dashboard';
+    const monthNamesEs = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+    async function fetchAvailableMonths() {
+        const select = document.getElementById('global-month-select');
+        if (!select) return;
+
+        try {
+            const res = await fetch('/api/meses_disponibles');
+            const data = await res.json();
+            
+            select.innerHTML = '';
+            data.meses.forEach(m => {
+                const parts = m.split('-');
+                const y = parts[0];
+                const mIdx = parseInt(parts[1], 10) - 1;
+                const label = `${monthNamesEs[mIdx] || parts[1]} ${y}`;
+                
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = label;
+                if (m === data.mes_actual && !currentSelectedMonth) {
+                    opt.selected = true;
+                    currentSelectedMonth = m;
+                } else if (m === currentSelectedMonth) {
+                    opt.selected = true;
+                }
+                select.appendChild(opt);
+            });
+
+            if (!currentSelectedMonth && select.options.length > 0) {
+                currentSelectedMonth = select.options[0].value;
+            }
+        } catch(e) {
+            console.error("Error cargando meses disponibles:", e);
+        }
+    }
+
+    fetchAvailableMonths();
+
+    const globalMonthSelect = document.getElementById('global-month-select');
+    if (globalMonthSelect) {
+        globalMonthSelect.addEventListener('change', (e) => {
+            currentSelectedMonth = e.target.value;
+            const subtitle = document.getElementById('global-month-subtitle');
+            if (subtitle) subtitle.textContent = `Filtro mensual activo (${e.target.options[e.target.selectedIndex].text}). Todos los módulos muestran los registros de este período.`;
+            switchTab(currentActiveTab);
+        });
+    }
+
+    const btnMonthAll = document.getElementById('btn-month-all');
+    if (btnMonthAll) {
+        btnMonthAll.addEventListener('click', () => {
+            currentSelectedMonth = 'all';
+            const subtitle = document.getElementById('global-month-subtitle');
+            if (subtitle) subtitle.textContent = `Mostrando Histórico Completo de la empresa (sin filtro de mes).`;
+            switchTab(currentActiveTab);
+        });
+    }
+
     function switchTab(tabName) {
+        currentActiveTab = tabName;
         // Remover active de todos los ítems de navegación
         allTabItems.forEach(l => l.classList.remove('active'));
         document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
@@ -1645,10 +1707,34 @@ document.addEventListener('DOMContentLoaded', () => {
     let chartEstacionamientoInst = null;
     let chartGananciaNetaInst = null;
 
+    // Helper: espera a que Chart.js esté disponible (carga con defer)
+    function waitForChart() {
+        return new Promise((resolve, reject) => {
+            if (typeof Chart !== 'undefined') { resolve(); return; }
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                if (typeof Chart !== 'undefined') {
+                    clearInterval(interval);
+                    resolve();
+                } else if (attempts >= 80) {
+                    clearInterval(interval);
+                    // Intentar cargar Chart.js dinámicamente como fallback
+                    const s = document.createElement('script');
+                    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+                    s.onload = () => resolve();
+                    s.onerror = () => reject(new Error('Chart.js no se pudo cargar'));
+                    document.body.appendChild(s);
+                }
+            }, 100);
+        });
+    }
+
     // 1. Cuentas por Pagar
     async function fetchCuentasPorPagar() {
         try {
-            const res = await fetch('/api/cuentas_por_pagar');
+            const url = '/api/cuentas_por_pagar' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const res = await fetch(url);
             const data = await res.json();
             
             document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
@@ -1719,7 +1805,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Recaudación & Conciliación Maxirest
     async function fetchRecaudacion() {
         try {
-            const res = await fetch('/api/recaudacion');
+            const url = '/api/recaudacion' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const res = await fetch(url);
             const data = await res.json();
             
             const tbody = document.getElementById('tbl-recaudacion-body');
@@ -1728,11 +1815,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            tbody.innerHTML = data.map(r => `
+            // KPI Cards Totales para Alivios & Conciliación
+            const totRec = data.reduce((s, r) => s + (r.total_diario || 0), 0);
+            const totAlivios = data.reduce((s, r) => s + (r.efectivo_cub || 0), 0);
+            const totCubiertos = data.reduce((s, r) => s + (r.cubiertos || 0), 0);
+            const totDiff = data.reduce((s, r) => s + (r.diferencia_total || 0), 0);
+
+            if (document.getElementById('rec-stat-total')) document.getElementById('rec-stat-total').textContent = formatCurrency(totRec);
+            if (document.getElementById('rec-stat-alivios')) document.getElementById('rec-stat-alivios').textContent = formatCurrency(totAlivios);
+            if (document.getElementById('rec-stat-cubiertos')) document.getElementById('rec-stat-cubiertos').textContent = totCubiertos.toLocaleString();
+            if (document.getElementById('rec-stat-diff')) document.getElementById('rec-stat-diff').innerHTML = renderDiffTag(totDiff);
+            
+            tbody.innerHTML = data.map((r, idx) => `
                 <tr>
-                    <td>${escapeHtml(r.fecha)}</td>
-                    <td>${escapeHtml(r.dia_nombre)}</td>
-                    <td>${r.cubiertos}</td>
+                    <td><strong>${escapeHtml(r.fecha)}</strong><br><small style="color:var(--text-secondary);">${escapeHtml(r.dia_nombre || '')}</small></td>
+                    <td><span class="badge" style="background: rgba(59,130,246,0.15); color: #60a5fa; font-weight:700;">L${idx + 1} ${formatCurrency(r.efectivo_cub || 0)}</span></td>
+                    <td><strong style="color: #a855f7;">${r.cubiertos || 0}</strong></td>
                     <td>${formatCurrency(r.nave_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.nave_maxi)})</small><br>${renderDiffTag(r.diff_nave)}</td>
                     <td>${formatCurrency(r.efectivo_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.efectivo_maxi)})</small><br>${renderDiffTag(r.diff_efectivo)}</td>
                     <td>${formatCurrency(r.py_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.py_maxi)})</small><br>${renderDiffTag(r.diff_py)}</td>
@@ -1740,6 +1838,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${formatCurrency(r.banco_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.banco_maxi)})</small><br>${renderDiffTag(r.diff_banco)}</td>
                     <td><strong>${formatCurrency(r.total_diario)}</strong></td>
                     <td>${renderDiffTag(r.diferencia_total)}</td>
+                    <td>${formatCurrency(r.proyeccion_recaudacion || 0)}</td>
+                    <td>${escapeHtml(r.comentario || '')} ${r.diff_proyeccion ? '<br>' + renderDiffTag(r.diff_proyeccion) : ''}</td>
                 </tr>
             `).join('');
             
@@ -1748,6 +1848,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const totales = data.map(r => r.total_diario);
             const proyecciones = data.map(r => r.proyeccion_recaudacion || r.total_diario * 0.9);
             
+            await waitForChart();
             if (chartRecaudacionInst) chartRecaudacionInst.destroy();
             const ctx1 = document.getElementById('chartRecaudacion').getContext('2d');
             chartRecaudacionInst = new Chart(ctx1, {
@@ -1788,10 +1889,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 3. Estacionamiento (Módulo Independiente con Carga en Línea y Gestor de Gastos Fijos)
+    // 3. Estacionamiento Diario
     async function fetchEstacionamiento() {
         try {
-            const res = await fetch('/api/estacionamiento');
+            const url = '/api/estacionamiento' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const res = await fetch(url);
             const data = await res.json();
             
             document.getElementById('est-stat-cash').textContent = formatCurrency(data.totales.total_cash);
@@ -1873,16 +1975,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Chart
-            const labels = data.registros ? data.registros.map(r => r.fecha.substring(5)) : [];
-            const totales = data.registros ? data.registros.map(r => r.total) : [];
+            const labelsEst = data.registros ? data.registros.map(r => r.fecha.substring(5)) : [];
+            const totalesEst = data.registros ? data.registros.map(r => r.total) : [];
             
+            await waitForChart();
             if (chartEstacionamientoInst) chartEstacionamientoInst.destroy();
             const ctx = document.getElementById('chartEstacionamiento').getContext('2d');
             chartEstacionamientoInst = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
-                    datasets: [{ label: 'Total Diario ($)', data: totales, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true }]
+                    labels: labelsEst,
+                    datasets: [{ label: 'Total Diario ($)', data: totalesEst, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } } } }
             });
@@ -2030,7 +2133,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 4. Caja Chica / Alivios & Arqueo
     async function fetchCajaChica() {
         try {
-            const res = await fetch('/api/caja_chica/movimientos');
+            const url = '/api/caja_chica/movimientos' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const res = await fetch(url);
             const data = await res.json();
             
             document.getElementById('cc-stat-ingresado').textContent = formatCurrency(data.resumen.ingresado_acumulado);
@@ -2087,8 +2191,35 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.getElementById('arqueo-total-contado')) document.getElementById('arqueo-total-contado').textContent = formatCurrency(total);
     }
 
-    document.querySelectorAll('.billete-input').forEach(input => {
+    // Navegación por tecla Enter entre recuadros de denominación (20000 -> 10000 -> 2000 ...)
+    const billeteSequence = ['b-20000', 'b-10000', 'b-2000', 'b-1000', 'b-500', 'b-200', 'b-100', 'b-50', 'b-20'];
+    billeteSequence.forEach((id, idx) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+
         input.addEventListener('input', calculateArqueo);
+
+        // Selección automática del valor al enfocar para sobreescribir rápido
+        input.addEventListener('focus', () => {
+            try { input.select(); } catch(e) {}
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (idx < billeteSequence.length - 1) {
+                    const nextInput = document.getElementById(billeteSequence[idx + 1]);
+                    if (nextInput) {
+                        nextInput.focus();
+                        try { nextInput.select(); } catch(err) {}
+                    }
+                } else {
+                    // Al presionar Enter en $20, guarda automáticamente el arqueo
+                    const btnSave = document.getElementById('btn-guardar-arqueo');
+                    if (btnSave) btnSave.click();
+                }
+            }
+        });
     });
 
     async function fetchArqueoGuardado() {
@@ -2178,8 +2309,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // 5. Gastos Fijos & Ganancia Neta
     async function fetchGastosFijos() {
         try {
+            const resUrl = '/api/dashboard/resumen' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const [resResumen, resGastos] = await Promise.all([
-                fetch('/api/dashboard/resumen').then(r => r.json()),
+                fetch(resUrl).then(r => r.json()),
                 fetch('/api/gastos_fijos').then(r => r.json())
             ]);
             
@@ -2204,6 +2336,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Chart Ganancia Neta
+            await waitForChart();
             if (chartGananciaNetaInst) chartGananciaNetaInst.destroy();
             const ctx = document.getElementById('chartGananciaNeta').getContext('2d');
             chartGananciaNetaInst = new Chart(ctx, {
@@ -2308,4 +2441,64 @@ document.addEventListener('DOMContentLoaded', () => {
 
     fetchArcaCredentials(true);
     fetchUserHistory();
+
+    // --- Botón Doctor (sidebar-footer) ---
+    // El botón tiene data-tab="doctor", switchTab lo captura automáticamente
+    // mediante allTabItems. No se necesita lógica adicional.
+
+    // --- Ayuda: Lazy-load de Driver.js ---
+    // Driver.js (~80KB gz) se carga SOLO cuando el usuario hace clic en Ayuda.
+    // Esto elimina el peso del CSS + JS bloqueante en la carga inicial.
+    const btnHelp = document.getElementById('btn-help');
+    let driverLoaded = false;
+    let driverInstance = null;
+
+    function loadDriverJs(callback) {
+        if (driverLoaded) { callback(); return; }
+
+        // Cargar CSS de Driver.js
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.css';
+        document.head.appendChild(link);
+
+        // Cargar JS de Driver.js
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.js.iife.js';
+        script.onload = () => {
+            driverLoaded = true;
+            callback();
+        };
+        script.onerror = () => {
+            showToast('No se pudo cargar el módulo de ayuda. Verifica tu conexión.', 'error');
+        };
+        document.body.appendChild(script);
+    }
+
+    function startTour() {
+        if (!window.driver) return;
+        if (!driverInstance) {
+            driverInstance = window.driver.js.driver({
+                showProgress: true,
+                steps: [
+                    { element: '#group-facturas',     popover: { title: 'Facturas',             description: 'Gestiona todas tus facturas: procesa, visualiza y carga CSV de ARCA.', side: 'right' } },
+                    { element: '[data-tab="cuentas-pagar"]', popover: { title: 'Proveedores a Pagar', description: 'Seguimiento de deudas con proveedores y estado de pagos.', side: 'right' } },
+                    { element: '[data-tab="recaudacion"]',   popover: { title: 'Recaudación',      description: 'Conciliación diaria entre Maxirest y cada plataforma de cobro.', side: 'right' } },
+                    { element: '[data-tab="estacionamiento"]', popover: { title: 'Estacionamiento', description: 'Arqueo diario de TicketControl vs efectivo y MercadoPago.', side: 'right' } },
+                    { element: '[data-tab="caja-chica"]',    popover: { title: 'Caja Chica',       description: 'Movimientos de fondos, retiros y arqueo de billetes.', side: 'right' } },
+                    { element: '[data-tab="gastos-fijos"]',  popover: { title: 'Gastos Fijos',     description: 'Dashboard de ganancia neta contra costos estructurales.', side: 'right' } },
+                    { element: '[data-tab="suppliers"]',     popover: { title: 'Proveedores',      description: 'Lista de proveedores y sus reglas de detección automática.', side: 'right' } },
+                    { element: '[data-tab="settings"]',      popover: { title: 'Ajustes',          description: 'Configura tu API Key de Gemini, CUIT y credenciales de ARCA.', side: 'right' } },
+                ]
+            });
+        }
+        driverInstance.drive();
+    }
+
+    if (btnHelp) {
+        btnHelp.addEventListener('click', () => {
+            loadDriverJs(startTour);
+        });
+    }
 });
+
