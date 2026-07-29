@@ -1033,15 +1033,20 @@ def api_cuentas_por_pagar():
     if mes and mes != 'all':
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
         rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT SUM(monto_total), SUM(monto_pagado) FROM proveedores_cuentas_pagar WHERE fecha LIKE ?", (f"{mes}%",))
+        
+        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
+        tot_fact = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ? AND estado = 'Pagado'", (mes,))
+        tot_pag = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
         rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT SUM(monto_total), SUM(monto_pagado) FROM proveedores_cuentas_pagar")
         
-    tot_fact, tot_pag = cursor.fetchone()
-    tot_fact = tot_fact or 0
-    tot_pag = tot_pag or 0
+        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv")
+        tot_fact = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE estado = 'Pagado'")
+        tot_pag = cursor.fetchone()[0] or 0
+        
     pendiente = tot_fact - tot_pag
     
     conn.close()
@@ -1065,7 +1070,7 @@ def api_registrar_pago_proveedor():
     medio_pago = data.get('medio_pago', 'Caja Chica')
     fecha_pago = data.get('fecha_pago', datetime.now().strftime('%Y-%m-%d'))
     
-    if not cuenta_id or monto_pago <= 0:
+    if not cuenta_id:
         return jsonify({"error": "Datos inválidos"}), 400
         
     cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE id = ?", (cuenta_id,))
@@ -1073,14 +1078,30 @@ def api_registrar_pago_proveedor():
     if not row:
         return jsonify({"error": "Cuenta no encontrada"}), 404
         
-    nuevo_pagado = row['monto_pagado'] + monto_pago
-    nuevo_estado = 'Pagado' if nuevo_pagado >= row['monto_total'] and row['monto_total'] > 0 else 'Pagado Parcial'
+    monto_pago = row['monto_total']
+    nuevo_pagado = monto_pago
+    nuevo_estado = 'Pagado'
     
     cursor.execute('''
         UPDATE proveedores_cuentas_pagar
         SET monto_pagado = ?, estado = ?, fecha_pago = ?, medio_pago = ?
         WHERE id = ?
     ''', (nuevo_pagado, nuevo_estado, fecha_pago, medio_pago, cuenta_id))
+    
+    # Sincronizar pago con ARCA
+    import re
+    match = re.search(r'(\d+)\s*-\s*(\d+)', row['factura_numero'])
+    if match:
+        pv = int(match.group(1))
+        nro = int(match.group(2))
+        arca_metodo = 'Efectivo/Caja Chica'
+        if medio_pago == 'Banco': arca_metodo = 'Banco/Transferencia'
+        if medio_pago == 'MercadoPago': arca_metodo = 'MercadoPago/Billetera'
+        cursor.execute('''
+            UPDATE arca_compras_csv 
+            SET estado='Pagado', metodo_pago=?, fecha_pago=? 
+            WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
+        ''', (arca_metodo, fecha_pago, pv, nro))
     
     # Si el pago es con Caja Chica / Alivios, generar movimiento de egreso automático
     if medio_pago == 'Caja Chica':
@@ -1092,6 +1113,59 @@ def api_registrar_pago_proveedor():
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
+@app.route('/api/dashboard/empresa', methods=['GET'])
+def api_dashboard_empresa():
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    mes = request.args.get('mes')
+    if not mes or mes == 'all':
+        mes = datetime.now().strftime('%Y-%m')
+    
+    # INGRESOS
+    cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria WHERE fecha LIKE ?", (f"{mes}%",))
+    ingreso_recaudacion = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(total) FROM estacionamiento_diario WHERE fecha LIKE ?", (f"{mes}%",))
+    ingreso_estacionamiento = cursor.fetchone()[0] or 0
+    
+    total_ingresos = ingreso_recaudacion + ingreso_estacionamiento
+    
+    # EGRESOS
+    cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos WHERE mes = ?", (mes,))
+    egreso_fijos = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
+    egreso_arca = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ? AND estado != 'Pagado'", (mes,))
+    pendiente_proveedores = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos WHERE fecha LIKE ?", (f"{mes}%",))
+    egreso_caja = cursor.fetchone()[0] or 0
+    
+    total_egresos = egreso_fijos + egreso_arca + egreso_caja
+    ganancia_neta = total_ingresos - total_egresos
+    
+    conn.close()
+    return jsonify({
+        "mes": mes,
+        "ingresos": {
+            "recaudacion": ingreso_recaudacion,
+            "estacionamiento": ingreso_estacionamiento,
+            "total": total_ingresos
+        },
+        "egresos": {
+            "fijos": egreso_fijos,
+            "proveedores": egreso_arca,
+            "caja_chica": egreso_caja,
+            "total": total_egresos
+        },
+        "pendientes": {
+            "proveedores": pendiente_proveedores
+        },
+        "ganancia_neta": ganancia_neta
+    })
 
 
 @app.route('/api/dashboard/resumen', methods=['GET'])
@@ -1163,7 +1237,11 @@ def api_meses_disponibles():
     cur_month = now.strftime('%Y-%m')
     meses_set.add(cur_month)
     
-    # Agregar mes siguiente (ej. 2026-08)
+    # Agregar todos los meses del año actual
+    for i in range(1, 13):
+        meses_set.add(f"{now.year}-{i:02d}")
+    
+    # Agregar mes siguiente (ej. 2026-08) si estamos en Diciembre
     next_m = (now.month % 12) + 1
     next_y = now.year + (1 if now.month == 12 else 0)
     meses_set.add(f"{next_y}-{next_m:02d}")
@@ -1299,7 +1377,8 @@ def api_arca_compras():
     
     # Contar pendientes y pagados
     pendientes = sum(1 for r in rows if r['estado'] == 'Pendiente')
-    pagados = sum(1 for r in rows if r['estado'] == 'Pagado')
+    pagados_count = sum(1 for r in rows if r['estado'] == 'Pagado')
+    pagados_total = sum(r['imp_total'] for r in rows if r['estado'] == 'Pagado')
     
     conn.close()
     return jsonify({
@@ -1309,7 +1388,8 @@ def api_arca_compras():
             "total_importe": tot_imp,
             "total_iva": tot_iva,
             "pendientes": pendientes,
-            "pagados": pagados
+            "pagados": pagados_count,
+            "pagados_total": pagados_total
         }
     })
 
@@ -1322,10 +1402,36 @@ def api_arca_marcar_pago(item_id):
     metodo = data.get('metodo_pago', '')  # 'Efectivo/Caja Chica', 'Banco/Transferencia', 'MercadoPago/Digital'
     fecha_pago = data.get('fecha_pago', datetime.now().strftime('%Y-%m-%d'))
     
+    cursor.execute("SELECT * FROM arca_compras_csv WHERE id=?", (item_id,))
+    arca_row = cursor.fetchone()
+    
     cursor.execute(
         "UPDATE arca_compras_csv SET estado='Pagado', metodo_pago=?, fecha_pago=? WHERE id=?",
         (metodo, fecha_pago, item_id)
     )
+    
+    # Sincronizar pago con Cuentas por Pagar (Archivos procesados)
+    if arca_row:
+        import re
+        pv_str = str(arca_row['punto_venta']).strip()
+        nro_str = str(arca_row['nro_comprobante']).strip()
+        pv = int(pv_str) if pv_str.isdigit() else 0
+        nro = int(nro_str) if nro_str.isdigit() else 0
+        if pv > 0 and nro > 0:
+            cp_metodo = 'Caja Chica'
+            if 'Banco' in metodo: cp_metodo = 'Banco'
+            if 'MercadoPago' in metodo: cp_metodo = 'MercadoPago'
+            
+            cursor.execute("SELECT id, factura_numero FROM proveedores_cuentas_pagar")
+            for cp_row in cursor.fetchall():
+                cp_fn = str(cp_row['factura_numero'])
+                match = re.search(r'(\d+)\s*-\s*(\d+)', cp_fn)
+                if match and int(match.group(1)) == pv and int(match.group(2)) == nro:
+                    cursor.execute('''
+                        UPDATE proveedores_cuentas_pagar
+                        SET estado='Pagado', monto_pagado=monto_total, fecha_pago=?, medio_pago=?
+                        WHERE id=?
+                    ''', (fecha_pago, cp_metodo, cp_row['id']))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -1335,10 +1441,33 @@ def api_arca_marcar_pago(item_id):
 def api_arca_desmarcar_pago(item_id):
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    cursor.execute("SELECT * FROM arca_compras_csv WHERE id=?", (item_id,))
+    arca_row = cursor.fetchone()
+
     cursor.execute(
         "UPDATE arca_compras_csv SET estado='Pendiente', metodo_pago='', fecha_pago='' WHERE id=?",
         (item_id,)
     )
+    
+    # Sincronizar desmarcar pago con Cuentas por Pagar
+    if arca_row:
+        import re
+        pv_str = str(arca_row['punto_venta']).strip()
+        nro_str = str(arca_row['nro_comprobante']).strip()
+        pv = int(pv_str) if pv_str.isdigit() else 0
+        nro = int(nro_str) if nro_str.isdigit() else 0
+        if pv > 0 and nro > 0:
+            cursor.execute("SELECT id, factura_numero FROM proveedores_cuentas_pagar")
+            for cp_row in cursor.fetchall():
+                cp_fn = str(cp_row['factura_numero'])
+                match = re.search(r'(\d+)\s*-\s*(\d+)', cp_fn)
+                if match and int(match.group(1)) == pv and int(match.group(2)) == nro:
+                    cursor.execute('''
+                        UPDATE proveedores_cuentas_pagar
+                        SET estado='Pendiente', monto_pagado=0, fecha_pago='', medio_pago=''
+                        WHERE id=?
+                    ''', (cp_row['id'],))
+                    
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -1366,7 +1495,26 @@ def api_arca_sync_from_csv():
         return jsonify({"success": True, "importados": n, "message": f"{n} nuevas compras importadas desde ARCA"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-
+@app.route('/api/test/marcar_mes_pagado', methods=['POST'])
+def api_test_marcar_mes_pagado():
+    data = request.json
+    mes = data.get('mes')
+    if not mes:
+        return jsonify({"success": False, "message": "Mes no proporcionado"})
+        
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE arca_compras_csv 
+        SET estado = 'Pagado', metodo_pago = 'M1', fecha_pago = date('now')
+        WHERE mes = ? AND estado != 'Pagado'
+    ''', (mes,))
+    
+    actualizados = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True, "actualizados": actualizados})
 
 if __name__ == '__main__':
     import webbrowser

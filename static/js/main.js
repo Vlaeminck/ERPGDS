@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const groupFacturas = document.getElementById('group-facturas');
 
     let currentSelectedMonth = '';
-    let currentActiveTab = 'dashboard';
+    let currentActiveTab = 'empresa';
     const monthNamesEs = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
     async function fetchAvailableMonths() {
@@ -28,6 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             select.innerHTML = '';
+            
+            const arcaSelect = document.getElementById('arca-month-filter');
+            if (arcaSelect) {
+                // Keep the default option
+                arcaSelect.innerHTML = '<option value="all">Todos los meses</option>';
+            }
+
             data.meses.forEach(m => {
                 const parts = m.split('-');
                 const y = parts[0];
@@ -44,6 +51,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     opt.selected = true;
                 }
                 select.appendChild(opt);
+
+                if (arcaSelect) {
+                    const optArca = document.createElement('option');
+                    optArca.value = m;
+                    optArca.textContent = label;
+                    if (m === currentSelectedMonth) optArca.selected = true;
+                    arcaSelect.appendChild(optArca);
+                }
             });
 
             if (!currentSelectedMonth && select.options.length > 0) {
@@ -102,6 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
             targetTab.classList.add('fade-in');
         }
 
+        if (tabName === 'empresa') {
+            fetchDashboardEmpresa();
+        }
         if (tabName === 'dashboard') {
             fetchStatus();
             fetchProgress();
@@ -1744,19 +1762,24 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
             document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
             
+            const pendientes = data.cuentas.filter(c => c.estado !== 'Pagado');
             const tbody = document.getElementById('tbl-cuentas-pagar-body');
-            if (!data.cuentas || data.cuentas.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color: var(--text-secondary);">No hay facturas cargadas en cuentas por pagar</td></tr>`;
+            if (!pendientes || pendientes.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No hay facturas pendientes en cuentas por pagar</td></tr>`;
                 return;
             }
             
-            tbody.innerHTML = data.cuentas.map(c => {
+            tbody.innerHTML = pendientes.map(c => {
                 let badgeClass = 'badge-pending';
                 if (c.estado === 'Pagado') badgeClass = 'badge-paid';
                 if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
                 
                 const actionBtn = c.estado !== 'Pagado' ? 
-                    `<button class="btn btn-secondary btn-sm" onclick="registrarPagoProveedor(${c.id}, ${c.monto_total - c.monto_pagado})">Registrar Pago</button>` : 
+                    METODOS_PAGO.map((m, i) => `
+                    <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i===0?'52,211,153':i===1?'96,165,250':'168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
+                        onclick="registrarPagoProveedor(${c.id}, '${m.key}')" title="${m.label}">
+                        M${i+1}
+                    </button>`).join('') : 
                     `<span style="color: #34d399;"><i class="fa-solid fa-check"></i> Pagado</span>`;
                     
                 return `
@@ -1764,8 +1787,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
                         <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
                         <td>${escapeHtml(c.fecha || '-')}</td>
-                        <td>${formatCurrency(c.monto_total)}</td>
-                        <td>${formatCurrency(c.monto_pagado)}</td>
                         <td><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
                         <td>${escapeHtml(c.medio_pago || '-')}</td>
                         <td>${actionBtn}</td>
@@ -1777,21 +1798,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    window.registrarPagoProveedor = async function(id, pendiente) {
-        const montoStr = prompt(`Ingrese el monto a pagar (Pendiente: ${formatCurrency(pendiente)}):`, pendiente);
-        if (!montoStr) return;
-        const monto = parseFloat(montoStr);
-        if (isNaN(monto) || monto <= 0) {
-            alert("Monto inválido");
-            return;
-        }
-        const medio = prompt("Medio de pago (Caja Chica / Banco / MercadoPago):", "Caja Chica") || "Caja Chica";
-        
+    window.registrarPagoProveedor = async function(id, medio) {
         try {
             const res = await fetch('/api/cuentas_por_pagar/registrar_pago', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, monto, medio_pago: medio })
+                body: JSON.stringify({ id, medio_pago: medio })
             });
             const data = await res.json();
             if (data.success) {
@@ -1902,6 +1914,10 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('est-stat-cash').textContent = formatCurrency(data.totales.total_cash);
             document.getElementById('est-stat-mp').textContent = formatCurrency(data.totales.total_mp);
             document.getElementById('est-stat-total').textContent = formatCurrency(data.totales.total_ganancia);
+            if (document.getElementById('est-stat-diff')) {
+                document.getElementById('est-stat-diff').textContent = formatCurrency(data.totales.total_diferencia);
+                document.getElementById('est-stat-diff').style.color = data.totales.total_diferencia < 0 ? '#ef4444' : (data.totales.total_diferencia > 0 ? '#34d399' : '');
+            }
             document.getElementById('est-stat-gasto').textContent = formatCurrency(data.totales.gasto_operativo);
             if (document.getElementById('est-stat-neta')) {
                 document.getElementById('est-stat-neta').textContent = formatCurrency(data.totales.ganancia_neta);
@@ -1943,7 +1959,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td><strong>${formatCurrency(r.total)}</strong></td>
                         <td>${renderDiffTag(r.diferencia)}</td>
                         <td>${escapeHtml(r.comentario || '')}</td>
-                        <td><button class="btn btn-secondary btn-sm" onclick="eliminarDiaEstacionamiento('${r.fecha}')"><i class="fa-solid fa-trash-can"></i></button></td>
+                        <td style="display: flex; gap: 4px;">
+                            <button class="btn btn-secondary btn-sm" onclick="editarDiaEstacionamiento('${r.fecha}', '${escapeHtml(r.dia_nombre)}', ${r.caja_ticketcontrol}, ${r.controlado_cash}, ${r.controlado_mp}, '${escapeHtml(r.comentario || '').replace(/'/g, "\\'")}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                            <button class="btn btn-secondary btn-sm" onclick="eliminarDiaEstacionamiento('${r.fecha}')" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
                     </tr>
                 `).join('');
             } else {
@@ -2244,35 +2263,18 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {}
     }
 
-    const btnGuardarArqueo = document.getElementById('btn-guardar-arqueo');
-    if (btnGuardarArqueo) {
-        btnGuardarArqueo.addEventListener('click', async () => {
-            const payload = {
-                b_20000: parseInt(document.getElementById('b-20000').value || 0),
-                b_10000: parseInt(document.getElementById('b-10000').value || 0),
-                b_2000: parseInt(document.getElementById('b-2000').value || 0),
-                b_1000: parseInt(document.getElementById('b-1000').value || 0),
-                b_500: parseInt(document.getElementById('b-500').value || 0),
-                b_200: parseInt(document.getElementById('b-200').value || 0),
-                b_100: parseInt(document.getElementById('b-100').value || 0),
-                b_50: parseInt(document.getElementById('b-50').value || 0),
-                b_20: parseInt(document.getElementById('b-20').value || 0)
-            };
-            try {
-                const res = await fetch('/api/caja_chica/arqueo', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await res.json();
-                if (data.success) {
-                    showToast(`Arqueo guardado: Total ${formatCurrency(data.total_contado)}`);
-                }
-            } catch (e) {
-                showToast("Error guardando arqueo", "error");
-            }
+    window.limpiarBilletes = function() {
+        if (!confirm("¿Deseas limpiar todos los campos del arqueo?")) return;
+        const denominaciones = ['20000', '10000', '2000', '1000', '500', '200', '100', '50', '20'];
+        denominaciones.forEach(den => {
+            const input = document.getElementById('b-' + den);
+            if (input) input.value = '';
         });
-    }
+        calculateArqueo();
+        
+        // Opcional: limpiar también en la base de datos si así lo desean,
+        // pero por ahora solo borraremos los campos visualmente.
+    };
 
     const btnNuevoMovCaja = document.getElementById('btn-nuevo-movimiento-caja');
     if (btnNuevoMovCaja) {
@@ -2497,9 +2499,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 6. Compras ARCA CSV
+    let arcaData = [];
+    let arcaSortKey = 'fecha_emision';
+    let arcaSortDesc = true;
+
+    window.sortArca = function(key) {
+        if (arcaSortKey === key) {
+            arcaSortDesc = !arcaSortDesc;
+        } else {
+            arcaSortKey = key;
+            arcaSortDesc = (key === 'fecha_emision' || key === 'imp_total');
+        }
+        renderArcaCompras();
+    };
+
+    window.fetchArcaComprasLocal = function() {
+        const cbx = document.getElementById('cbx-pagar-mes');
+        if (cbx) cbx.checked = false;
+        fetchArcaCompras();
+    };
+
     async function fetchArcaCompras() {
         try {
-            const mesParam = currentSelectedMonth ? '?mes=' + currentSelectedMonth : '';
+            const localMonthFilter = document.getElementById('arca-month-filter');
+            let selectedMonth = currentSelectedMonth;
+            if (localMonthFilter && localMonthFilter.value !== 'all') {
+                selectedMonth = localMonthFilter.value;
+            } else if (localMonthFilter && localMonthFilter.value === 'all') {
+                selectedMonth = ''; // Para ver todos los meses si selecciona "Todos los meses" en el filtro local
+            }
+
+            const mesParam = selectedMonth ? '?mes=' + selectedMonth : '';
             const res = await fetch('/api/arca_compras' + mesParam);
             const data = await res.json();
             
@@ -2507,55 +2537,83 @@ document.addEventListener('DOMContentLoaded', () => {
             const el_pag = document.getElementById('arca-count-pagados');
             const el_tot = document.getElementById('arca-total-importe');
             if (el_pend) el_pend.textContent = data.resumen.pendientes;
-            if (el_pag) el_pag.textContent = data.resumen.pagados;
+            if (el_pag) el_pag.innerHTML = `${data.resumen.pagados} (<span style="color:var(--text-secondary); font-size:0.85em;">${formatCurrency(data.resumen.pagados_total || 0)}</span>)`;
             if (el_tot) el_tot.textContent = formatCurrency(data.resumen.total_importe);
 
-            const tbody = document.getElementById('tbl-arca-compras-body');
-            if (!tbody) return;
-
-            if (!data.compras || data.compras.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 2rem;">
-                    No hay compras registradas para este período. Sincronizá ARCA para importar.
-                </td></tr>`;
-                return;
-            }
-
-            tbody.innerHTML = data.compras.map(c => {
-                const recibida = c.factura_recibida
-                    ? `<span title="Factura física recibida y escaneada" style="color: #34d399; font-size: 1.1rem;"><i class="fa-solid fa-circle-check"></i></span>`
-                    : `<button class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 7px;" onclick="marcarArcaRecibida(${c.id})" title="Marcar como factura recibida físicamente"><i class="fa-solid fa-qrcode"></i> Recibir</button>`;
-
-                const estadoBadge = c.estado === 'Pagado'
-                    ? `<span style="color: #34d399; font-weight: 700; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> Pagado</span>
-                       <br><small style="color: var(--text-secondary); font-size: 0.7rem;">${escapeHtml(c.metodo_pago || '')}</small>`
-                    : `<span style="color: #f59e0b; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
-
-                const metodoBtns = c.estado !== 'Pagado' ? METODOS_PAGO.map((m, i) => `
-                    <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i===0?'52,211,153':i===1?'96,165,250':'168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
-                        onclick="pagarArcaCompra(${c.id}, '${m.key}')">
-                        M${i+1}
-                    </button>`).join('')
-                    : `<button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid #f8717140; border-radius: 6px; cursor:pointer;"
-                        onclick="despagarArcaCompra(${c.id})"><i class="fa-solid fa-rotate-left"></i> Deshacer</button>`;
-
-                const rowBg = c.estado === 'Pagado' ? 'background: rgba(52,211,153,0.04);' : (c.factura_recibida ? 'background: rgba(59,130,246,0.05);' : '');
-
-                return `
-                    <tr style="${rowBg}">
-                        <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}</td>
-                        <td><strong>${escapeHtml(c.denominacion_emisor || '-')}</strong></td>
-                        <td style="text-align: right; color: #f59e0b;">${formatCurrency(c.total_iva)}</td>
-                        <td style="text-align: right; font-weight: 700; color: #f8fafc;">${formatCurrency(c.imp_total)}</td>
-                        <td style="text-align: center;">${recibida}</td>
-                        <td style="text-align: center;">${estadoBadge}</td>
-                        <td style="text-align: center; white-space: nowrap;">${metodoBtns}</td>
-                    </tr>
-                `;
-            }).join('');
+            arcaData = data.compras || [];
+            renderArcaCompras();
         } catch(e) {
             console.error("Error cargando compras ARCA:", e);
         }
     }
+
+    window.renderArcaCompras = function() {
+        const tbody = document.getElementById('tbl-arca-compras-body');
+        if (!tbody) return;
+
+        const filterVal = document.getElementById('arca-filter') ? document.getElementById('arca-filter').value : 'all';
+        
+        let filtered = [...arcaData];
+        if (filterVal === 'recibida') filtered = filtered.filter(c => c.factura_recibida);
+        if (filterVal === 'no_recibida') filtered = filtered.filter(c => !c.factura_recibida);
+        if (filterVal === 'pendiente') filtered = filtered.filter(c => c.estado !== 'Pagado');
+        if (filterVal === 'pagado') filtered = filtered.filter(c => c.estado === 'Pagado');
+
+        if (arcaSortKey) {
+            filtered.sort((a, b) => {
+                let valA = a[arcaSortKey];
+                let valB = b[arcaSortKey];
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+                if (valA < valB) return arcaSortDesc ? 1 : -1;
+                if (valA > valB) return arcaSortDesc ? -1 : 1;
+                return 0;
+            });
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 2rem;">
+                No hay compras que coincidan con los filtros para este período.
+            </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(c => {
+            const recibida = c.factura_recibida
+                ? `<span title="Factura física recibida y escaneada" style="color: #34d399; font-size: 1.1rem;"><i class="fa-solid fa-circle-check"></i></span>`
+                : `<button class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 7px;" onclick="marcarArcaRecibida(${c.id})" title="Marcar como factura recibida físicamente"><i class="fa-solid fa-qrcode"></i> Recibir</button>`;
+
+            const estadoBadge = c.estado === 'Pagado'
+                ? `<span style="color: #34d399; font-weight: 700; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> Pagado</span>
+                   <br><small style="color: var(--text-secondary); font-size: 0.7rem;">${escapeHtml(c.metodo_pago || '')}</small>`
+                : `<span style="color: #f59e0b; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
+
+            const metodoBtns = c.estado !== 'Pagado' ? METODOS_PAGO.map((m, i) => `
+                <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i===0?'52,211,153':i===1?'96,165,250':'168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
+                    onclick="pagarArcaCompra(${c.id}, '${m.key}')">
+                    M${i+1}
+                </button>`).join('')
+                : `<button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid #f8717140; border-radius: 6px; cursor:pointer;"
+                    onclick="despagarArcaCompra(${c.id})"><i class="fa-solid fa-rotate-left"></i> Deshacer</button>`;
+
+            const rowBg = c.estado === 'Pagado' ? 'background: rgba(52,211,153,0.04);' : (c.factura_recibida ? 'background: rgba(59,130,246,0.05);' : '');
+
+            const denom = escapeHtml(c.denominacion_emisor || '-');
+            const shortDenom = denom.length > 35 ? denom.substring(0, 35) + '...' : denom;
+
+            return `
+                <tr style="${rowBg}">
+                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}</td>
+                    <td title="${denom}"><strong>${shortDenom}</strong></td>
+                    <td style="text-align: right; color: #f59e0b;">${formatCurrency(c.total_iva)}</td>
+                    <td style="text-align: right; font-weight: 700; color: #f8fafc;">${formatCurrency(c.imp_total)}</td>
+                    <td style="text-align: center;">${recibida}</td>
+                    <td style="text-align: center;">${estadoBadge}</td>
+                    <td style="text-align: center; white-space: nowrap;">${metodoBtns}</td>
+                </tr>
+            `;
+        }).join('');
+    };
 
     window.pagarArcaCompra = async function(id, metodo) {
         try {
@@ -2571,7 +2629,44 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch(e) { showToast('Error al marcar pago', 'error'); }
     };
-
+    window.handleMarcarMesPagado = async function(cbx) {
+        if (!cbx.checked) return;
+        
+        let mes = document.getElementById('arca-month-filter').value;
+        if (mes === 'all') mes = currentSelectedMonth;
+        
+        if (mes === 'all' || !mes) {
+            alert("Por favor, selecciona un mes específico en el filtro antes de usar esta opción.");
+            cbx.checked = false;
+            return;
+        }
+        
+        if (!confirm(`¿Estás seguro de marcar TODAS las facturas de ${mes} como PAGADAS?`)) {
+            cbx.checked = false;
+            return;
+        }
+        
+        try {
+            const res = await fetch(`/api/test/marcar_mes_pagado`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ mes: mes })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Se han marcado ${data.actualizados} facturas como pagadas para el mes ${mes}`);
+                if (window.fetchArcaComprasLocal) fetchArcaComprasLocal();
+                else fetchArcaCompras();
+            } else {
+                showToast(data.message || 'Error al actualizar', 'error');
+                cbx.checked = false;
+            }
+        } catch(e) {
+            showToast('Error de red al actualizar', 'error');
+            cbx.checked = false;
+        }
+    };
+    
     window.despagarArcaCompra = async function(id) {
         if (!confirm('¿Deshacer el pago de esta compra?')) return;
         try {
@@ -2680,6 +2775,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    window.editarDiaEstacionamiento = function(fecha, dia_nombre, tc, cash, mp, comentario) {
+        document.getElementById('est-in-fecha').value = fecha || '';
+        document.getElementById('est-in-dia').value = dia_nombre || '';
+        document.getElementById('est-in-tc').value = tc || '';
+        document.getElementById('est-in-cash').value = cash || '';
+        document.getElementById('est-in-mp').value = mp || '';
+        document.getElementById('est-in-comentario').value = comentario || '';
+        
+        const rowInline = document.getElementById('row-inline-add-est');
+        if (rowInline) {
+            rowInline.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            rowInline.style.transition = 'background-color 0.5s';
+            rowInline.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
+            setTimeout(() => { rowInline.style.backgroundColor = ''; }, 1000);
+        }
+        
+        if (typeof updateInlineEstCalculations === 'function') {
+            updateInlineEstCalculations();
+        }
+    };
+    
     window.eliminarDiaEstacionamiento = async function(fecha) {
         if (!confirm(`¿Deseas eliminar el registro de la fecha ${fecha}?`)) return;
         try {
@@ -2708,6 +2824,51 @@ document.addEventListener('DOMContentLoaded', () => {
     // Driver.js (~80KB gz) se carga SOLO cuando el usuario hace clic en Ayuda.
     // Esto elimina el peso del CSS + JS bloqueante en la carga inicial.
     const btnHelp = document.getElementById('btn-help');
+    // --- Dashboard Empresa ---
+    async function fetchDashboardEmpresa() {
+        try {
+            const mesParam = currentSelectedMonth ? '?mes=' + currentSelectedMonth : '';
+            const res = await fetch('/api/dashboard/empresa' + mesParam);
+            const data = await res.json();
+            
+            document.getElementById('emp-stat-ingresos').textContent = formatCurrency(data.ingresos.total);
+            document.getElementById('emp-stat-egresos').textContent = formatCurrency(data.egresos.total);
+            
+            const ganancia = data.ganancia_neta;
+            const gananciaElem = document.getElementById('emp-stat-ganancia');
+            const gananciaCard = document.getElementById('emp-card-ganancia');
+            const gananciaIcon = document.getElementById('emp-icon-ganancia');
+            const gananciaTitle = document.getElementById('emp-title-ganancia');
+            
+            gananciaElem.textContent = formatCurrency(ganancia);
+            if (ganancia >= 0) {
+                gananciaCard.style.background = 'rgba(52, 211, 153, 0.05)';
+                gananciaCard.style.border = '1px solid rgba(52, 211, 153, 0.2)';
+                gananciaIcon.style.background = 'rgba(52, 211, 153, 0.2)';
+                gananciaIcon.style.color = '#34d399';
+                gananciaIcon.innerHTML = '<i class="fa-solid fa-face-smile"></i>';
+                gananciaTitle.textContent = 'Ganancia Neta';
+            } else {
+                gananciaCard.style.background = 'rgba(239, 68, 68, 0.05)';
+                gananciaCard.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+                gananciaIcon.style.background = 'rgba(239, 68, 68, 0.2)';
+                gananciaIcon.style.color = '#ef4444';
+                gananciaIcon.innerHTML = '<i class="fa-solid fa-face-frown"></i>';
+                gananciaTitle.textContent = 'Pérdida Neta';
+            }
+
+            document.getElementById('emp-ingreso-rec').textContent = formatCurrency(data.ingresos.recaudacion);
+            document.getElementById('emp-ingreso-est').textContent = formatCurrency(data.ingresos.estacionamiento);
+            
+            document.getElementById('emp-egreso-fijo').textContent = formatCurrency(data.egresos.fijos);
+            document.getElementById('emp-egreso-arca').textContent = formatCurrency(data.egresos.proveedores) + ` (Pendiente: ${formatCurrency(data.pendientes.proveedores)})`;
+            document.getElementById('emp-egreso-caja').textContent = formatCurrency(data.egresos.caja_chica);
+
+        } catch (e) {
+            console.error('Error fetching dashboard empresa:', e);
+        }
+    }
+
     let driverLoaded = false;
     let driverInstance = null;
 

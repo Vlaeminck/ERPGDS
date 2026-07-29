@@ -38,6 +38,10 @@
                 <h2>ERP GDS</h2>
             </div>
             <ul class="nav-links">
+                <li class="active" data-tab="empresa">
+                    <i class="fa-solid fa-building"></i>
+                    <span>Dashboard Empresa</span>
+                </li>
                 <!-- Menú Padre: Facturas -->
                 <li class="nav-group active" id="group-facturas">
                     <div class="nav-group-header" data-tab="dashboard">
@@ -131,8 +135,66 @@
                 </div>
             </div>
 
+            <!-- Tab: Dashboard Empresa -->
+            <section id="tab-empresa" class="tab-pane active fade-in">
+                <header class="section-header">
+                    <div>
+                        <h1>Dashboard de la Empresa</h1>
+                        <p>Visión global y rentabilidad (Ingresos vs Egresos del Mes)</p>
+                    </div>
+                </header>
+                
+                <div class="stats-grid">
+                    <div class="glass-card stat-card" style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2);">
+                        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">
+                            <i class="fa-solid fa-arrow-trend-up"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Ingresos Totales</h3>
+                            <p class="stat-number" id="emp-stat-ingresos">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card" style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2);">
+                        <div class="stat-icon" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">
+                            <i class="fa-solid fa-arrow-trend-down"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Egresos Totales</h3>
+                            <p class="stat-number" id="emp-stat-egresos">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card" id="emp-card-ganancia">
+                        <div class="stat-icon" id="emp-icon-ganancia">
+                            <i class="fa-solid fa-scale-balanced"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3 id="emp-title-ganancia">Ganancia Neta</h3>
+                            <p class="stat-number" id="emp-stat-ganancia">$0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 2rem; margin-top: 2rem; flex-wrap: wrap;">
+                    <div class="glass-card" style="flex: 1; min-width: 300px; padding: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #10b981;"><i class="fa-solid fa-money-bill-trend-up"></i> Desglose de Ingresos</h3>
+                        <ul style="list-style: none; padding: 0; margin-top: 1rem; color: var(--text-secondary); line-height: 2;">
+                            <li style="display: flex; justify-content: space-between;"><span>Recaudación Diaria (Local/Maxirest):</span> <strong id="emp-ingreso-rec" style="color: #f8fafc;">$0</strong></li>
+                            <li style="display: flex; justify-content: space-between;"><span>Estacionamiento:</span> <strong id="emp-ingreso-est" style="color: #f8fafc;">$0</strong></li>
+                        </ul>
+                    </div>
+                    <div class="glass-card" style="flex: 1; min-width: 300px; padding: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #ef4444;"><i class="fa-solid fa-money-bill-transfer"></i> Desglose de Egresos</h3>
+                        <ul style="list-style: none; padding: 0; margin-top: 1rem; color: var(--text-secondary); line-height: 2;">
+                            <li style="display: flex; justify-content: space-between;"><span>Gastos Fijos:</span> <strong id="emp-egreso-fijo" style="color: #f8fafc;">$0</strong></li>
+                            <li style="display: flex; justify-content: space-between;"><span>Proveedores (ARCA):</span> <strong id="emp-egreso-arca" style="color: #f8fafc;">$0</strong></li>
+                            <li style="display: flex; justify-content: space-between;"><span>Caja Chica / Egresos Extra:</span> <strong id="emp-egreso-caja" style="color: #f8fafc;">$0</strong></li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
             <!-- Tab: Dashboard -->
-            <section id="tab-dashboard" class="tab-pane active fade-in">
+            <section id="tab-dashboard" class="tab-pane fade-in" style="display: none;">
                 <header class="section-header"
                     style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
@@ -368,8 +430,6 @@
                                     <th>Proveedor</th>
                                     <th>Factura N°</th>
                                     <th>Fecha</th>
-                                    <th>Monto Total</th>
-                                    <th>Monto Pagado</th>
                                     <th>Estado</th>
                                     <th>Medio Pago</th>
                                     <th>Acción</th>
@@ -390,6 +450,20 @@
                             <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0 0;">Facturas emitidas por proveedores según el CSV de ARCA &mdash; Sincronizar ARCA para actualizar</p>
                         </div>
                         <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="arca-month-filter" class="form-control" style="width: 140px; font-size: 0.8rem; padding: 4px;" onchange="fetchArcaComprasLocal()">
+                                <option value="all">Todos los meses</option>
+                                <!-- Se llena dinámicamente -->
+                            </select>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text-primary); margin: 0;" title="Tilda para pagar todas las facturas del mes seleccionado">
+                                <input type="checkbox" id="cbx-pagar-mes" onchange="handleMarcarMesPagado(this)"> Pagado
+                            </label>
+                            <select id="arca-filter" class="form-control" style="width: 150px; font-size: 0.8rem; padding: 4px;" onchange="renderArcaCompras()">
+                                <option value="all">Todas</option>
+                                <option value="pendiente">Pendientes de Pago</option>
+                                <option value="pagado">Pagadas</option>
+                                <option value="recibida">Recibidas Físicas</option>
+                                <option value="no_recibida">Faltantes Físicas</option>
+                            </select>
                             <div id="arca-compras-stats" style="display: flex; gap: 12px;">
                                 <span class="badge" style="background: rgba(239,68,68,0.15); color: #f87171;">Pendientes: <strong id="arca-count-pendientes">0</strong></span>
                                 <span class="badge" style="background: rgba(52,211,153,0.15); color: #34d399;">Pagados: <strong id="arca-count-pagados">0</strong></span>
@@ -404,12 +478,12 @@
                         <table class="data-table" style="font-size: 0.85rem;">
                             <thead style="position: sticky; top: 0; background-color: var(--bg-card); z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                                 <tr>
-                                    <th>Fecha Emisión</th>
-                                    <th>Denominación Emisor</th>
+                                    <th style="cursor:pointer;" onclick="sortArca('fecha_emision')" title="Ordenar por Fecha">Fecha Emisión <i class="fa-solid fa-sort" style="font-size:0.7em; opacity:0.5;"></i></th>
+                                    <th style="cursor:pointer;" onclick="sortArca('denominacion_emisor')" title="Ordenar por Emisor (A-Z)">Denominación Emisor <i class="fa-solid fa-sort" style="font-size:0.7em; opacity:0.5;"></i></th>
                                     <th>Total IVA</th>
-                                    <th>Imp. Total</th>
-                                    <th style="text-align:center;">Factura Recibida</th>
-                                    <th style="text-align:center;">Estado</th>
+                                    <th style="cursor:pointer;" onclick="sortArca('imp_total')" title="Ordenar por Importe">Imp. Total <i class="fa-solid fa-sort" style="font-size:0.7em; opacity:0.5;"></i></th>
+                                    <th style="text-align:center; cursor:pointer;" onclick="sortArca('factura_recibida')" title="Ordenar por Recepción Físicas">Factura Recibida <i class="fa-solid fa-sort" style="font-size:0.7em; opacity:0.5;"></i></th>
+                                    <th style="text-align:center; cursor:pointer;" onclick="sortArca('estado')" title="Ordenar por Estado">Estado <i class="fa-solid fa-sort" style="font-size:0.7em; opacity:0.5;"></i></th>
                                     <th style="text-align:center; min-width: 200px;">Método de Pago</th>
                                 </tr>
                             </thead>
@@ -570,6 +644,15 @@
                         </div>
                     </div>
                     <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">
+                            <i class="fa-solid fa-scale-unbalanced"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Diferencias</h3>
+                            <p class="stat-number" id="est-stat-diff">$0</p>
+                        </div>
+                    </div>
+                    <div class="glass-card stat-card">
                         <div class="stat-icon" style="background: rgba(52, 211, 153, 0.2); color: #34d399;">
                             <i class="fa-solid fa-chart-line"></i>
                         </div>
@@ -687,8 +770,8 @@
                         </div>
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <span style="font-weight: 700; font-size: 1.15rem; color: #10b981;" id="arqueo-total-contado">$0</span>
-                            <button class="btn btn-primary btn-sm" id="btn-guardar-arqueo">
-                                <i class="fa-solid fa-floppy-disk"></i> Guardar Arqueo
+                            <button class="btn btn-secondary btn-sm" id="btn-limpiar-arqueo" title="Limpiar todos los billetes" onclick="limpiarBilletes()">
+                                <i class="fa-solid fa-broom"></i> Limpiar
                             </button>
                         </div>
                     </div>
