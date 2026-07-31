@@ -21,3 +21,5 @@ CSV ARCA/*
 registros/*
 !registros/.gitkeep
 dist/
+impeccable-main
+JUNIO CSV TEST.csv
