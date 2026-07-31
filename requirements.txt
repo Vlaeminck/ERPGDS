@@ -1,12 +1,23 @@
-watchdog
-pdfplumber
-pypdfium2
-Pillow
-pytesseract
-reportlab
-flask
-werkzeug
-google-generativeai
-requests
-selenium
-webdriver-manager
+# Web Framework & Core
+flask>=3.0.0
+werkzeug>=3.0.0
+requests>=2.31.0
+
+# WSGI Production Servers (Cloud / VPS Deployment)
+gunicorn>=21.2.0; sys_platform != 'win32'
+waitress>=3.0.0; sys_platform == 'win32'
+
+# Document & OCR Processing
+pytesseract>=0.3.10
+pdfplumber>=0.10.3
+pypdfium2>=4.26.0
+Pillow>=10.2.0
+
+# AI & Automation
+google-generativeai>=0.4.0
+selenium>=4.18.0
+webdriver-manager>=4.0.1
+watchdog>=4.0.0
+
+# Windows Automation (Local Desktop Escáner)
+pywinauto>=0.6.8; sys_platform == 'win32'

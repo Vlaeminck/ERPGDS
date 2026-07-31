@@ -15,12 +15,12 @@ VSVersionInfo(
       StringTable(
         u'040904B0',
         [StringStruct(u'CompanyName', u'Tom\xe1s Vlaeminck'),
-        StringStruct(u'FileDescription', u'PDFWatcher'),
+        StringStruct(u'FileDescription', u'GDSERP'),
         StringStruct(u'FileVersion', u'1.0.0.0'),
-        StringStruct(u'InternalName', u'PDFWatcher'),
+        StringStruct(u'InternalName', u'GDSERP'),
         StringStruct(u'LegalCopyright', u'Copyright (c) 2026 Tom\xe1s Vlaeminck'),
-        StringStruct(u'OriginalFilename', u'PDFWatcher.exe'),
-        StringStruct(u'ProductName', u'PDFWatcher'),
+        StringStruct(u'OriginalFilename', u'GDSERP.exe'),
+        StringStruct(u'ProductName', u'GDSERP'),
         StringStruct(u'ProductVersion', u'1.0.0.0')])
       ]), 
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])

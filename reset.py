@@ -4,16 +4,16 @@ import shutil
 import re
 
 print("=" * 65)
-print(" ⚠️  ADVERTENCIA DE REINICIO DE FÁBRICA (RESET TOTAL) ⚠️")
+print("  ADVERTENCIA DE REINICIO DE FABRICA (RESET TOTAL)")
 print("=" * 65)
-print("ESTA ACCIÓN ES IRREVERSIBLE E IMPLICA LO SIGUIENTE:")
-print("1. Se eliminarán TODAS las facturas procesadas, pendientes y remitos.")
-print("2. Se borrarán los historiales de facturas no reconocidas y logs.")
-print("3. Se vaciará por completo la carpeta de CSV de ARCA.")
-print("4. Se eliminarán TODOS los proveedores registrados (suppliers.json).")
-print("5. Se borrarán las credenciales de ARCA (arca_credentials.json).")
-print("6. Se resetearán la API Key de Gemini y el CUIT propio guardados.")
-print("\nBásicamente, la aplicación volverá a estar completamente en blanco de fábrica.")
+print("ESTA ACCION ES IRREVERSIBLE E IMPLICA LO SIGUIENTE:")
+print("1. Se eliminaran TODAS las facturas procesadas, pendientes y remitos.")
+print("2. Se borraran los historiales de facturas no reconocidas y logs.")
+print("3. Se vaciara por completo la carpeta de CSV de ARCA.")
+print("4. Se eliminaran TODOS los proveedores registrados de la base de datos.")
+print("5. Se borraran las credenciales de ARCA y la API Key de Gemini.")
+print("6. Se vaciaran TODAS las tablas de la base de datos SQLite (0 registros).")
+print("\nBasicamente, la aplicacion volvera a estar 100% en blanco de fabrica.")
 print("=" * 65)
 
 # Soporte para argumento --force o --yes
@@ -21,15 +21,15 @@ force = "--force" in sys.argv or "--yes" in sys.argv or "-y" in sys.argv
 
 if not force:
     try:
-        resp = input("\n¿Estás ABSOLUTAMENTE SEGURO de que deseas continuar? (escribe 'SI' para aceptar): ").strip()
+        resp = input("\n¿Estas ABSOLUTAMENTE SEGURO de que deseas continuar? (escribe 'SI' para aceptar): ").strip()
         if resp.upper() != "SI":
-            print("\n[INFO] Operación cancelada de forma segura. No se ha borrado nada.")
+            print("\n[INFO] Operacion cancelada de forma segura. No se ha borrado nada.")
             sys.exit(0)
     except KeyboardInterrupt:
-        print("\n\n[INFO] Operación cancelada por el usuario.")
+        print("\n\n[INFO] Operacion cancelada por el usuario.")
         sys.exit(0)
 
-print("\nProcediendo con el restablecimiento de fábrica...\n")
+print("\nProcediendo con el restablecimiento de fabrica...\n")
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -62,8 +62,8 @@ clean_folder("CSV ARCA")
 clean_folder("Remitos")
 clean_folder("registros")
 
-# 2. Eliminar Archivos de Configuración de Usuario y Datos
-print("\n--- 2. Eliminando archivos de base de datos y credenciales ---")
+# 2. Eliminar Archivos de Configuracion de Usuario y Datos
+print("\n--- 2. Eliminando archivos de configuracion y credenciales ---")
 files_to_remove = [
     "suppliers.json",
     "arca_credentials.json",
@@ -83,10 +83,18 @@ for fname in files_to_remove:
         except Exception as e:
             print(f"[!] Error eliminando '{fname}': {e}")
     else:
-        print(f"[-] Archivo '{fname}' no existía.")
+        print(f"[-] Archivo '{fname}' no existia.")
 
-# 3. Resetear variables en config.py
-print("\n--- 3. Reseteando configuración en config.py ---")
+# 3. Vaciar y Reinicializar Base de Datos SQLite (100% Vacia)
+print("\n--- 3. Restableciendo base de datos SQLite (control_interno.db) ---")
+try:
+    import db_manager
+    db_manager.reset_db()
+except Exception as e:
+    print(f"[!] Error restableciendo la base de datos: {e}")
+
+# 4. Resetear variables en config.py
+print("\n--- 4. Reseteando configuracion en config.py ---")
 config_path = os.path.join(base_dir, "config.py")
 if os.path.exists(config_path):
     try:
@@ -104,19 +112,19 @@ if os.path.exists(config_path):
     except Exception as e:
         print(f"[!] Error reseteando config.py: {e}")
 
-# 4. Limpiar Caché de Python (__pycache__)
-print("\n--- 4. Limpiando archivos temporales de caché ---")
+# 5. Limpiar Cache de Python (__pycache__)
+print("\n--- 5. Limpiando archivos temporales de cache ---")
 for root, dirs, files in os.walk(base_dir):
     for d in dirs:
         if d in ["__pycache__", ".pytest_cache"]:
             pycache_path = os.path.join(root, d)
             try:
                 shutil.rmtree(pycache_path)
-                print(f"[OK] Caché eliminada: {os.path.relpath(pycache_path, base_dir)}")
+                print(f"[OK] Cache eliminada: {os.path.relpath(pycache_path, base_dir)}")
             except Exception as e:
-                print(f"[!] Error eliminando caché {pycache_path}: {e}")
+                print(f"[!] Error eliminando cache {pycache_path}: {e}")
 
-print("\n" + "="*60)
-print("  ✨ ¡APLICACIÓN COMPLETAMENTE RESTABLECIDA A FÁBRICA! ✨")
-print("  PDFWatcher se encuentra 100% limpio y listo desde cero.")
-print("="*60)
+print("\n" + "="*65)
+print("   SISTEMA COMPLETAMENTE RESTABLECIDO A FABRICA Y 100% VACIO")
+print("  Toda la informacion y base de datos han quedado limpias desde cero.")
+print("="*65)

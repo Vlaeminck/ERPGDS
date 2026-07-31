@@ -284,10 +284,23 @@ def update_config_suppliers():
             "invoice_regex": s_data.get("invoice_regex", r"(\d{4,5}\s*-\s*\d{8})")
         }
         
-    # 5. Escribir los cambios en suppliers.json
+# 5. Escribir los cambios en la BD y en suppliers.json
     SUPPLIERS_PATH = os.path.join(BASE_DIR, "suppliers.json")
     try:
         import json
+        import db_manager
+        for s_name, s_info in final_suppliers.items():
+            kw = s_info.get('keywords', [])
+            cuit = ''
+            for k in kw:
+                if len(k.replace('-', '')) == 11 and k.replace('-', '').isdigit():
+                    cuit = k
+                    break
+            det = {k: v for k, v in s_info.items() if k != 'keywords'}
+            db_manager.save_supplier(s_name, keywords=kw, cuit=cuit, detalles=det)
+
+        with open(SUPPLIERS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(final_suppliers, f, indent=4, ensure_ascii=False)
         with open(SUPPLIERS_PATH, 'w', encoding='utf-8') as f:
             json.dump(final_suppliers, f, indent=4, ensure_ascii=False)
             

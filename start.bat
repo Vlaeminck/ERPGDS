@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo Iniciando PDFWatcher (Codigo Abierto)
+echo Iniciando ERP GDS (GDSERP)
 echo ===================================================
 python app.py
 pause

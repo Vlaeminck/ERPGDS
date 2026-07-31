@@ -1,12 +1,12 @@
 @echo off
 echo ========================================================
-echo Buscando actualizaciones de PDFWatcher en el servidor...
+echo Buscando actualizaciones de GDSERP (ERP GDS)...
 echo ========================================================
 echo.
 
 REM Asegurar que el repositorio remoto esta configurado
-git remote add origin https://github.com/Vlaeminck/PDFWatcher.git 2>nul
-git remote set-url origin https://github.com/Vlaeminck/PDFWatcher.git 2>nul
+git remote add origin https://github.com/Vlaeminck/ERPGDS.git 2>nul
+git remote set-url origin https://github.com/Vlaeminck/ERPGDS.git 2>nul
 
 REM Obtener informacion de los ultimos cambios sin aplicarlos
 git fetch origin main
@@ -21,7 +21,7 @@ echo Aplicando actualizaciones...
 echo ========================================================
 echo.
 
-REM Guardar temporalmente los cambios locales (como nuevos proveedores en config.py)
+REM Guardar temporalmente los cambios locales
 git stash push -m "Respaldo automatico antes de actualizar" >nul 2>&1
 
 REM Descargar y aplicar los cambios oficiales
@@ -43,10 +43,8 @@ if %PULL_ERROR% NEQ 0 (
     echo ========================================================
     echo Actualizacion completada con exito!
     echo.
-    echo Tus carpetas de datos: Facturas_A_Procesar, 
-    echo Facturas_Procesadas, Facturas_No_Reconocidas, 
-    echo registros y CSV ARCA NO se han visto afectadas,
-    echo tu informacion sigue intacta.
+    echo Tus carpetas de datos y base de datos (control_interno.db)
+    echo NO se han visto afectadas, tu informacion sigue intacta.
     echo ========================================================
 )
 

@@ -139,11 +139,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     allTabItems.forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.stopPropagation();
-            switchTab(link.dataset.tab);
-        });
+    link.addEventListener('click', (e) => {
+        e.stopPropagation();
+        switchTab(link.dataset.tab);
+        if (link.classList.contains('nav-group-header')) {
+            const group = link.closest('.nav-group');
+            if (group) group.classList.toggle('collapsed');
+        }
     });
+});
 
     // --- Toast Notifications ---
     function showToast(message, type = 'success') {
@@ -850,10 +854,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const tr = document.createElement('tr');
             
             const tdFile = document.createElement('td');
-            tdFile.innerHTML = `<i class="fa-solid fa-file-pdf" style="color: #e74c3c; margin-right: 8px;"></i><strong>${item.filename}</strong>`;
+            tdFile.innerHTML = `<i class="fa-solid fa-file-pdf" style="color: #b91c1c; margin-right: 8px;"></i><strong>${item.filename}</strong>`;
 
             const tdErrorType = document.createElement('td');
-            tdErrorType.innerHTML = `<span class="badge" style="background: rgba(231,76,60,0.2); color: #e74c3c; border: 1px solid rgba(231,76,60,0.3);">${item.error_type}</span>`;
+            tdErrorType.innerHTML = `<span class="badge" style="background: rgba(231,76,60,0.2); color: #b91c1c; border: 1px solid rgba(231,76,60,0.3);">${item.error_type}</span>`;
 
             const tdDate = document.createElement('td');
             tdDate.textContent = item.date || '-';
@@ -1164,13 +1168,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Auto-start si es la primera vez
-        if (!localStorage.getItem('pdfwatcher_tutorial_seen')) {
-            setTimeout(() => {
-                driverObj.drive();
-                localStorage.setItem('pdfwatcher_tutorial_seen', 'true');
-            }, 1000);
-        }
+        // Auto-start si es la primera vez (consultando SQLite)
+        fetch('/api/configuraciones/pdfwatcher_tutorial_seen')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.valor) {
+                    setTimeout(() => {
+                        driverObj.drive();
+                        fetch('/api/configuraciones/pdfwatcher_tutorial_seen', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ valor: 'true' })
+                        }).catch(() => {});
+                    }, 1000);
+                }
+            }).catch(() => {});
     }
 
     // --- Heartbeat Ping ---
@@ -1668,16 +1680,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (item.status_code === 'ok') {
                 statusBadge = `<span class="badge badge-success" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-check"></i> ${escapeHtml(item.status || 'Procesada')}</span>`;
             } else if (item.status_code === 'remito') {
-                statusBadge = `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-receipt"></i> ${escapeHtml(item.status || 'Remito')}</span>`;
+                statusBadge = `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #9a3412; border: 1px solid rgba(234, 179, 8, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-receipt"></i> ${escapeHtml(item.status || 'Remito')}</span>`;
             } else {
                 statusBadge = `<span class="badge badge-danger" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-xmark"></i> ${escapeHtml(item.status || 'No Reconocida')}</span>`;
             }
 
             let iaBadge = '';
             if (item.used_ai) {
-                iaBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Rescatado con IA</span>`;
+                iaBadge = `<span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #6b21a8; border: 1px solid rgba(168, 85, 247, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Rescatado con IA</span>`;
             } else {
-                iaBadge = `<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-bolt"></i> Directo (OCR/CAE)</span>`;
+                iaBadge = `<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #1d4ed8; border: 1px solid rgba(59, 130, 246, 0.4); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;"><i class="fa-solid fa-bolt"></i> Directo (OCR/CAE)</span>`;
             }
 
             const timeFormatted = item.elapsed_seconds !== undefined ? `${item.elapsed_seconds}s` : '< 1s';
@@ -1780,7 +1792,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         onclick="registrarPagoProveedor(${c.id}, '${m.key}')" title="${m.label}">
                         M${i+1}
                     </button>`).join('') : 
-                    `<span style="color: #34d399;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+                    `<span style="color: #047857;"><i class="fa-solid fa-check"></i> Pagado</span>`;
                     
                 return `
                     <tr>
@@ -1844,7 +1856,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = data.map((r, idx) => `
                 <tr>
                     <td><strong>${escapeHtml(r.fecha)}</strong><br><small style="color:var(--text-secondary);">${escapeHtml(r.dia_nombre || '')}</small></td>
-                    <td><span class="badge" style="background: rgba(59,130,246,0.15); color: #60a5fa; font-weight:700;">L${idx + 1} ${formatCurrency(r.efectivo_cub || 0)}</span></td>
+                    <td><span class="badge" style="background: rgba(59,130,246,0.15); color: #1d4ed8; font-weight:700;">L${idx + 1} ${formatCurrency(r.efectivo_cub || 0)}</span></td>
                     <td><strong style="color: #a855f7;">${r.cubiertos || 0}</strong></td>
                     <td>${formatCurrency(r.nave_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.nave_maxi)})</small><br>${renderDiffTag(r.diff_nave)}</td>
                     <td>${formatCurrency(r.efectivo_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.efectivo_maxi)})</small><br>${renderDiffTag(r.diff_efectivo)}</td>
@@ -1875,7 +1887,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         { label: 'Proyección', data: proyecciones, borderColor: '#8b5cf6', borderDash: [5, 5], fill: false }
                     ]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } }
             });
 
             // Pie chart medios de pago
@@ -1896,7 +1908,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
                     }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#64748b' } } } }
             });
 
         } catch (e) {
@@ -2009,7 +2021,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     labels: labelsEst,
                     datasets: [{ label: 'Total Diario ($)', data: totalesEst, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8' } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } }
             });
 
             // Cargar gastos fijos independientes del Estacionamiento
@@ -2174,10 +2186,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td>${escapeHtml(m.fecha)}</td>
                     <td style="color: #f87171;">${m.monto_retirado > 0 ? '-' + formatCurrency(m.monto_retirado) : '-'}</td>
-                    <td style="color: #34d399;">${m.monto_ingresado > 0 ? '+' + formatCurrency(m.monto_ingresado) : '-'}</td>
+                    <td style="color: #047857;">${m.monto_ingresado > 0 ? '+' + formatCurrency(m.monto_ingresado) : '-'}</td>
                     <td>${escapeHtml(m.motivo)}</td>
                     <td>${escapeHtml(m.responsable || 'Admin')}</td>
-                    <td><span class="badge" style="background: rgba(255,255,255,0.08);">${escapeHtml(m.categoria || 'General')}</span></td>
+                    <td><span class="badge" style="background: rgba(0,0,0,0.04); color: var(--text-primary); border: 1px solid var(--border-color);">${escapeHtml(m.categoria || 'General')}</span></td>
                 </tr>
             `).join('');
 
@@ -2277,24 +2289,64 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const btnNuevoMovCaja = document.getElementById('btn-nuevo-movimiento-caja');
-    if (btnNuevoMovCaja) {
-        btnNuevoMovCaja.addEventListener('click', async () => {
-            const tipo = prompt("Tipo de movimiento ('E' para Egreso/Gasto, 'I' para Ingreso/Fondo):", "E");
-            if (!tipo) return;
-            const montoStr = prompt("Monto:");
-            if (!montoStr) return;
+const modalCaja = document.getElementById('modal-caja-chica');
+const btnCloseCaja = document.getElementById('btn-close-modal-caja');
+const btnCancelCaja = document.getElementById('btn-cancel-modal-caja');
+const btnSaveCaja = document.getElementById('btn-save-modal-caja');
+
+if (btnNuevoMovCaja && modalCaja) {
+    const closeModal = () => modalCaja.classList.remove('show');
+    
+    btnNuevoMovCaja.addEventListener('click', async () => {
+        // Retrieve last responsible from SQLite via API
+        let lastResponsable = '';
+        try {
+            const resConfig = await fetch('/api/configuraciones/caja_responsable');
+            const dataConfig = await resConfig.json();
+            if (dataConfig.valor) lastResponsable = dataConfig.valor;
+        } catch (e) {}
+
+        // Reset fields
+        document.getElementById('modal-caja-tipo').value = 'E';
+        document.getElementById('modal-caja-monto').value = '';
+        document.getElementById('modal-caja-motivo').value = '';
+        document.getElementById('modal-caja-responsable').value = lastResponsable;
+        if (document.getElementById('modal-caja-categoria')) {
+            document.getElementById('modal-caja-categoria').value = 'General';
+        }
+        
+        modalCaja.classList.add('show');
+    });
+    
+    if (btnCloseCaja) btnCloseCaja.addEventListener('click', closeModal);
+    if (btnCancelCaja) btnCancelCaja.addEventListener('click', closeModal);
+    
+    if (btnSaveCaja) {
+        btnSaveCaja.addEventListener('click', async () => {
+            const tipo = document.getElementById('modal-caja-tipo').value;
+            const montoStr = document.getElementById('modal-caja-monto').value;
+            const motivo = document.getElementById('modal-caja-motivo').value || 'Gasto diario';
+            const responsable = document.getElementById('modal-caja-responsable').value || 'Tomás';
+            const categoria = document.getElementById('modal-caja-categoria') ? document.getElementById('modal-caja-categoria').value : 'General';
+            
+            // Save responsible to SQLite via API
+            fetch('/api/configuraciones/caja_responsable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ valor: responsable })
+            }).catch(() => {});
+            
             const monto = parseFloat(montoStr);
-            if (isNaN(monto) || monto <= 0) return alert("Monto inválido");
-            const motivo = prompt("Motivo / Descripción:", "Gasto diario") || "Gasto diario";
-            const responsable = prompt("Responsable:", "Tomás") || "Tomás";
-
+            if (isNaN(monto) || monto <= 0) return showToast("Monto inválido", "error");
+            
             const payload = {
-                monto_retirado: tipo.toUpperCase() === 'E' ? monto : 0,
-                monto_ingresado: tipo.toUpperCase() === 'I' ? monto : 0,
+                monto_retirado: tipo === 'E' ? monto : 0,
+                monto_ingresado: tipo === 'I' ? monto : 0,
                 motivo,
-                responsable
+                responsable,
+                categoria
             };
-
+            
             try {
                 const res = await fetch('/api/caja_chica/movimientos', {
                     method: 'POST',
@@ -2302,14 +2354,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify(payload)
                 });
                 if (res.ok) {
-                    showToast("Movimiento registrado");
-                    fetchCajaChica();
+                    showToast("Movimiento de caja registrado con éxito");
+                    closeModal();
+                    await Promise.all([fetchCajaChicaStats(), fetchCajaChicaMovements()]);
+                } else {
+                    showToast("Error al registrar movimiento", "error");
                 }
-            } catch (e) {
-                showToast("Error guardando movimiento", "error");
+            } catch (error) {
+                console.error("Error al registrar movimiento:", error);
+                showToast("Error de conexión al registrar", "error");
             }
         });
     }
+}
 
     // 5. Gastos Fijos & Ganancia Neta — Editable por mes
     const METODOS_PAGO = [
@@ -2339,14 +2396,15 @@ document.addEventListener('DOMContentLoaded', () => {
             await waitForChart();
             if (chartGananciaNetaInst) chartGananciaNetaInst.destroy();
             const ctx = document.getElementById('chartGananciaNeta').getContext('2d');
+            const monthLabel = currentSelectedMonth ? `Mes (${currentSelectedMonth})` : 'Período Activo';
             chartGananciaNetaInst = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: ['Mayo', 'Junio', 'Julio'],
+                    labels: [monthLabel],
                     datasets: [{
                         label: 'Ganancia Neta ($)',
-                        data: [1582258, -492925, resResumen.ganancia_neta],
-                        backgroundColor: [1582258 >= 0 ? '#34d399' : '#f87171', -492925 >= 0 ? '#34d399' : '#f87171', resResumen.ganancia_neta >= 0 ? '#34d399' : '#f87171']
+                        data: [resResumen.ganancia_neta],
+                        backgroundColor: [resResumen.ganancia_neta >= 0 ? '#34d399' : '#f87171']
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
@@ -2580,11 +2638,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         tbody.innerHTML = filtered.map(c => {
             const recibida = c.factura_recibida
-                ? `<span title="Factura física recibida y escaneada" style="color: #34d399; font-size: 1.1rem;"><i class="fa-solid fa-circle-check"></i></span>`
+                ? `<span title="Factura física recibida y escaneada" style="color: #047857; font-size: 1.1rem;"><i class="fa-solid fa-circle-check"></i></span>`
                 : `<button class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 7px;" onclick="marcarArcaRecibida(${c.id})" title="Marcar como factura recibida físicamente"><i class="fa-solid fa-qrcode"></i> Recibir</button>`;
 
             const estadoBadge = c.estado === 'Pagado'
-                ? `<span style="color: #34d399; font-weight: 700; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> Pagado</span>
+                ? `<span style="color: #047857; font-weight: 700; font-size: 0.8rem;"><i class="fa-solid fa-check"></i> Pagado</span>
                    <br><small style="color: var(--text-secondary); font-size: 0.7rem;">${escapeHtml(c.metodo_pago || '')}</small>`
                 : `<span style="color: #f59e0b; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
 
@@ -2920,4 +2978,5 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
 

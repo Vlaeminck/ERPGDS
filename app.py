@@ -145,6 +145,21 @@ def progress():
 
 @app.route('/api/processed_invoices')
 def processed_invoices():
+    try:
+        db_invs = db_manager.get_processed_invoices_from_db()
+        if db_invs:
+            result = []
+            for r in db_invs:
+                result.append({
+                    "filename": r['filename'],
+                    "supplier": r['supplier'],
+                    "date": f"{r['month']} {r['year']}",
+                    "path": r['filepath']
+                })
+            return jsonify(result)
+    except Exception as ex:
+        print(f"Error consultando facturas en BD: {ex}")
+        
     invoices = []
     if os.path.exists(config.OUTPUT_FOLDER):
         for root, dirs, files in os.walk(config.OUTPUT_FOLDER):
@@ -416,19 +431,19 @@ def save_api_key():
         return jsonify({"success": False, "message": "La API Key no puede estar vacía"}), 400
         
     try:
-        # Save to api_key.txt for compiled environments
+        db_manager.set_config('gemini_api_key', api_key)
         api_key_path = os.path.join(config.BASE_DIR, 'api_key.txt')
         obfuscated_key = config.obfuscate_key(api_key)
         with open(api_key_path, 'w', encoding='utf-8') as f:
             f.write(obfuscated_key)
         config.AI_API_KEY = api_key
-        return jsonify({"success": True, "message": "API Key guardada correctamente"})
+        return jsonify({"success": True, "message": "API Key guardada correctamente en la base de datos"})
     except Exception as e:
         return jsonify({"success": False, "message": f"Error al guardar la clave: {e}"}), 500
 
 @app.route('/api/settings/get_api_key', methods=['GET'])
 def get_api_key():
-    key = getattr(config, 'AI_API_KEY', '')
+    key = db_manager.get_config('gemini_api_key') or getattr(config, 'AI_API_KEY', '')
     if key == "TU_API_KEY_AQUI":
         key = ""
     return jsonify({"api_key": key})
@@ -1538,8 +1553,8 @@ if __name__ == '__main__':
             names = ", ".join([name for name, _ in missing])
             try:
                 import ctypes
-                msg = f"PDFWatcher necesita instalar componentes adicionales para funcionar correctamente:\n\n{names}\n\nSe abrirá una ventana de consola (pantalla negra) mostrando el progreso de la descarga e instalación. ¡NO LA CIERRES!\nPor favor, acepta los permisos de administrador (UAC) si Windows te los pide.\n\nEl programa se abrirá automáticamente al terminar. ¡Gracias por tu paciencia!"
-                ctypes.windll.user32.MessageBoxW(0, msg, "Instalando Dependencias de PDFWatcher", 0x40 | 0x0)
+                msg = f"GDSERP necesita instalar componentes adicionales para funcionar correctamente:\n\n{names}\n\nSe abrirá una ventana de consola (pantalla negra) mostrando el progreso de la descarga e instalación. ¡NO LA CIERRES!\nPor favor, acepta los permisos de administrador (UAC) si Windows te los pide.\n\nEl programa se abrirá automáticamente al terminar. ¡Gracias por tu paciencia!"
+                ctypes.windll.user32.MessageBoxW(0, msg, "Instalando Dependencias de GDSERP", 0x40 | 0x0)
             except Exception:
                 pass
             
@@ -1598,3 +1613,14 @@ if __name__ == '__main__':
 
     app.run(debug=False, port=5000, use_reloader=False, threaded=True)
 
+
+@app.route('/api/configuraciones/<clave>', methods=['GET', 'POST'])
+def api_configuraciones(clave):
+    if request.method == 'GET':
+        val = db_manager.get_config(clave)
+        return jsonify({"success": True, "clave": clave, "valor": val})
+    else:
+        data = request.get_json() or {}
+        val = data.get('valor', '')
+        db_manager.set_config(clave, val)
+        return jsonify({"success": True, "clave": clave, "valor": val})

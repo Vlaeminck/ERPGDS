@@ -9,7 +9,7 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db():
+def init_db(seed_samples=False):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -181,9 +181,48 @@ def init_db():
     )
     ''')
 
+    
+    # Tabla 9: Configuraciones del Sistema (Clave - Valor)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS configuraciones (
+        clave TEXT PRIMARY KEY,
+        valor TEXT
+    )
+    ''')
+
+    # Tabla 10: Proveedores Registrados
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS proveedores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT UNIQUE,
+        cuit TEXT DEFAULT '',
+        categoria TEXT DEFAULT 'General',
+        keywords TEXT DEFAULT '[]',
+        detalles TEXT DEFAULT '{}'
+    )
+    ''')
+
+    # Tabla 11: Facturas Procesadas
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS facturas_procesadas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year TEXT DEFAULT '',
+        month TEXT DEFAULT '',
+        supplier TEXT DEFAULT '',
+        filename TEXT DEFAULT '',
+        filepath TEXT DEFAULT '',
+        total REAL DEFAULT 0,
+        cuit TEXT DEFAULT '',
+        cae TEXT DEFAULT '',
+        fecha TEXT DEFAULT '',
+        fecha_procesado TEXT DEFAULT ''
+    )
+    ''')
+
     conn.commit()
     conn.close()
-    seed_initial_data()
+    if seed_samples:
+        seed_initial_data()
 
 def seed_initial_data():
     conn = get_connection()
@@ -330,9 +369,145 @@ def seed_initial_data():
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', rec_data)
 
+    
+    # Seed Proveedores desde suppliers.json si la tabla está vacía
+    cursor.execute("SELECT COUNT(*) FROM proveedores")
+    if cursor.fetchone()[0] == 0:
+        suppliers_file = os.path.join(config.BASE_DIR, "suppliers.json")
+        if os.path.exists(suppliers_file):
+            try:
+                import json
+                with open(suppliers_file, 'r', encoding='utf-8') as sf:
+                    s_data = json.load(sf)
+                    for s_name, s_info in s_data.items():
+                        kw = s_info.get('keywords', [])
+                        cuit = ''
+                        for k in kw:
+                            if len(k.replace('-', '')) == 11 and k.replace('-', '').isdigit():
+                                cuit = k
+                                break
+                        det = {k: v for k, v in s_info.items() if k != 'keywords'}
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO proveedores (nombre, cuit, keywords, detalles) VALUES (?, ?, ?, ?)",
+                            (s_name, cuit, json.dumps(kw), json.dumps(det))
+                        )
+            except Exception as ex:
+                print(f"Error al migrar suppliers.json a la BD: {ex}")
+
+    # Seed Configuraciones iniciales desde archivos si existen
+    try:
+        api_key_path = os.path.join(config.BASE_DIR, 'api_key.txt')
+        if os.path.exists(api_key_path):
+            with open(api_key_path, 'r', encoding='utf-8') as f:
+                val = f.read().strip()
+                if val: cursor.execute("INSERT OR IGNORE INTO configuraciones (clave, valor) VALUES ('gemini_api_key', ?)", (val,))
+        
+        cuit_path = os.path.join(config.BASE_DIR, 'cuit.txt')
+        if os.path.exists(cuit_path):
+            with open(cuit_path, 'r', encoding='utf-8') as f:
+                val = f.read().strip()
+                if val: cursor.execute("INSERT OR IGNORE INTO configuraciones (clave, valor) VALUES ('empresa_cuit', ?)", (val,))
+
+        arca_path = os.path.join(config.BASE_DIR, 'arca_credentials.json')
+        if os.path.exists(arca_path):
+            with open(arca_path, 'r', encoding='utf-8') as f:
+                val = f.read().strip()
+                if val: cursor.execute("INSERT OR IGNORE INTO configuraciones (clave, valor) VALUES ('arca_credentials_json', ?)", (val,))
+    except Exception as ex:
+        print(f"Error al migrar configuraciones a la BD: {ex}")
+
     conn.commit()
     conn.close()
 
 if __name__ == '__main__':
     init_db()
     print("Base de datos inicializada correctamente.")
+
+
+# --- Helper Functions for Configuraciones, Proveedores, Facturas ---
+
+def get_config(clave, default=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor FROM configuraciones WHERE clave = ?", (clave,))
+    row = cursor.fetchone()
+    conn.close()
+    return row['valor'] if row else default
+
+def set_config(clave, valor):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO configuraciones (clave, valor) VALUES (?, ?)
+        ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
+    ''', (clave, str(valor)))
+    conn.commit()
+    conn.close()
+
+def get_all_suppliers_dict():
+    import json
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre, cuit, categoria, keywords, detalles FROM proveedores")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    result = {}
+    for r in rows:
+        kw = json.loads(r['keywords']) if r['keywords'] else []
+        det = json.loads(r['detalles']) if r['detalles'] else {}
+        det['keywords'] = kw
+        if r['cuit']: det['cuit'] = r['cuit']
+        if r['categoria']: det['categoria'] = r['categoria']
+        result[r['nombre']] = det
+    return result
+
+def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None):
+    import json
+    conn = get_connection()
+    cursor = conn.cursor()
+    kw_str = json.dumps(keywords if keywords is not None else [])
+    det_str = json.dumps(detalles if detalles is not None else {})
+    
+    cursor.execute('''
+        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(nombre) DO UPDATE SET
+            cuit = excluded.cuit,
+            categoria = excluded.categoria,
+            keywords = excluded.keywords,
+            detalles = excluded.detalles
+    ''', (nombre, cuit, categoria, kw_str, det_str))
+    conn.commit()
+    conn.close()
+
+def save_processed_invoice(year, month, supplier, filename, filepath, total=0, cuit='', cae='', fecha='', fecha_procesado=''):
+    conn = get_connection()
+    cursor = conn.cursor()
+    if not fecha_procesado:
+        fecha_procesado = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+    cursor.execute('''
+        INSERT INTO facturas_procesadas (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado))
+    conn.commit()
+    conn.close()
+
+def get_processed_invoices_from_db():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM facturas_procesadas ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def reset_db():
+    if os.path.exists(DB_PATH):
+        try:
+            os.remove(DB_PATH)
+            print(f"[OK] Base de datos '{DB_PATH}' eliminada.")
+        except Exception as e:
+            print(f"[!] Error eliminando base de datos: {e}")
+    init_db(seed_samples=False)
+    print("[OK] Base de datos reinicializada sin datos de muestra (100% vacía).")

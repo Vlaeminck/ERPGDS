@@ -878,6 +878,20 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
         print(f"¡Éxito! Movido a: {dest_path}", flush=True)
         log_scan_time(file_path, dest_path, supplier, new_filename)
         
+        try:
+            import db_manager
+            rel_p = os.path.relpath(dest_path, OUTPUT_FOLDER).replace('\\', '/')
+            db_manager.save_processed_invoice(
+                year=year,
+                month=month_name,
+                supplier=supplier,
+                filename=unique_filename,
+                filepath=rel_p,
+                fecha=str(invoice_date)
+            )
+        except Exception as ex_db:
+            print(f"Error al registrar factura en BD: {ex_db}")
+        
         # Hook para marcar factura recibida en ARCA Compras CSV
         try:
             import db_manager
@@ -1305,6 +1319,12 @@ def save_ai_supplier(nombre, cuit, keywords):
         # Guardar en SUPPLIERS_FILE (relativo a BASE_DIR del ejecutable .exe)
         with open(SUPPLIERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(suppliers, f, indent=4, ensure_ascii=False)
+            
+        try:
+            import db_manager
+            db_manager.save_supplier(target_key, keywords=final_keywords, cuit=cuit_fmt)
+        except Exception as ex_sup:
+            print(f"Error guardando proveedor en BD: {ex_sup}")
             
         print(f"  [IA] Proveedor '{target_key}' {action_msg} en suppliers.json con huella digital optimizada para futuros escaneos OCR.", flush=True)
         
