@@ -237,7 +237,7 @@ def run_arca_bot_sync(full_year=False):
     Ejecuta el flujo completo de Selenium respetando la secuencia exacta de pantallas de ARCA:
     1. Login (auth.afip.gob.ar)
     2. Click en 'Mis Comprobantes' y cambio a la NUEVA PESTAÑA.
-    3. Selección de persona/empresa representada (ej. GASTRO MARKET S.R.L.).
+    3. Selección de persona/empresa representada (ej. TU EMPRESA S.R.L.).
     4. Click en tarjeta 'Recibidos'.
     5. Ajuste de fecha del comprobante (1 de enero del año actual o 1 del mes a hoy).
     6. Click en 'BUSCAR' (utilizando el localizador exhaustivo).
