@@ -1830,45 +1830,73 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // 2. Recaudación & Conciliación Maxirest
+    let cachedRecaudacionRecords = [];
+
     async function fetchRecaudacion() {
         try {
             const url = '/api/recaudacion' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const res = await fetch(url);
             const data = await res.json();
+            cachedRecaudacionRecords = data || [];
             
             const tbody = document.getElementById('tbl-recaudacion-body');
             if (!data || data.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color: var(--text-secondary);">No hay registros de recaudación</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; color: var(--text-secondary);">No hay registros de recaudación</td></tr>`;
                 return;
             }
             
             // KPI Cards Totales para Alivios & Conciliación
             const totRec = data.reduce((s, r) => s + (r.total_diario || 0), 0);
-            const totAlivios = data.reduce((s, r) => s + (r.efectivo_cub || 0), 0);
-            const totCubiertos = data.reduce((s, r) => s + (r.cubiertos || 0), 0);
-            const totDiff = data.reduce((s, r) => s + (r.diferencia_total || 0), 0);
+            const totMP = data.reduce((s, r) => s + (r.mp_real || 0), 0);
+            const totNave = data.reduce((s, r) => s + (r.nave_real || 0), 0);
+            const totPY = data.reduce((s, r) => s + (r.py_real || 0), 0);
+            const totBanco = data.reduce((s, r) => s + (r.banco_real || 0), 0);
+            const totAlivios = data.reduce((s, r) => s + (r.efectivo_real || r.efectivo_cub || 0), 0);
 
             if (document.getElementById('rec-stat-total')) document.getElementById('rec-stat-total').textContent = formatCurrency(totRec);
+            if (document.getElementById('rec-stat-mp')) document.getElementById('rec-stat-mp').textContent = formatCurrency(totMP);
+            if (document.getElementById('rec-stat-nave')) document.getElementById('rec-stat-nave').textContent = formatCurrency(totNave);
+            if (document.getElementById('rec-stat-py')) document.getElementById('rec-stat-py').textContent = formatCurrency(totPY);
+            if (document.getElementById('rec-stat-banco')) document.getElementById('rec-stat-banco').textContent = formatCurrency(totBanco);
             if (document.getElementById('rec-stat-alivios')) document.getElementById('rec-stat-alivios').textContent = formatCurrency(totAlivios);
-            if (document.getElementById('rec-stat-cubiertos')) document.getElementById('rec-stat-cubiertos').textContent = totCubiertos.toLocaleString();
-            if (document.getElementById('rec-stat-diff')) document.getElementById('rec-stat-diff').innerHTML = renderDiffTag(totDiff);
             
-            tbody.innerHTML = data.map((r, idx) => `
-                <tr>
-                    <td><strong>${escapeHtml(r.fecha)}</strong><br><small style="color:var(--text-secondary);">${escapeHtml(r.dia_nombre || '')}</small></td>
-                    <td><span class="badge" style="background: rgba(59,130,246,0.15); color: #1d4ed8; font-weight:700;">L${idx + 1} ${formatCurrency(r.efectivo_cub || 0)}</span></td>
-                    <td><strong style="color: #a855f7;">${r.cubiertos || 0}</strong></td>
-                    <td>${formatCurrency(r.nave_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.nave_maxi)})</small><br>${renderDiffTag(r.diff_nave)}</td>
-                    <td>${formatCurrency(r.efectivo_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.efectivo_maxi)})</small><br>${renderDiffTag(r.diff_efectivo)}</td>
-                    <td>${formatCurrency(r.py_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.py_maxi)})</small><br>${renderDiffTag(r.diff_py)}</td>
-                    <td>${formatCurrency(r.mp_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.mp_maxi)})</small><br>${renderDiffTag(r.diff_mp)}</td>
-                    <td>${formatCurrency(r.banco_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.banco_maxi)})</small><br>${renderDiffTag(r.diff_banco)}</td>
-                    <td><strong>${formatCurrency(r.total_diario)}</strong></td>
-                    <td>${renderDiffTag(r.diferencia_total)}</td>
-                    <td>${formatCurrency(r.proyeccion_recaudacion || 0)}</td>
-                    <td>${escapeHtml(r.comentario || '')} ${r.diff_proyeccion ? '<br>' + renderDiffTag(r.diff_proyeccion) : ''}</td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = data.map((r, idx) => {
+                let lotesText = '';
+                if (r.lotes_json) {
+                    try {
+                        const parsed = typeof r.lotes_json === 'string' ? JSON.parse(r.lotes_json) : r.lotes_json;
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            lotesText = parsed.map((l, i) => `L${i + 1}: ${formatCurrency(l)}`).join(' | ');
+                        }
+                    } catch (e) {}
+                }
+                const alivioLabel = lotesText ? 
+                    `<span class="badge" style="background: rgba(16,185,129,0.15); color: #047857; font-weight:700;" title="${lotesText}">${formatCurrency(r.efectivo_real || 0)} <small>(${lotesText.substring(0, 30)}${lotesText.length > 30 ? '...' : ''})</small></span>` :
+                    `<span class="badge" style="background: rgba(59,130,246,0.15); color: #1d4ed8; font-weight:700;">${formatCurrency(r.efectivo_real || r.efectivo_cub || 0)}</span>`;
+
+                const feriadoBadge = r.es_feriado == 1 ? ' <span class="badge" style="background:#fef3c7; color:#d97706; font-size:0.7rem; padding:0.1rem 0.35rem; font-weight:700; border: 1px solid rgba(217, 119, 6, 0.3);"><i class="fa-solid fa-umbrella-beach"></i> Feriado</span>' : '';
+
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(r.fecha)}</strong><br><small style="color:var(--text-secondary);">${escapeHtml(r.dia_nombre || '')}</small>${feriadoBadge}</td>
+                        <td>${alivioLabel}</td>
+                        <td><strong style="color: #a855f7;">${r.cubiertos || 0}</strong></td>
+                        <td>${formatCurrency(r.nave_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.nave_maxi)})</small><br>${renderDiffTag(r.diff_nave)}</td>
+                        <td>${formatCurrency(r.efectivo_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.efectivo_maxi)})</small><br>${renderDiffTag(r.diff_efectivo)}</td>
+                        <td>${formatCurrency(r.py_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.py_maxi)})</small><br>${renderDiffTag(r.diff_py)}</td>
+                        <td>${formatCurrency(r.mp_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.mp_maxi)})</small><br>${renderDiffTag(r.diff_mp)}</td>
+                        <td>${formatCurrency(r.banco_real)} <small style="color:var(--text-secondary);">(${formatCurrency(r.banco_maxi)})</small><br>${renderDiffTag(r.diff_banco)}</td>
+                        <td><strong>${formatCurrency(r.total_diario)}</strong></td>
+                        <td>${renderDiffTag(r.diferencia_total)}</td>
+                        <td>${formatCurrency(r.proyeccion_recaudacion || 0)}</td>
+                        <td>${escapeHtml(r.comentario || '')} ${r.diff_proyeccion ? '<br>' + renderDiffTag(r.diff_proyeccion) : ''}</td>
+                        <td style="display: flex; gap: 4px;">
+                            <button class="btn btn-secondary btn-sm" onclick="editarRecaudacion('${r.fecha}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                            <button class="btn btn-secondary btn-sm" onclick="eliminarRecaudacion('${r.fecha}')" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
             
             // Charts
             const labels = data.map(r => r.fecha.substring(5));
@@ -1891,12 +1919,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Pie chart medios de pago
-            let totNave = data.reduce((s, r) => s + (r.nave_real || 0), 0);
-            let totEfectivo = data.reduce((s, r) => s + (r.efectivo_real || 0), 0);
-            let totPY = data.reduce((s, r) => s + (r.py_real || 0), 0);
-            let totMP = data.reduce((s, r) => s + (r.mp_real || 0), 0);
-            let totBanco = data.reduce((s, r) => s + (r.banco_real || 0), 0);
-
             if (chartMediosPagoInst) chartMediosPagoInst.destroy();
             const ctx2 = document.getElementById('chartMediosPago').getContext('2d');
             chartMediosPagoInst = new Chart(ctx2, {
@@ -1904,8 +1926,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 data: {
                     labels: ['NAVE', 'Efectivo', 'PedidosYa', 'MercadoPago', 'Banco'],
                     datasets: [{
-                        data: [totNave, totEfectivo, totPY, totMP, totBanco],
-                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+                        data: [totNave, totAlivios, totPY, totMP, totBanco],
+                        backgroundColor: ['#8b5cf6', '#10b981', '#ef4444', '#3b82f6', '#f59e0b']
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#64748b' } } } }
@@ -1989,6 +2011,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (el) el.addEventListener('input', updateInlineEstCalculations);
             });
 
+            // Event listener para actualizar el día automáticamente al cambiar la fecha
+            const inputFechaEst = document.getElementById('est-in-fecha');
+            if (inputFechaEst) {
+                inputFechaEst.addEventListener('change', updateEstacionamientoDiaAuto);
+                inputFechaEst.addEventListener('input', updateEstacionamientoDiaAuto);
+                updateEstacionamientoDiaAuto();
+            }
+
             // Event listener guardar en línea
             const btnSaveInline = document.getElementById('btn-save-inline-est');
             if (btnSaveInline) {
@@ -2043,6 +2073,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const diffEl = document.getElementById('est-in-diff-val');
         if (diffEl) diffEl.innerHTML = renderDiffTag(diff);
+    }
+
+    function updateEstacionamientoDiaAuto() {
+        const fechaEl = document.getElementById('est-in-fecha');
+        const diaEl = document.getElementById('est-in-dia');
+        if (!fechaEl || !diaEl || !fechaEl.value) return;
+
+        const parts = fechaEl.value.split('-');
+        if (parts.length === 3) {
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            const day = parseInt(parts[2], 10);
+            const dateObj = new Date(year, month, day);
+            if (!isNaN(dateObj.getTime())) {
+                const daysMap = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+                diaEl.value = daysMap[dateObj.getDay()];
+            }
+        }
     }
 
     async function saveInlineEstacionamiento() {
@@ -2178,7 +2226,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const tbody = document.getElementById('tbl-caja-chica-body');
             if (!data.movimientos || data.movimientos.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No hay movimientos registrados</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary);">No hay movimientos registrados</td></tr>`;
                 return;
             }
             
@@ -2190,6 +2238,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${escapeHtml(m.motivo)}</td>
                     <td>${escapeHtml(m.responsable || 'Admin')}</td>
                     <td><span class="badge" style="background: rgba(0,0,0,0.04); color: var(--text-primary); border: 1px solid var(--border-color);">${escapeHtml(m.categoria || 'General')}</span></td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="eliminarMovimientoCajaChica(${m.id})" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
+                    </td>
                 </tr>
             `).join('');
 
@@ -2199,6 +2250,21 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Error cargando caja chica:", e);
         }
     }
+
+    window.eliminarMovimientoCajaChica = async function(id) {
+        if (!confirm("¿Deseas eliminar este movimiento de caja chica?")) return;
+        try {
+            const res = await fetch(`/api/caja_chica/movimientos?id=${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast("Movimiento eliminado");
+                fetchCajaChica();
+            } else {
+                showToast("Error eliminando movimiento", "error");
+            }
+        } catch (e) {
+            showToast("Error de conexión", "error");
+        }
+    };
 
     function calculateArqueo() {
         const b20k = parseInt(document.getElementById('b-20000')?.value || 0) * 20000;
@@ -2356,7 +2422,7 @@ if (btnNuevoMovCaja && modalCaja) {
                 if (res.ok) {
                     showToast("Movimiento de caja registrado con éxito");
                     closeModal();
-                    await Promise.all([fetchCajaChicaStats(), fetchCajaChicaMovements()]);
+                    fetchCajaChica();
                 } else {
                     showToast("Error al registrar movimiento", "error");
                 }
@@ -2420,7 +2486,7 @@ if (btnNuevoMovCaja && modalCaja) {
 
         if (!gastos || gastos.length === 0) {
             tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-secondary); padding: 2rem;">
-                No hay gastos fijos para este mes. Usá "Copiar Mes Anterior" o "Agregar Concepto".
+                No hay gastos fijos para este mes. Usá "Copiar Mes Anterior" o "+ Agregar Concepto".
             </td></tr>`;
             return;
         }
@@ -2428,13 +2494,16 @@ if (btnNuevoMovCaja && modalCaja) {
         tbody.innerHTML = gastos.map(g => `
             <tr data-gf-id="${g.id}">
                 <td>
-                    <span class="gf-concepto-text" style="cursor: pointer;" ondblclick="editGastoFijoConcepto(${g.id}, this)">${escapeHtml(g.concepto)}</span>
+                    <strong>${escapeHtml(g.concepto)}</strong>
                 </td>
                 <td>
-                    <span class="gf-monto-text" style="cursor: pointer; font-weight: 700; color: #f87171;" ondblclick="editGastoFijoMonto(${g.id}, this)">${formatCurrency(g.monto_mensual)}</span>
+                    <strong style="color: #ef4444;">${formatCurrency(g.monto_mensual)}</strong>
                 </td>
-                <td style="text-align: center;">
-                    <button class="btn btn-secondary btn-sm" style="padding: 3px 8px; font-size: 0.75rem;" onclick="eliminarGastoFijo(${g.id})" title="Eliminar este concepto">
+                <td style="text-align: center; display: flex; gap: 4px; justify-content: center;">
+                    <button class="btn btn-secondary btn-sm" onclick="abrirModalGastoFijo(${g.id}, '${escapeHtml(g.concepto).replace(/'/g, "\\'")}', ${g.monto_mensual})" title="Editar concepto">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="eliminarGastoFijo(${g.id})" title="Eliminar este concepto">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </td>
@@ -2442,64 +2511,84 @@ if (btnNuevoMovCaja && modalCaja) {
         `).join('') + `
             <tr style="background: rgba(255,255,255,0.05); font-weight: bold; border-top: 2px solid rgba(255,255,255,0.1);">
                 <td>TOTAL GASTOS FIJOS</td>
-                <td style="color: #f87171;">${formatCurrency(total)}</td>
+                <td style="color: #ef4444;">${formatCurrency(total)}</td>
                 <td></td>
             </tr>
         `;
     }
 
-    window.editGastoFijoConcepto = function(id, el) {
-        const oldVal = el.textContent;
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = oldVal;
-        input.className = 'form-input-inline';
-        input.style.cssText = 'width: 100%; font-size: 0.9rem;';
-        el.replaceWith(input);
-        input.focus();
-        input.select();
+    // Modal Gestor de Gasto Fijo
+    const modalGastoFijo = document.getElementById('modal-gasto-fijo');
+    const btnCloseModalGF = document.getElementById('btn-close-modal-gf');
+    const btnCancelModalGF = document.getElementById('btn-cancel-modal-gf');
+    const btnSaveModalGF = document.getElementById('btn-save-modal-gf');
 
-        async function save() {
-            const newVal = input.value.trim();
-            if (!newVal || newVal === oldVal) { fetchGastosFijos(); return; }
-            try {
-                await fetch('/api/gastos_fijos', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'upsert', id, concepto: newVal })
-                });
-                fetchGastosFijos();
-            } catch(e) { fetchGastosFijos(); }
+    window.abrirModalGastoFijo = function(id = null, concepto = '', monto = 0) {
+        if (!modalGastoFijo) return;
+        
+        document.getElementById('modal-gf-id').value = id || '';
+        document.getElementById('modal-gf-concepto').value = concepto || '';
+        document.getElementById('modal-gf-monto').value = monto || '';
+        
+        const titleEl = document.getElementById('modal-gf-title');
+        if (titleEl) {
+            titleEl.innerHTML = id ? 
+                '<i class="fa-solid fa-pen-to-square" style="color: #3b82f6;"></i> Editar Concepto de Gasto Fijo' : 
+                '<i class="fa-solid fa-receipt" style="color: #3b82f6;"></i> Agregar Concepto de Gasto Fijo';
         }
-        input.addEventListener('blur', save);
-        input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { fetchGastosFijos(); } });
+
+        modalGastoFijo.style.display = 'flex';
+        setTimeout(() => {
+            document.getElementById('modal-gf-concepto')?.focus();
+        }, 50);
     };
 
-    window.editGastoFijoMonto = function(id, el) {
-        const raw = el.textContent.replace(/[$.,\s]/g, '').replace(/[^0-9]/g, '');
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.value = raw;
-        input.className = 'form-input-inline';
-        input.style.cssText = 'width: 100%; font-size: 0.9rem; font-weight: 700;';
-        el.replaceWith(input);
-        input.focus();
-        input.select();
+    function closeModalGastoFijo() {
+        if (modalGastoFijo) modalGastoFijo.style.display = 'none';
+    }
 
-        async function save() {
-            const newVal = parseFloat(input.value) || 0;
+    if (btnCloseModalGF) btnCloseModalGF.addEventListener('click', closeModalGastoFijo);
+    if (btnCancelModalGF) btnCancelModalGF.addEventListener('click', closeModalGastoFijo);
+
+    if (btnSaveModalGF) {
+        btnSaveModalGF.addEventListener('click', async () => {
+            const id = document.getElementById('modal-gf-id').value;
+            const concepto = document.getElementById('modal-gf-concepto').value.trim();
+            const montoStr = document.getElementById('modal-gf-monto').value;
+            const monto = parseFloat(montoStr) || 0;
+
+            if (!concepto) {
+                showToast("Por favor ingresa un nombre para el concepto", "error");
+                return;
+            }
+
+            const payload = {
+                action: 'upsert',
+                concepto,
+                monto_mensual: monto,
+                mes: currentSelectedMonth
+            };
+            if (id) payload.id = parseInt(id);
+
             try {
-                await fetch('/api/gastos_fijos', {
+                const res = await fetch('/api/gastos_fijos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'upsert', id, monto_mensual: newVal })
+                    body: JSON.stringify(payload)
                 });
-                fetchGastosFijos();
-            } catch(e) { fetchGastosFijos(); }
-        }
-        input.addEventListener('blur', save);
-        input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { fetchGastosFijos(); } });
-    };
+                const data = await res.json();
+                if (data.success) {
+                    showToast(id ? "Concepto de gasto fijo actualizado" : "Concepto de gasto fijo agregado");
+                    closeModalGastoFijo();
+                    fetchGastosFijos();
+                } else {
+                    showToast(data.error || "Error al guardar el concepto", "error");
+                }
+            } catch (e) {
+                showToast("Error de conexión al guardar el concepto", "error");
+            }
+        });
+    }
 
     window.eliminarGastoFijo = async function(id) {
         if (!confirm('¿Eliminar este concepto de gastos fijos?')) return;
@@ -2514,23 +2603,11 @@ if (btnNuevoMovCaja && modalCaja) {
         } catch(e) { showToast('Error al eliminar', 'error'); }
     };
 
-    // Botón Agregar Concepto
+    // Botón Agregar Concepto (Abre el Modal)
     const btnAgregarGF = document.getElementById('btn-agregar-gasto-fijo');
     if (btnAgregarGF) {
-        btnAgregarGF.addEventListener('click', async () => {
-            const concepto = prompt('Nombre del concepto:');
-            if (!concepto || !concepto.trim()) return;
-            const montoStr = prompt('Monto mensual ($):', '0');
-            const monto = parseFloat(montoStr) || 0;
-            try {
-                await fetch('/api/gastos_fijos', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'upsert', concepto: concepto.trim(), monto_mensual: monto, mes: currentSelectedMonth })
-                });
-                showToast('Concepto agregado');
-                fetchGastosFijos();
-            } catch(e) { showToast('Error al agregar', 'error'); }
+        btnAgregarGF.addEventListener('click', () => {
+            abrirModalGastoFijo();
         });
     }
 
@@ -2767,31 +2844,226 @@ if (btnNuevoMovCaja && modalCaja) {
     }
 
 
+    // ==========================================
+    // MODAL RECAUDACIÓN & CONCILIACIÓN CON LOTES DE ALIVIO
+    // ==========================================
+    const modalRecaudacion = document.getElementById('modal-recaudacion');
     const btnNuevaRecaudacion = document.getElementById('btn-nueva-recaudacion');
-    if (btnNuevaRecaudacion) {
-        btnNuevaRecaudacion.addEventListener('click', async () => {
-            const fecha = prompt("Fecha (AAAA-MM-DD):", new Date().toISOString().split('T')[0]);
-            if (!fecha) return;
-            const diaNombre = prompt("Día de la semana (ej. lunes):", "miércoles") || "miércoles";
-            const cubiertos = parseInt(prompt("Cubiertos:", "150") || "0");
-            const naveReal = parseFloat(prompt("NAVE Real ($):", "0") || "0");
-            const naveMaxi = parseFloat(prompt("NAVE según Maxirest ($):", "0") || "0");
-            const efecReal = parseFloat(prompt("Efectivo Real ($):", "0") || "0");
-            const efecMaxi = parseFloat(prompt("Efectivo según Maxirest ($):", "0") || "0");
-            const pyReal = parseFloat(prompt("PedidosYa Real ($):", "0") || "0");
-            const pyMaxi = parseFloat(prompt("PedidosYa según Maxirest ($):", "0") || "0");
-            const mpReal = parseFloat(prompt("MercadoPago Real ($):", "0") || "0");
-            const mpMaxi = parseFloat(prompt("MercadoPago según Maxirest ($):", "0") || "0");
-            const bancoReal = parseFloat(prompt("Banco Real ($):", "0") || "0");
-            const bancoMaxi = parseFloat(prompt("Banco según Maxirest ($):", "0") || "0");
+    const btnCargarPlanillaRec = document.getElementById('btn-cargar-planilla-rec');
+    const btnCloseModalRec = document.getElementById('btn-close-modal-rec');
+    const btnCancelModalRec = document.getElementById('btn-cancel-modal-rec');
+    const btnSaveModalRec = document.getElementById('btn-save-modal-rec');
+    const btnAddLoteRec = document.getElementById('btn-add-lote-rec');
+    const recModalFecha = document.getElementById('rec-modal-fecha');
+
+    function updateModalRecDiaAuto() {
+        if (!recModalFecha || !recModalFecha.value) return;
+        const parts = recModalFecha.value.split('-');
+        if (parts.length === 3) {
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            const day = parseInt(parts[2], 10);
+            const dateObj = new Date(year, month, day);
+            if (!isNaN(dateObj.getTime())) {
+                const daysMap = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+                const diaEl = document.getElementById('rec-modal-dia');
+                if (diaEl) diaEl.value = daysMap[dateObj.getDay()];
+            }
+        }
+    }
+
+    if (recModalFecha) {
+        recModalFecha.addEventListener('change', updateModalRecDiaAuto);
+        recModalFecha.addEventListener('input', updateModalRecDiaAuto);
+    }
+
+    function recalcLotesTotal() {
+        const lotesContainer = document.getElementById('lotes-container');
+        if (!lotesContainer) return 0;
+
+        const inputs = lotesContainer.querySelectorAll('.input-lote-monto');
+        let total = 0;
+        inputs.forEach(input => {
+            const val = parseFloat(input.value || 0);
+            if (!isNaN(val) && val > 0) {
+                total += val;
+            }
+        });
+
+        const totalEl = document.getElementById('rec-modal-lotes-total');
+        if (totalEl) totalEl.textContent = formatCurrency(total);
+
+        const efecRealInput = document.getElementById('rec-modal-efec-real');
+        if (efecRealInput) efecRealInput.value = total;
+
+        return total;
+    }
+
+    function addLoteRow(monto = '') {
+        const container = document.getElementById('lotes-container');
+        if (!container) return;
+
+        const count = container.children.length + 1;
+        const row = document.createElement('div');
+        row.className = 'lote-row';
+        row.style.cssText = 'display: flex; align-items: center; gap: 8px; font-weight: 500;';
+        row.innerHTML = `
+            <span class="lote-label" style="font-weight:700; width:35px; color:#047857;">L${count}</span>
+            <input type="number" class="form-control input-lote-monto" placeholder="Importe de lote ($)" value="${monto}" style="flex:1;">
+            <button type="button" class="btn btn-secondary btn-sm btn-del-lote" style="padding:0.35rem 0.65rem; color:#ef4444;" title="Eliminar Lote">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        `;
+
+        const input = row.querySelector('.input-lote-monto');
+        input.addEventListener('input', recalcLotesTotal);
+        input.addEventListener('change', recalcLotesTotal);
+
+        const btnDel = row.querySelector('.btn-del-lote');
+        btnDel.addEventListener('click', () => {
+            row.remove();
+            const rows = container.querySelectorAll('.lote-row');
+            rows.forEach((r, idx) => {
+                const label = r.querySelector('.lote-label');
+                if (label) label.textContent = `L${idx + 1}`;
+            });
+            recalcLotesTotal();
+        });
+
+        container.appendChild(row);
+        recalcLotesTotal();
+    }
+
+    function renderLotesInModal(lotesList) {
+        const container = document.getElementById('lotes-container');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (Array.isArray(lotesList) && lotesList.length > 0) {
+            lotesList.forEach(monto => addLoteRow(monto));
+        } else {
+            // Por defecto crear 3 campos de lotes para carga veloz (ejemplo L1, L2, L3)
+            for (let i = 0; i < 3; i++) {
+                addLoteRow('');
+            }
+        }
+    }
+
+    if (btnAddLoteRec) {
+        btnAddLoteRec.addEventListener('click', () => addLoteRow(''));
+    }
+
+    function openModalRecaudacion(record = null) {
+        if (!modalRecaudacion) return;
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        document.getElementById('rec-modal-fecha').value = record ? record.fecha : todayStr;
+        updateModalRecDiaAuto();
+        if (record && record.dia_nombre) {
+            document.getElementById('rec-modal-dia').value = record.dia_nombre;
+        }
+
+        document.getElementById('rec-modal-cubiertos').value = record ? record.cubiertos || 0 : '';
+        const inputFeriado = document.getElementById('rec-modal-feriado');
+        if (inputFeriado) {
+            inputFeriado.checked = record ? (record.es_feriado == 1) : false;
+        }
+
+        document.getElementById('rec-modal-mp-real').value = record ? record.mp_real || 0 : '';
+        document.getElementById('rec-modal-nave-real').value = record ? record.nave_real || 0 : '';
+        document.getElementById('rec-modal-py-real').value = record ? record.py_real || 0 : '';
+        document.getElementById('rec-modal-banco-real').value = record ? record.banco_real || 0 : '';
+        document.getElementById('rec-modal-efec-real').value = record ? record.efectivo_real || 0 : '';
+
+        document.getElementById('rec-modal-mp-maxi').value = record ? record.mp_maxi || 0 : '';
+        document.getElementById('rec-modal-nave-maxi').value = record ? record.nave_maxi || 0 : '';
+        document.getElementById('rec-modal-py-maxi').value = record ? record.py_maxi || 0 : '';
+        document.getElementById('rec-modal-banco-maxi').value = record ? record.banco_maxi || 0 : '';
+        document.getElementById('rec-modal-efec-maxi').value = record ? record.efectivo_maxi || 0 : '';
+
+        document.getElementById('rec-modal-comentario').value = record ? record.comentario || '' : '';
+
+        let lotesArr = [];
+        if (record && record.lotes_json) {
+            try {
+                lotesArr = typeof record.lotes_json === 'string' ? JSON.parse(record.lotes_json) : record.lotes_json;
+            } catch(e) {}
+        }
+        if (!Array.isArray(lotesArr) || lotesArr.length === 0) {
+            if (record && record.efectivo_real > 0) {
+                lotesArr = [record.efectivo_real];
+            }
+        }
+        renderLotesInModal(lotesArr);
+
+        modalRecaudacion.style.display = 'flex';
+    }
+
+    function closeModalRecaudacion() {
+        if (modalRecaudacion) modalRecaudacion.style.display = 'none';
+    }
+
+    if (btnNuevaRecaudacion) btnNuevaRecaudacion.addEventListener('click', () => openModalRecaudacion());
+    if (btnCargarPlanillaRec) btnCargarPlanillaRec.addEventListener('click', () => openModalRecaudacion());
+    if (btnCloseModalRec) btnCloseModalRec.addEventListener('click', closeModalRecaudacion);
+    if (btnCancelModalRec) btnCancelModalRec.addEventListener('click', closeModalRecaudacion);
+
+    if (btnSaveModalRec) {
+        btnSaveModalRec.addEventListener('click', async () => {
+            const fecha = document.getElementById('rec-modal-fecha')?.value;
+            if (!fecha) {
+                showToast("Por favor selecciona una fecha", "error");
+                return;
+            }
+
+            const diaNombre = document.getElementById('rec-modal-dia')?.value || '';
+            const cubiertos = parseInt(document.getElementById('rec-modal-cubiertos')?.value || 0);
+            const esFeriado = document.getElementById('rec-modal-feriado')?.checked ? 1 : 0;
+
+            const mpReal = parseFloat(document.getElementById('rec-modal-mp-real')?.value || 0);
+            const naveReal = parseFloat(document.getElementById('rec-modal-nave-real')?.value || 0);
+            const pyReal = parseFloat(document.getElementById('rec-modal-py-real')?.value || 0);
+            const bancoReal = parseFloat(document.getElementById('rec-modal-banco-real')?.value || 0);
+            
+            const mpMaxi = parseFloat(document.getElementById('rec-modal-mp-maxi')?.value || 0);
+            const naveMaxi = parseFloat(document.getElementById('rec-modal-nave-maxi')?.value || 0);
+            const pyMaxi = parseFloat(document.getElementById('rec-modal-py-maxi')?.value || 0);
+            const bancoMaxi = parseFloat(document.getElementById('rec-modal-banco-maxi')?.value || 0);
+            const efecMaxi = parseFloat(document.getElementById('rec-modal-efec-maxi')?.value || 0);
+
+            const comentario = document.getElementById('rec-modal-comentario')?.value || '';
+
+            const lotesArr = [];
+            const lotesInputs = document.querySelectorAll('#lotes-container .input-lote-monto');
+            lotesInputs.forEach(input => {
+                const val = parseFloat(input.value || 0);
+                if (!isNaN(val) && val > 0) {
+                    lotesArr.push(val);
+                }
+            });
+
+            const efecReal = lotesArr.reduce((a, b) => a + b, 0) || parseFloat(document.getElementById('rec-modal-efec-real')?.value || 0);
 
             const payload = {
-                fecha, dia_nombre: diaNombre, cubiertos,
-                nave_real: naveReal, nave_maxi: naveMaxi,
-                efectivo_real: efecReal, efectivo_maxi: efecMaxi,
-                py_real: pyReal, py_maxi: pyMaxi,
-                mp_real: mpReal, mp_maxi: mpMaxi,
-                banco_real: bancoReal, banco_maxi: bancoMaxi
+                fecha,
+                dia_nombre: diaNombre,
+                cubiertos,
+                es_feriado: esFeriado,
+                proyeccion_recaudacion: 0,
+                mp_real: mpReal,
+                nave_real: naveReal,
+                py_real: pyReal,
+                banco_real: bancoReal,
+                efectivo_real: efecReal,
+                efectivo_cub: efecReal,
+                mp_maxi: mpMaxi,
+                nave_maxi: naveMaxi,
+                py_maxi: pyMaxi,
+                banco_maxi: bancoMaxi,
+                efectivo_maxi: efecMaxi,
+                comentario,
+                lotes_json: JSON.stringify(lotesArr)
             };
 
             try {
@@ -2801,14 +3073,37 @@ if (btnNuevoMovCaja && modalCaja) {
                     body: JSON.stringify(payload)
                 });
                 if (res.ok) {
-                    showToast("Registro de recaudación guardado");
+                    showToast("Registro de recaudación guardado correctamente");
+                    closeModalRecaudacion();
                     fetchRecaudacion();
+                } else {
+                    showToast("Error guardando recaudación", "error");
                 }
             } catch (e) {
-                showToast("Error guardando recaudación", "error");
+                showToast("Error de red guardando recaudación", "error");
             }
         });
     }
+
+    window.editarRecaudacion = function(fecha) {
+        const record = cachedRecaudacionRecords.find(r => r.fecha === fecha);
+        openModalRecaudacion(record || { fecha });
+    };
+
+    window.eliminarRecaudacion = async function(fecha) {
+        if (!confirm(`¿Deseas eliminar el registro de recaudación del día ${fecha}?`)) return;
+        try {
+            const res = await fetch(`/api/recaudacion?fecha=${fecha}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast("Registro eliminado");
+                fetchRecaudacion();
+            } else {
+                showToast("Error al eliminar registro", "error");
+            }
+        } catch (e) {
+            showToast("Error de conexión", "error");
+        }
+    };
 
     // Manejadores Modal Gastos Fijos de Estacionamiento
     const modalGastosEst = document.getElementById('modal-gastos-estacionamiento');
@@ -2835,7 +3130,11 @@ if (btnNuevoMovCaja && modalCaja) {
 
     window.editarDiaEstacionamiento = function(fecha, dia_nombre, tc, cash, mp, comentario) {
         document.getElementById('est-in-fecha').value = fecha || '';
-        document.getElementById('est-in-dia').value = dia_nombre || '';
+        if (typeof updateEstacionamientoDiaAuto === 'function') {
+            updateEstacionamientoDiaAuto();
+        } else {
+            document.getElementById('est-in-dia').value = dia_nombre || '';
+        }
         document.getElementById('est-in-tc').value = tc || '';
         document.getElementById('est-in-cash').value = cash || '';
         document.getElementById('est-in-mp').value = mp || '';

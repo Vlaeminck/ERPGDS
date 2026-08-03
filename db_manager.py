@@ -40,9 +40,21 @@ def init_db(seed_samples=False):
         diferencia_total REAL DEFAULT 0,
         proyeccion_recaudacion REAL DEFAULT 0,
         comentario TEXT DEFAULT '',
-        diff_proyeccion REAL DEFAULT 0
+        diff_proyeccion REAL DEFAULT 0,
+        lotes_json TEXT DEFAULT '',
+        es_feriado INTEGER DEFAULT 0
     )
     ''')
+
+    try:
+        cursor.execute("ALTER TABLE recaudacion_diaria ADD COLUMN lotes_json TEXT DEFAULT ''")
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE recaudacion_diaria ADD COLUMN es_feriado INTEGER DEFAULT 0")
+    except Exception:
+        pass
 
     # Tabla 2: Estacionamiento Diario
     cursor.execute('''

@@ -639,10 +639,20 @@ def open_scanner():
 # RUTAS DE CONTROL INTERNO (PLANILLAS ERP)
 # ==========================================
 
-@app.route('/api/recaudacion', methods=['GET', 'POST'])
+@app.route('/api/recaudacion', methods=['GET', 'POST', 'DELETE'])
 def api_recaudacion():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+
+    if request.method == 'DELETE':
+        fecha = request.args.get('fecha')
+        if not fecha:
+            return jsonify({"error": "Fecha es requerida"}), 400
+        cursor.execute("DELETE FROM recaudacion_diaria WHERE fecha = ?", (fecha,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+
     if request.method == 'POST':
         data = request.json or {}
         fecha = data.get('fecha')
@@ -673,6 +683,8 @@ def api_recaudacion():
         diferencia_total = diff_nave + diff_efectivo + diff_py + diff_mp + diff_banco
         proyeccion = float(data.get('proyeccion_recaudacion', 0))
         diff_proy = total_diario - proyeccion
+        lotes_json = data.get('lotes_json', '')
+        es_feriado = 1 if data.get('es_feriado') in [True, 1, '1', 'true'] else 0
         
         cursor.execute('''
             INSERT INTO recaudacion_diaria (
@@ -682,8 +694,9 @@ def api_recaudacion():
                 py_real, py_maxi, diff_py,
                 mp_real, mp_maxi, diff_mp,
                 banco_real, banco_maxi, diff_banco,
-                total_diario, diferencia_total, proyeccion_recaudacion, comentario, diff_proyeccion
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                total_diario, diferencia_total, proyeccion_recaudacion, comentario, diff_proyeccion,
+                lotes_json, es_feriado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(fecha) DO UPDATE SET
                 dia_nombre=excluded.dia_nombre,
                 efectivo_cub=excluded.efectivo_cub,
@@ -707,7 +720,9 @@ def api_recaudacion():
                 diferencia_total=excluded.diferencia_total,
                 proyeccion_recaudacion=excluded.proyeccion_recaudacion,
                 comentario=excluded.comentario,
-                diff_proyeccion=excluded.diff_proyeccion
+                diff_proyeccion=excluded.diff_proyeccion,
+                lotes_json=excluded.lotes_json,
+                es_feriado=excluded.es_feriado
         ''', (
             fecha, data.get('dia_nombre', ''), int(data.get('efectivo_cub', 0)), int(data.get('cubiertos', 0)),
             nave_real, nave_maxi, diff_nave,
@@ -715,7 +730,8 @@ def api_recaudacion():
             py_real, py_maxi, diff_py,
             mp_real, mp_maxi, diff_mp,
             banco_real, banco_maxi, diff_banco,
-            total_diario, diferencia_total, proyeccion, data.get('comentario', ''), diff_proy
+            total_diario, diferencia_total, proyeccion, data.get('comentario', ''), diff_proy,
+            lotes_json, es_feriado
         ))
         conn.commit()
         conn.close()
@@ -844,10 +860,19 @@ def api_estacionamiento_gastos():
     return jsonify({"gastos": rows, "total": total_gasto})
 
 
-@app.route('/api/caja_chica/movimientos', methods=['GET', 'POST'])
+@app.route('/api/caja_chica/movimientos', methods=['GET', 'POST', 'DELETE'])
 def api_caja_chica_movimientos():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    if request.method == 'DELETE':
+        mov_id = request.args.get('id')
+        if not mov_id:
+            return jsonify({"error": "ID es requerido"}), 400
+        cursor.execute("DELETE FROM caja_chica_movimientos WHERE id = ?", (mov_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+
     if request.method == 'POST':
         data = request.json or {}
         fecha = data.get('fecha', datetime.now().strftime('%Y-%m-%d'))
@@ -1601,8 +1626,8 @@ if __name__ == '__main__':
                 except Exception:
                     pass
                 os._exit(0)
-                
-    threading.Thread(target=check_timeout, daemon=True).start()
+    # Auto-apagado deshabilitado para evitar que el servidor se cierre por inactividad.
+    # threading.Thread(target=check_timeout, daemon=True).start()
 
     print("\nIniciando la aplicación web...")
 
