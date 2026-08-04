@@ -414,7 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Habilitar botón de nuevo después de 5s para que no se quede pegado 
-            // (el script de pywinauto funciona de fondo)
+            // (el proceso de escaneo funciona en segundo plano)
             setTimeout(() => {
                 btnScanner.innerHTML = originalHTML;
                 btnScanner.disabled = false;
