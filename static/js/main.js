@@ -26,9 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/meses_disponibles');
             const data = await res.json();
-            
+
             select.innerHTML = '';
-            
+
             const arcaSelect = document.getElementById('arca-month-filter');
             if (arcaSelect) {
                 // Keep the default option
@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const y = parts[0];
                 const mIdx = parseInt(parts[1], 10) - 1;
                 const label = `${monthNamesEs[mIdx] || parts[1]} ${y}`;
-                
+
                 const opt = document.createElement('option');
                 opt.value = m;
                 opt.textContent = label;
@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!currentSelectedMonth && select.options.length > 0) {
                 currentSelectedMonth = select.options[0].value;
             }
-        } catch(e) {
+        } catch (e) {
             console.error("Error cargando meses disponibles:", e);
         }
     }
@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
         allTabItems.forEach(l => l.classList.remove('active'));
         document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
         tabPanes.forEach(p => p.style.display = 'none');
-        
+
         const activeLink = document.querySelector(`[data-tab="${tabName}"]`);
         if (activeLink) activeLink.classList.add('active');
 
@@ -139,37 +139,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     allTabItems.forEach(link => {
-    link.addEventListener('click', (e) => {
-        e.stopPropagation();
-        switchTab(link.dataset.tab);
-        if (link.classList.contains('nav-group-header')) {
-            const group = link.closest('.nav-group');
-            if (group) group.classList.toggle('collapsed');
-        }
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+            switchTab(link.dataset.tab);
+            if (link.classList.contains('nav-group-header')) {
+                const group = link.closest('.nav-group');
+                if (group) group.classList.toggle('collapsed');
+            }
+        });
     });
-});
 
     // --- Toast Notifications ---
     function showToast(message, type = 'success') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        
+
         let icon = 'fa-check-circle';
         if (type === 'error') icon = 'fa-circle-xmark';
         if (type === 'warning') icon = 'fa-triangle-exclamation';
-        
+
         toast.innerHTML = `
             <i class="fa-solid ${icon}"></i>
             <div class="toast-content"><p>${message}</p></div>
         `;
-        
+
         container.appendChild(toast);
-        
+
         setTimeout(() => {
             toast.style.animation = 'fadeOut 0.3s ease forwards';
             setTimeout(() => {
-                if(container.contains(toast)) container.removeChild(toast);
+                if (container.contains(toast)) container.removeChild(toast);
             }, 300);
         }, 5000);
     }
@@ -189,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = force ? '/api/license/status?force=true' : '/api/license/status';
             const res = await fetch(url);
             const data = await res.json();
-            
+
             if (inputHardwareId) {
                 inputHardwareId.value = data.hw_id || 'ERROR';
             }
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     licenseStatusBadge.className = 'status-badge status-active';
                     licenseStatusText.textContent = data.message || 'Activa';
                 }
-                
+
                 if (data.days_left !== undefined && data.days_left !== null && data.days_left <= 15) {
                     if (expBanner && expText) {
                         expBanner.style.display = 'block';
@@ -215,21 +215,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     licenseStatusBadge.className = 'status-badge status-inactive';
                     licenseStatusText.textContent = 'Inactiva / No Registrada';
                 }
-                
+
                 // Deshabilitar botones principales si hay referencias
                 const bStart = document.getElementById('btn-start-watcher');
                 const bStop = document.getElementById('btn-stop-watcher');
                 const bScan = document.getElementById('btn-open-scanner');
-                
+
                 if (bStart) bStart.disabled = true;
                 if (bStop) bStop.disabled = true;
                 if (bScan) bScan.disabled = true;
-                
+
                 // Force update UI
                 updateWatcherStatusUI(false);
-                
+
                 if (expBanner) expBanner.style.display = 'none';
-                
+
                 showToast(`Licencia Inválida: ${data.message || 'Contacta al administrador'}`, 'error');
             }
         } catch (error) {
@@ -289,16 +289,16 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/status');
             const data = await res.json();
-            
+
             updateWatcherStatusUI(data.watcher_running);
-            
+
             document.getElementById('stat-pending').textContent = data.stats.pending;
             document.getElementById('stat-processed').textContent = data.stats.processed;
             document.getElementById('stat-unrecognized').textContent = data.stats.unrecognized;
             if (document.getElementById('stat-remitos')) {
                 document.getElementById('stat-remitos').textContent = data.stats.remitos || 0;
             }
-            
+
             if (prevUnrecognizedCount !== null && data.stats.unrecognized > prevUnrecognizedCount) {
                 showToast("¡Atención! Una factura no reconocida requiere revisión.", "warning");
             }
@@ -319,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/progress');
             const data = await res.json();
-            
+
             if (data.is_processing_batch) {
                 progressContainer.style.display = 'block';
                 let percent = 0;
@@ -331,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 progressContainer.style.display = 'none';
             }
-            
+
             if (data.is_ai_processing) {
                 aiIndicator.style.display = 'block';
             } else {
@@ -350,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btnStop) btnStop.disabled = true;
             return;
         }
-        
+
         if (isRunning) {
             statusText.textContent = 'ACTIVO (Escuchando...)';
             statusBadge.className = 'status-badge status-active';
@@ -412,7 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {
                 showToast("Error de conexión con el escáner", 'error');
             }
-            
+
             // Habilitar botón de nuevo después de 5s para que no se quede pegado 
             // (el proceso de escaneo funciona en segundo plano)
             setTimeout(() => {
@@ -430,7 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRefreshSuppliers = document.getElementById('btn-refresh-suppliers');
     const noResultsMsg = document.getElementById('no-results-msg');
     const supplierCount = document.getElementById('supplier-count');
-    
+
     // Stats Pill & Dropdown Elements
     const btnSupplierStats = document.getElementById('btn-supplier-stats');
     const supplierStatsDropdown = document.getElementById('supplier-stats-dropdown');
@@ -478,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/suppliers/stats');
             const data = await res.json();
-            
+
             if (headerTotalSuppliers) {
                 headerTotalSuppliers.textContent = data.total_suppliers || 0;
             }
@@ -538,25 +538,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderSuppliers(suppliersList) {
         suppliersTableBody.innerHTML = '';
-        
+
         supplierCount.textContent = `${suppliersList.length} proveedores`;
-        
+
         if (suppliersList.length === 0) {
             noResultsMsg.style.display = 'flex';
             document.querySelector('.table-container').style.display = 'none';
             return;
         }
-        
+
         noResultsMsg.style.display = 'none';
         document.querySelector('.table-container').style.display = 'block';
-        
+
         suppliersList.forEach(sup => {
             const tr = document.createElement('tr');
-            
+
             // Name
             const tdName = document.createElement('td');
             tdName.innerHTML = `<strong>${sup.name}</strong>`;
-            
+
             // Keywords
             const tdKw = document.createElement('td');
             let kwHtml = '';
@@ -564,11 +564,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 kwHtml += `<span class="kw-tag">${kw}</span>`;
             });
             tdKw.innerHTML = kwHtml;
-            
+
             // Regex
             const tdRegex = document.createElement('td');
             tdRegex.innerHTML = `<span class="code-snippet">${sup.regex}</span>`;
-            
+
             tr.appendChild(tdName);
             tr.appendChild(tdKw);
             tr.appendChild(tdRegex);
@@ -579,8 +579,8 @@ document.addEventListener('DOMContentLoaded', () => {
     searchInput.addEventListener('input', (e) => {
         const query = e.target.value.toLowerCase();
         const filtered = allSuppliers.filter(sup => {
-            return sup.name.toLowerCase().includes(query) || 
-                   sup.keywords.some(k => k.toLowerCase().includes(query));
+            return sup.name.toLowerCase().includes(query) ||
+                sup.keywords.some(k => k.toLowerCase().includes(query));
         });
         renderSuppliers(filtered);
     });
@@ -597,7 +597,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRefreshProcessed = document.getElementById('btn-refresh-processed');
     const noProcessedMsg = document.getElementById('no-processed-msg');
     const processedCount = document.getElementById('processed-count');
-    
+
     let allProcessedInvoices = [];
 
     async function fetchProcessedInvoices() {
@@ -614,13 +614,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderProcessedTree(invoicesList) {
         processedTreeContainer.innerHTML = '';
         processedCount.textContent = `${invoicesList.length} facturas`;
-        
+
         if (invoicesList.length === 0) {
             noProcessedMsg.style.display = 'flex';
             document.querySelector('#tab-processed .table-container').style.display = 'none';
             return;
         }
-        
+
         noProcessedMsg.style.display = 'none';
         document.querySelector('#tab-processed .table-container').style.display = 'block';
 
@@ -631,22 +631,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const month = parts[0] || 'N/A';
             const year = parts[1] || 'N/A';
             const s = inv.supplier || 'N/A';
-            
+
             if (!tree[year]) tree[year] = {};
             if (!tree[year][month]) tree[year][month] = {};
             if (!tree[year][month][s]) tree[year][month][s] = [];
-            
+
             tree[year][month][s].push(inv);
         });
 
         function buildFolder(name, contentHtml, isOpen = false) {
             const folderDiv = document.createElement('div');
             folderDiv.className = `tree-folder ${isOpen ? 'open' : ''}`;
-            
+
             const folderNameDiv = document.createElement('div');
             folderNameDiv.className = 'tree-folder-name';
             folderNameDiv.innerHTML = `<i class="fa-solid fa-folder${isOpen ? '-open' : ''}"></i> <strong>${name}</strong>`;
-            
+
             const folderContentDiv = document.createElement('div');
             folderContentDiv.className = 'tree-folder-content';
             folderContentDiv.appendChild(contentHtml);
@@ -690,9 +690,9 @@ document.addEventListener('DOMContentLoaded', () => {
     searchProcessedInput.addEventListener('input', (e) => {
         const query = e.target.value.toLowerCase();
         const filtered = allProcessedInvoices.filter(inv => {
-            return inv.filename.toLowerCase().includes(query) || 
-                   inv.supplier.toLowerCase().includes(query) ||
-                   inv.date.toLowerCase().includes(query);
+            return inv.filename.toLowerCase().includes(query) ||
+                inv.supplier.toLowerCase().includes(query) ||
+                inv.date.toLowerCase().includes(query);
         });
         renderProcessedTree(filtered);
     });
@@ -797,7 +797,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (searchRemitosInput) {
         searchRemitosInput.addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase().trim();
-            const filtered = rawRemitosList.filter(item => 
+            const filtered = rawRemitosList.filter(item =>
                 item.filename.toLowerCase().includes(query) ||
                 item.date.toLowerCase().includes(query)
             );
@@ -852,7 +852,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         list.forEach(item => {
             const tr = document.createElement('tr');
-            
+
             const tdFile = document.createElement('td');
             tdFile.innerHTML = `<i class="fa-solid fa-file-pdf" style="color: #b91c1c; margin-right: 8px;"></i><strong>${item.filename}</strong>`;
 
@@ -892,7 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (searchUnrecognizedInput) {
         searchUnrecognizedInput.addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase().trim();
-            const filtered = rawUnrecognizedList.filter(item => 
+            const filtered = rawUnrecognizedList.filter(item =>
                 item.filename.toLowerCase().includes(query) ||
                 item.error_type.toLowerCase().includes(query) ||
                 item.details.toLowerCase().includes(query)
@@ -967,7 +967,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handleFiles(files);
     });
 
-    fileInput.addEventListener('change', function() {
+    fileInput.addEventListener('change', function () {
         handleFiles(this.files);
     });
 
@@ -993,14 +993,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'POST',
                 body: formData
             });
-            
+
             let data;
             try {
                 data = await response.json();
             } catch (e) {
                 throw new Error(`Respuesta no válida del servidor (${response.status})`);
             }
-            
+
             if (response.ok && data.success) {
                 showToast(data.message || "Archivo procesado exitosamente", 'success');
                 fetchSuppliers();
@@ -1049,7 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
             handleInvoiceFiles(files);
         });
 
-        invoiceFileInput.addEventListener('change', function() {
+        invoiceFileInput.addEventListener('change', function () {
             handleInvoiceFiles(this.files);
         });
 
@@ -1064,7 +1064,7 @@ document.addEventListener('DOMContentLoaded', () => {
         async function uploadInvoice(file) {
             const validExts = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'];
             const fileExt = '.' + file.name.split('.').pop().toLowerCase();
-            
+
             if (!validExts.includes(fileExt)) {
                 showToast(`Tipo de archivo no permitido: ${file.name}`, 'error');
                 return;
@@ -1084,7 +1084,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: formData
                 });
                 const data = await response.json();
-                
+
                 if (data.success) {
                     showToast(`Carga exitosa: ${file.name}`, 'success');
                     fetchStatus(); // Refrescar contadores
@@ -1147,7 +1147,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Driver.js Tutorial ---
     if (window.driver) {
         const driver = window.driver.js.driver;
-        
+
         const driverObj = driver({
             showProgress: true,
             nextBtnText: 'Siguiente',
@@ -1179,17 +1179,17 @@ document.addEventListener('DOMContentLoaded', () => {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ valor: 'true' })
-                        }).catch(() => {});
+                        }).catch(() => { });
                     }, 1000);
                 }
-            }).catch(() => {});
+            }).catch(() => { });
     }
 
     // --- Heartbeat Ping ---
     // Enviar ping cada 3 segundos para mantener el proceso vivo.
     // Si cerramos la pestaña, el backend no recibe pings y se auto-apagará en 15s.
     setInterval(() => {
-        fetch('/api/ping', { method: 'POST' }).catch(() => {});
+        fetch('/api/ping', { method: 'POST' }).catch(() => { });
     }, 3000);
 
     // Init polling for status every 2 seconds if dashboard is active
@@ -1210,7 +1210,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const doctorResultsContainer = document.getElementById('doctor-results-container');
     const doctorResultsList = document.getElementById('doctor-results-list');
     const doctorCount = document.getElementById('doctor-count');
-    
+
     let currentAnomalies = [];
 
     if (btnDoctorScan) {
@@ -1219,11 +1219,11 @@ document.addEventListener('DOMContentLoaded', () => {
             btnDoctorScan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
             btnDoctorScan.disabled = true;
             btnDoctorFix.disabled = true;
-            
+
             try {
                 const res = await fetch('/api/doctor/scan');
                 const data = await res.json();
-                
+
                 if (data.success) {
                     currentAnomalies = data.anomalies;
                     renderDoctorResults(currentAnomalies);
@@ -1242,16 +1242,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnDoctorFix) {
         btnDoctorFix.addEventListener('click', async () => {
             if (currentAnomalies.length === 0) return;
-            
+
             const originalHTML = btnDoctorFix.innerHTML;
             btnDoctorFix.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Curando...';
             btnDoctorFix.disabled = true;
             btnDoctorScan.disabled = true;
-            
+
             try {
                 const res = await fetch('/api/doctor/fix', { method: 'POST' });
                 const data = await res.json();
-                
+
                 if (data.success) {
                     showToast(`Se aplicaron ${data.fixes} curas automáticas.`, "success");
                     if (data.errors.length > 0) {
@@ -1276,32 +1276,32 @@ document.addEventListener('DOMContentLoaded', () => {
         doctorResultsContainer.style.display = 'block';
         doctorResultsList.innerHTML = '';
         doctorCount.textContent = `${anomalies.length} anomalías`;
-        
+
         if (anomalies.length === 0) {
             doctorCount.className = "badge status-active";
             doctorResultsList.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--success);"><i class="fa-solid fa-check-circle" style="font-size: 2rem; margin-bottom: 0.5rem;"></i><br>¡Todo está perfecto! No se encontraron anomalías.</div>';
             btnDoctorFix.disabled = true;
             return;
         }
-        
+
         doctorCount.className = "badge status-inactive";
         btnDoctorFix.disabled = false;
-        
+
         anomalies.forEach(anom => {
             const div = document.createElement('div');
-            
+
             let color = "var(--text)";
             let icon = "fa-triangle-exclamation";
-            
+
             if (anom.severity === 'high') { color = "var(--danger)"; icon = "fa-circle-xmark"; }
             else if (anom.severity === 'medium') { color = "var(--warning)"; }
             else if (anom.severity === 'low') { color = "var(--text-secondary)"; icon = "fa-info-circle"; }
-            
+
             div.style.padding = "1rem";
             div.style.border = "1px solid rgba(255,255,255,0.1)";
             div.style.borderRadius = "0.5rem";
             div.style.background = "rgba(0,0,0,0.2)";
-            
+
             div.innerHTML = `
                 <div style="display: flex; align-items: flex-start; gap: 1rem;">
                     <i class="fa-solid ${icon}" style="color: ${color}; margin-top: 0.2rem;"></i>
@@ -1369,7 +1369,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/arca/credentials');
             const data = await res.json();
-            
+
             checkApiKeyStatus();
 
             if (data.configured) {
@@ -1377,7 +1377,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (inputArcaCuit) inputArcaCuit.value = data.cuit || '';
                 if (inputArcaRepresentada) inputArcaRepresentada.value = data.representada || '';
                 if (inputArcaClave && data.has_clave) inputArcaClave.value = '••••••••';
-                
+
                 if (modalArcaCuit) modalArcaCuit.value = data.cuit || '';
                 if (modalArcaRepresentada) modalArcaRepresentada.value = data.representada || '';
                 if (modalArcaClave && data.has_clave) modalArcaClave.value = '••••••••';
@@ -1421,7 +1421,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const cuit = inputArcaCuit.value.trim();
             const clave = inputArcaClave.value.trim();
             const representada = inputArcaRepresentada ? inputArcaRepresentada.value.trim() : '';
-            
+
             if (!cuit || cuit.length !== 11) {
                 showToast("Ingresa un CUIT de usuario válido (11 dígitos)", "error");
                 return;
@@ -1513,7 +1513,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ full_year: fullYear })
             });
             const data = await res.json();
-            
+
             if (!data.success) {
                 if (data.configured === false) {
                     showArcaCredsModal();
@@ -1739,6 +1739,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let chartMediosPagoInst = null;
     let chartEstacionamientoInst = null;
     let chartGananciaNetaInst = null;
+    let chartEmpresaEstructuraInst = null;
+    let chartEmpresaCubiertosInst = null;
 
     // Helper: espera a que Chart.js esté disponible (carga con defer)
     function waitForChart() {
@@ -1769,31 +1771,31 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = '/api/cuentas_por_pagar' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const res = await fetch(url);
             const data = await res.json();
-            
+
             document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
             document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
             document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
-            
+
             const pendientes = data.cuentas.filter(c => c.estado !== 'Pagado');
             const tbody = document.getElementById('tbl-cuentas-pagar-body');
             if (!pendientes || pendientes.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No hay facturas pendientes en cuentas por pagar</td></tr>`;
                 return;
             }
-            
+
             tbody.innerHTML = pendientes.map(c => {
                 let badgeClass = 'badge-pending';
                 if (c.estado === 'Pagado') badgeClass = 'badge-paid';
                 if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
-                
-                const actionBtn = c.estado !== 'Pagado' ? 
+
+                const actionBtn = c.estado !== 'Pagado' ?
                     METODOS_PAGO.map((m, i) => `
-                    <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i===0?'52,211,153':i===1?'96,165,250':'168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
+                    <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i === 0 ? '52,211,153' : i === 1 ? '96,165,250' : '168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
                         onclick="registrarPagoProveedor(${c.id}, '${m.key}')" title="${m.label}">
-                        M${i+1}
-                    </button>`).join('') : 
+                        M${i + 1}
+                    </button>`).join('') :
                     `<span style="color: #047857;"><i class="fa-solid fa-check"></i> Pagado</span>`;
-                    
+
                 return `
                     <tr>
                         <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
@@ -1810,7 +1812,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    window.registrarPagoProveedor = async function(id, medio) {
+    window.registrarPagoProveedor = async function (id, medio) {
         try {
             const res = await fetch('/api/cuentas_por_pagar/registrar_pago', {
                 method: 'POST',
@@ -1838,13 +1840,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(url);
             const data = await res.json();
             cachedRecaudacionRecords = data || [];
-            
+
             const tbody = document.getElementById('tbl-recaudacion-body');
             if (!data || data.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; color: var(--text-secondary);">No hay registros de recaudación</td></tr>`;
                 return;
             }
-            
+
             // KPI Cards Totales para Alivios & Conciliación
             const totRec = data.reduce((s, r) => s + (r.total_diario || 0), 0);
             const totMP = data.reduce((s, r) => s + (r.mp_real || 0), 0);
@@ -1859,7 +1861,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (document.getElementById('rec-stat-py')) document.getElementById('rec-stat-py').textContent = formatCurrency(totPY);
             if (document.getElementById('rec-stat-banco')) document.getElementById('rec-stat-banco').textContent = formatCurrency(totBanco);
             if (document.getElementById('rec-stat-alivios')) document.getElementById('rec-stat-alivios').textContent = formatCurrency(totAlivios);
-            
+
             tbody.innerHTML = data.map((r, idx) => {
                 let lotesText = '';
                 if (r.lotes_json) {
@@ -1868,9 +1870,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (Array.isArray(parsed) && parsed.length > 0) {
                             lotesText = parsed.map((l, i) => `L${i + 1}: ${formatCurrency(l)}`).join(' | ');
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
-                const alivioLabel = lotesText ? 
+                const alivioLabel = lotesText ?
                     `<span class="badge" style="background: rgba(16,185,129,0.15); color: #047857; font-weight:700;" title="${lotesText}">${formatCurrency(r.efectivo_real || 0)} <small>(${lotesText.substring(0, 30)}${lotesText.length > 30 ? '...' : ''})</small></span>` :
                     `<span class="badge" style="background: rgba(59,130,246,0.15); color: #1d4ed8; font-weight:700;">${formatCurrency(r.efectivo_real || r.efectivo_cub || 0)}</span>`;
 
@@ -1897,12 +1899,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     </tr>
                 `;
             }).join('');
-            
+
             // Charts
             const labels = data.map(r => r.fecha.substring(5));
             const totales = data.map(r => r.total_diario);
             const proyecciones = data.map(r => r.proyeccion_recaudacion || r.total_diario * 0.9);
-            
+
             await waitForChart();
             if (chartRecaudacionInst) chartRecaudacionInst.destroy();
             const ctx1 = document.getElementById('chartRecaudacion').getContext('2d');
@@ -1933,6 +1935,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#64748b' } } } }
             });
 
+            // Cargar Retiros de Recaudación
+            fetchRetirosRecaudacion();
+
         } catch (e) {
             console.error("Error cargando recaudación:", e);
         }
@@ -1944,7 +1949,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = '/api/estacionamiento' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const res = await fetch(url);
             const data = await res.json();
-            
+
             document.getElementById('est-stat-cash').textContent = formatCurrency(data.totales.total_cash);
             document.getElementById('est-stat-mp').textContent = formatCurrency(data.totales.total_mp);
             document.getElementById('est-stat-total').textContent = formatCurrency(data.totales.total_ganancia);
@@ -1957,7 +1962,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('est-stat-neta').textContent = formatCurrency(data.totales.ganancia_neta);
                 document.getElementById('est-stat-neta').style.color = data.totales.ganancia_neta >= 0 ? '#34d399' : '#f87171';
             }
-            
+
             const tbody = document.getElementById('tbl-estacionamiento-body');
             const todayStr = new Date().toISOString().split('T')[0];
             const daysMap = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -2041,7 +2046,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Chart
             const labelsEst = data.registros ? data.registros.map(r => r.fecha.substring(5)) : [];
             const totalesEst = data.registros ? data.registros.map(r => r.total) : [];
-            
+
             await waitForChart();
             if (chartEstacionamientoInst) chartEstacionamientoInst.destroy();
             const ctx = document.getElementById('chartEstacionamiento').getContext('2d');
@@ -2136,7 +2141,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/estacionamiento/gastos');
             const data = await res.json();
-            
+
             const tbody = document.getElementById('tbl-est-gastos-body');
             if (!data.gastos || data.gastos.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-secondary);">No hay gastos fijos registrados para estacionamiento</td></tr>`;
@@ -2195,7 +2200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    window.eliminarGastoEstacionamiento = async function(concepto) {
+    window.eliminarGastoEstacionamiento = async function (concepto) {
         if (!confirm(`¿Eliminar el gasto '${concepto}' del estacionamiento?`)) return;
         try {
             const res = await fetch('/api/estacionamiento/gastos', {
@@ -2218,18 +2223,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = '/api/caja_chica/movimientos' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const res = await fetch(url);
             const data = await res.json();
-            
+
             document.getElementById('cc-stat-ingresado').textContent = formatCurrency(data.resumen.ingresado_acumulado);
             document.getElementById('cc-stat-gasto').textContent = formatCurrency(data.resumen.gasto_total);
             document.getElementById('cc-stat-fondo').textContent = formatCurrency(data.resumen.fondo_total);
             document.getElementById('cc-stat-pct').textContent = `${data.resumen.porcentaje_caja}%`;
-            
+
             const tbody = document.getElementById('tbl-caja-chica-body');
             if (!data.movimientos || data.movimientos.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary);">No hay movimientos registrados</td></tr>`;
                 return;
             }
-            
+
             tbody.innerHTML = data.movimientos.map(m => `
                 <tr>
                     <td>${escapeHtml(m.fecha)}</td>
@@ -2251,7 +2256,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    window.eliminarMovimientoCajaChica = async function(id) {
+    window.eliminarMovimientoCajaChica = async function (id) {
         if (!confirm("¿Deseas eliminar este movimiento de caja chica?")) return;
         try {
             const res = await fetch(`/api/caja_chica/movimientos?id=${id}`, { method: 'DELETE' });
@@ -2301,7 +2306,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Selección automática del valor al enfocar para sobreescribir rápido
         input.addEventListener('focus', () => {
-            try { input.select(); } catch(e) {}
+            try { input.select(); } catch (e) { }
         });
 
         input.addEventListener('keydown', (e) => {
@@ -2311,7 +2316,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const nextInput = document.getElementById(billeteSequence[idx + 1]);
                     if (nextInput) {
                         nextInput.focus();
-                        try { nextInput.select(); } catch(err) {}
+                        try { nextInput.select(); } catch (err) { }
                     }
                 } else {
                     // Al presionar Enter en $20, guarda automáticamente el arqueo
@@ -2338,10 +2343,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (document.getElementById('b-20')) document.getElementById('b-20').value = data.b_20 || 0;
                 calculateArqueo();
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
-    window.limpiarBilletes = function() {
+    window.limpiarBilletes = function () {
         if (!confirm("¿Deseas limpiar todos los campos del arqueo?")) return;
         const denominaciones = ['20000', '10000', '2000', '1000', '500', '200', '100', '50', '20'];
         denominaciones.forEach(den => {
@@ -2349,90 +2354,90 @@ document.addEventListener('DOMContentLoaded', () => {
             if (input) input.value = '';
         });
         calculateArqueo();
-        
+
         // Opcional: limpiar también en la base de datos si así lo desean,
         // pero por ahora solo borraremos los campos visualmente.
     };
 
     const btnNuevoMovCaja = document.getElementById('btn-nuevo-movimiento-caja');
-const modalCaja = document.getElementById('modal-caja-chica');
-const btnCloseCaja = document.getElementById('btn-close-modal-caja');
-const btnCancelCaja = document.getElementById('btn-cancel-modal-caja');
-const btnSaveCaja = document.getElementById('btn-save-modal-caja');
+    const modalCaja = document.getElementById('modal-caja-chica');
+    const btnCloseCaja = document.getElementById('btn-close-modal-caja');
+    const btnCancelCaja = document.getElementById('btn-cancel-modal-caja');
+    const btnSaveCaja = document.getElementById('btn-save-modal-caja');
 
-if (btnNuevoMovCaja && modalCaja) {
-    const closeModal = () => modalCaja.classList.remove('show');
-    
-    btnNuevoMovCaja.addEventListener('click', async () => {
-        // Retrieve last responsible from SQLite via API
-        let lastResponsable = '';
-        try {
-            const resConfig = await fetch('/api/configuraciones/caja_responsable');
-            const dataConfig = await resConfig.json();
-            if (dataConfig.valor) lastResponsable = dataConfig.valor;
-        } catch (e) {}
+    if (btnNuevoMovCaja && modalCaja) {
+        const closeModal = () => modalCaja.classList.remove('show');
 
-        // Reset fields
-        document.getElementById('modal-caja-tipo').value = 'E';
-        document.getElementById('modal-caja-monto').value = '';
-        document.getElementById('modal-caja-motivo').value = '';
-        document.getElementById('modal-caja-responsable').value = lastResponsable;
-        if (document.getElementById('modal-caja-categoria')) {
-            document.getElementById('modal-caja-categoria').value = 'General';
-        }
-        
-        modalCaja.classList.add('show');
-    });
-    
-    if (btnCloseCaja) btnCloseCaja.addEventListener('click', closeModal);
-    if (btnCancelCaja) btnCancelCaja.addEventListener('click', closeModal);
-    
-    if (btnSaveCaja) {
-        btnSaveCaja.addEventListener('click', async () => {
-            const tipo = document.getElementById('modal-caja-tipo').value;
-            const montoStr = document.getElementById('modal-caja-monto').value;
-            const motivo = document.getElementById('modal-caja-motivo').value || 'Gasto diario';
-            const responsable = document.getElementById('modal-caja-responsable').value || 'Tomás';
-            const categoria = document.getElementById('modal-caja-categoria') ? document.getElementById('modal-caja-categoria').value : 'General';
-            
-            // Save responsible to SQLite via API
-            fetch('/api/configuraciones/caja_responsable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ valor: responsable })
-            }).catch(() => {});
-            
-            const monto = parseFloat(montoStr);
-            if (isNaN(monto) || monto <= 0) return showToast("Monto inválido", "error");
-            
-            const payload = {
-                monto_retirado: tipo === 'E' ? monto : 0,
-                monto_ingresado: tipo === 'I' ? monto : 0,
-                motivo,
-                responsable,
-                categoria
-            };
-            
+        btnNuevoMovCaja.addEventListener('click', async () => {
+            // Retrieve last responsible from SQLite via API
+            let lastResponsable = '';
             try {
-                const res = await fetch('/api/caja_chica/movimientos', {
+                const resConfig = await fetch('/api/configuraciones/caja_responsable');
+                const dataConfig = await resConfig.json();
+                if (dataConfig.valor) lastResponsable = dataConfig.valor;
+            } catch (e) { }
+
+            // Reset fields
+            document.getElementById('modal-caja-tipo').value = 'E';
+            document.getElementById('modal-caja-monto').value = '';
+            document.getElementById('modal-caja-motivo').value = '';
+            document.getElementById('modal-caja-responsable').value = lastResponsable;
+            if (document.getElementById('modal-caja-categoria')) {
+                document.getElementById('modal-caja-categoria').value = 'General';
+            }
+
+            modalCaja.classList.add('show');
+        });
+
+        if (btnCloseCaja) btnCloseCaja.addEventListener('click', closeModal);
+        if (btnCancelCaja) btnCancelCaja.addEventListener('click', closeModal);
+
+        if (btnSaveCaja) {
+            btnSaveCaja.addEventListener('click', async () => {
+                const tipo = document.getElementById('modal-caja-tipo').value;
+                const montoStr = document.getElementById('modal-caja-monto').value;
+                const motivo = document.getElementById('modal-caja-motivo').value || 'Gasto diario';
+                const responsable = document.getElementById('modal-caja-responsable').value || 'Tomás';
+                const categoria = document.getElementById('modal-caja-categoria') ? document.getElementById('modal-caja-categoria').value : 'General';
+
+                // Save responsible to SQLite via API
+                fetch('/api/configuraciones/caja_responsable', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    showToast("Movimiento de caja registrado con éxito");
-                    closeModal();
-                    fetchCajaChica();
-                } else {
-                    showToast("Error al registrar movimiento", "error");
+                    body: JSON.stringify({ valor: responsable })
+                }).catch(() => { });
+
+                const monto = parseFloat(montoStr);
+                if (isNaN(monto) || monto <= 0) return showToast("Monto inválido", "error");
+
+                const payload = {
+                    monto_retirado: tipo === 'E' ? monto : 0,
+                    monto_ingresado: tipo === 'I' ? monto : 0,
+                    motivo,
+                    responsable,
+                    categoria
+                };
+
+                try {
+                    const res = await fetch('/api/caja_chica/movimientos', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (res.ok) {
+                        showToast("Movimiento de caja registrado con éxito");
+                        closeModal();
+                        fetchCajaChica();
+                    } else {
+                        showToast("Error al registrar movimiento", "error");
+                    }
+                } catch (error) {
+                    console.error("Error al registrar movimiento:", error);
+                    showToast("Error de conexión al registrar", "error");
                 }
-            } catch (error) {
-                console.error("Error al registrar movimiento:", error);
-                showToast("Error de conexión al registrar", "error");
-            }
-        });
+            });
+        }
     }
-}
 
     // 5. Gastos Fijos & Ganancia Neta — Editable por mes
     const METODOS_PAGO = [
@@ -2450,7 +2455,7 @@ if (btnNuevoMovCaja && modalCaja) {
                 fetch(resUrl).then(r => r.json()),
                 fetch(gfUrl).then(r => r.json())
             ]);
-            
+
             document.getElementById('gf-stat-bruta').textContent = formatCurrency(resResumen.ganancia_bruta);
             document.getElementById('gf-stat-caja').textContent = formatCurrency(resResumen.gasto_caja);
             document.getElementById('gf-stat-fijo').textContent = formatCurrency(resResumen.gasto_fijo);
@@ -2523,17 +2528,17 @@ if (btnNuevoMovCaja && modalCaja) {
     const btnCancelModalGF = document.getElementById('btn-cancel-modal-gf');
     const btnSaveModalGF = document.getElementById('btn-save-modal-gf');
 
-    window.abrirModalGastoFijo = function(id = null, concepto = '', monto = 0) {
+    window.abrirModalGastoFijo = function (id = null, concepto = '', monto = 0) {
         if (!modalGastoFijo) return;
-        
+
         document.getElementById('modal-gf-id').value = id || '';
         document.getElementById('modal-gf-concepto').value = concepto || '';
         document.getElementById('modal-gf-monto').value = monto || '';
-        
+
         const titleEl = document.getElementById('modal-gf-title');
         if (titleEl) {
-            titleEl.innerHTML = id ? 
-                '<i class="fa-solid fa-pen-to-square" style="color: #3b82f6;"></i> Editar Concepto de Gasto Fijo' : 
+            titleEl.innerHTML = id ?
+                '<i class="fa-solid fa-pen-to-square" style="color: #3b82f6;"></i> Editar Concepto de Gasto Fijo' :
                 '<i class="fa-solid fa-receipt" style="color: #3b82f6;"></i> Agregar Concepto de Gasto Fijo';
         }
 
@@ -2590,7 +2595,7 @@ if (btnNuevoMovCaja && modalCaja) {
         });
     }
 
-    window.eliminarGastoFijo = async function(id) {
+    window.eliminarGastoFijo = async function (id) {
         if (!confirm('¿Eliminar este concepto de gastos fijos?')) return;
         try {
             await fetch('/api/gastos_fijos', {
@@ -2600,7 +2605,7 @@ if (btnNuevoMovCaja && modalCaja) {
             });
             showToast('Concepto eliminado');
             fetchGastosFijos();
-        } catch(e) { showToast('Error al eliminar', 'error'); }
+        } catch (e) { showToast('Error al eliminar', 'error'); }
     };
 
     // Botón Agregar Concepto (Abre el Modal)
@@ -2629,7 +2634,7 @@ if (btnNuevoMovCaja && modalCaja) {
                 } else {
                     showToast(data.error || 'No hay datos anteriores para copiar', 'error');
                 }
-            } catch(e) { showToast('Error al copiar', 'error'); }
+            } catch (e) { showToast('Error al copiar', 'error'); }
         });
     }
 
@@ -2638,7 +2643,7 @@ if (btnNuevoMovCaja && modalCaja) {
     let arcaSortKey = 'fecha_emision';
     let arcaSortDesc = true;
 
-    window.sortArca = function(key) {
+    window.sortArca = function (key) {
         if (arcaSortKey === key) {
             arcaSortDesc = !arcaSortDesc;
         } else {
@@ -2648,7 +2653,7 @@ if (btnNuevoMovCaja && modalCaja) {
         renderArcaCompras();
     };
 
-    window.fetchArcaComprasLocal = function() {
+    window.fetchArcaComprasLocal = function () {
         const cbx = document.getElementById('cbx-pagar-mes');
         if (cbx) cbx.checked = false;
         fetchArcaCompras();
@@ -2667,7 +2672,7 @@ if (btnNuevoMovCaja && modalCaja) {
             const mesParam = selectedMonth ? '?mes=' + selectedMonth : '';
             const res = await fetch('/api/arca_compras' + mesParam);
             const data = await res.json();
-            
+
             const el_pend = document.getElementById('arca-count-pendientes');
             const el_pag = document.getElementById('arca-count-pagados');
             const el_tot = document.getElementById('arca-total-importe');
@@ -2677,17 +2682,17 @@ if (btnNuevoMovCaja && modalCaja) {
 
             arcaData = data.compras || [];
             renderArcaCompras();
-        } catch(e) {
+        } catch (e) {
             console.error("Error cargando compras ARCA:", e);
         }
     }
 
-    window.renderArcaCompras = function() {
+    window.renderArcaCompras = function () {
         const tbody = document.getElementById('tbl-arca-compras-body');
         if (!tbody) return;
 
         const filterVal = document.getElementById('arca-filter') ? document.getElementById('arca-filter').value : 'all';
-        
+
         let filtered = [...arcaData];
         if (filterVal === 'recibida') filtered = filtered.filter(c => c.factura_recibida);
         if (filterVal === 'no_recibida') filtered = filtered.filter(c => !c.factura_recibida);
@@ -2724,9 +2729,9 @@ if (btnNuevoMovCaja && modalCaja) {
                 : `<span style="color: #f59e0b; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
 
             const metodoBtns = c.estado !== 'Pagado' ? METODOS_PAGO.map((m, i) => `
-                <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i===0?'52,211,153':i===1?'96,165,250':'168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
+                <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i === 0 ? '52,211,153' : i === 1 ? '96,165,250' : '168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
                     onclick="pagarArcaCompra(${c.id}, '${m.key}')">
-                    M${i+1}
+                    M${i + 1}
                 </button>`).join('')
                 : `<button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid #f8717140; border-radius: 6px; cursor:pointer;"
                     onclick="despagarArcaCompra(${c.id})"><i class="fa-solid fa-rotate-left"></i> Deshacer</button>`;
@@ -2750,7 +2755,7 @@ if (btnNuevoMovCaja && modalCaja) {
         }).join('');
     };
 
-    window.pagarArcaCompra = async function(id, metodo) {
+    window.pagarArcaCompra = async function (id, metodo) {
         try {
             const res = await fetch(`/api/arca_compras/${id}/marcar_pago`, {
                 method: 'POST',
@@ -2762,29 +2767,29 @@ if (btnNuevoMovCaja && modalCaja) {
                 showToast(`Pagado con ${metodo}`);
                 fetchArcaCompras();
             }
-        } catch(e) { showToast('Error al marcar pago', 'error'); }
+        } catch (e) { showToast('Error al marcar pago', 'error'); }
     };
-    window.handleMarcarMesPagado = async function(cbx) {
+    window.handleMarcarMesPagado = async function (cbx) {
         if (!cbx.checked) return;
-        
+
         let mes = document.getElementById('arca-month-filter').value;
         if (mes === 'all') mes = currentSelectedMonth;
-        
+
         if (mes === 'all' || !mes) {
             alert("Por favor, selecciona un mes específico en el filtro antes de usar esta opción.");
             cbx.checked = false;
             return;
         }
-        
+
         if (!confirm(`¿Estás seguro de marcar TODAS las facturas de ${mes} como PAGADAS?`)) {
             cbx.checked = false;
             return;
         }
-        
+
         try {
             const res = await fetch(`/api/test/marcar_mes_pagado`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mes: mes })
             });
             const data = await res.json();
@@ -2796,27 +2801,27 @@ if (btnNuevoMovCaja && modalCaja) {
                 showToast(data.message || 'Error al actualizar', 'error');
                 cbx.checked = false;
             }
-        } catch(e) {
+        } catch (e) {
             showToast('Error de red al actualizar', 'error');
             cbx.checked = false;
         }
     };
-    
-    window.despagarArcaCompra = async function(id) {
+
+    window.despagarArcaCompra = async function (id) {
         if (!confirm('¿Deshacer el pago de esta compra?')) return;
         try {
             await fetch(`/api/arca_compras/${id}/desmarcar_pago`, { method: 'POST' });
             showToast('Pago deshecho');
             fetchArcaCompras();
-        } catch(e) { showToast('Error', 'error'); }
+        } catch (e) { showToast('Error', 'error'); }
     };
 
-    window.marcarArcaRecibida = async function(id) {
+    window.marcarArcaRecibida = async function (id) {
         try {
             await fetch(`/api/arca_compras/${id}/marcar_recibida`, { method: 'POST' });
             showToast('Factura marcada como recibida');
             fetchArcaCompras();
-        } catch(e) { showToast('Error', 'error'); }
+        } catch (e) { showToast('Error', 'error'); }
     };
 
     // Botón Importar CSV ARCA manualmente
@@ -2834,7 +2839,7 @@ if (btnNuevoMovCaja && modalCaja) {
                 } else {
                     showToast(data.message || 'Error al importar', 'error');
                 }
-            } catch(e) {
+            } catch (e) {
                 showToast('Error de red al importar', 'error');
             } finally {
                 btnSyncArcaCompras.disabled = false;
@@ -2957,7 +2962,7 @@ if (btnNuevoMovCaja && modalCaja) {
         if (!modalRecaudacion) return;
 
         const todayStr = new Date().toISOString().split('T')[0];
-        
+
         document.getElementById('rec-modal-fecha').value = record ? record.fecha : todayStr;
         updateModalRecDiaAuto();
         if (record && record.dia_nombre) {
@@ -2988,7 +2993,7 @@ if (btnNuevoMovCaja && modalCaja) {
         if (record && record.lotes_json) {
             try {
                 lotesArr = typeof record.lotes_json === 'string' ? JSON.parse(record.lotes_json) : record.lotes_json;
-            } catch(e) {}
+            } catch (e) { }
         }
         if (!Array.isArray(lotesArr) || lotesArr.length === 0) {
             if (record && record.efectivo_real > 0) {
@@ -3025,7 +3030,7 @@ if (btnNuevoMovCaja && modalCaja) {
             const naveReal = parseFloat(document.getElementById('rec-modal-nave-real')?.value || 0);
             const pyReal = parseFloat(document.getElementById('rec-modal-py-real')?.value || 0);
             const bancoReal = parseFloat(document.getElementById('rec-modal-banco-real')?.value || 0);
-            
+
             const mpMaxi = parseFloat(document.getElementById('rec-modal-mp-maxi')?.value || 0);
             const naveMaxi = parseFloat(document.getElementById('rec-modal-nave-maxi')?.value || 0);
             const pyMaxi = parseFloat(document.getElementById('rec-modal-py-maxi')?.value || 0);
@@ -3085,12 +3090,12 @@ if (btnNuevoMovCaja && modalCaja) {
         });
     }
 
-    window.editarRecaudacion = function(fecha) {
+    window.editarRecaudacion = function (fecha) {
         const record = cachedRecaudacionRecords.find(r => r.fecha === fecha);
         openModalRecaudacion(record || { fecha });
     };
 
-    window.eliminarRecaudacion = async function(fecha) {
+    window.eliminarRecaudacion = async function (fecha) {
         if (!confirm(`¿Deseas eliminar el registro de recaudación del día ${fecha}?`)) return;
         try {
             const res = await fetch(`/api/recaudacion?fecha=${fecha}`, { method: 'DELETE' });
@@ -3128,7 +3133,7 @@ if (btnNuevoMovCaja && modalCaja) {
         });
     }
 
-    window.editarDiaEstacionamiento = function(fecha, dia_nombre, tc, cash, mp, comentario) {
+    window.editarDiaEstacionamiento = function (fecha, dia_nombre, tc, cash, mp, comentario) {
         document.getElementById('est-in-fecha').value = fecha || '';
         if (typeof updateEstacionamientoDiaAuto === 'function') {
             updateEstacionamientoDiaAuto();
@@ -3139,7 +3144,7 @@ if (btnNuevoMovCaja && modalCaja) {
         document.getElementById('est-in-cash').value = cash || '';
         document.getElementById('est-in-mp').value = mp || '';
         document.getElementById('est-in-comentario').value = comentario || '';
-        
+
         const rowInline = document.getElementById('row-inline-add-est');
         if (rowInline) {
             rowInline.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3147,13 +3152,13 @@ if (btnNuevoMovCaja && modalCaja) {
             rowInline.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
             setTimeout(() => { rowInline.style.backgroundColor = ''; }, 1000);
         }
-        
+
         if (typeof updateInlineEstCalculations === 'function') {
             updateInlineEstCalculations();
         }
     };
-    
-    window.eliminarDiaEstacionamiento = async function(fecha) {
+
+    window.eliminarDiaEstacionamiento = async function (fecha) {
         if (!confirm(`¿Deseas eliminar el registro de la fecha ${fecha}?`)) return;
         try {
             const res = await fetch('/api/estacionamiento', {
@@ -3187,16 +3192,16 @@ if (btnNuevoMovCaja && modalCaja) {
             const mesParam = currentSelectedMonth ? '?mes=' + currentSelectedMonth : '';
             const res = await fetch('/api/dashboard/empresa' + mesParam);
             const data = await res.json();
-            
+
             document.getElementById('emp-stat-ingresos').textContent = formatCurrency(data.ingresos.total);
             document.getElementById('emp-stat-egresos').textContent = formatCurrency(data.egresos.total);
-            
+
             const ganancia = data.ganancia_neta;
             const gananciaElem = document.getElementById('emp-stat-ganancia');
             const gananciaCard = document.getElementById('emp-card-ganancia');
             const gananciaIcon = document.getElementById('emp-icon-ganancia');
             const gananciaTitle = document.getElementById('emp-title-ganancia');
-            
+
             gananciaElem.textContent = formatCurrency(ganancia);
             if (ganancia >= 0) {
                 gananciaCard.style.background = 'rgba(52, 211, 153, 0.05)';
@@ -3214,12 +3219,184 @@ if (btnNuevoMovCaja && modalCaja) {
                 gananciaTitle.textContent = 'Pérdida Neta';
             }
 
-            document.getElementById('emp-ingreso-rec').textContent = formatCurrency(data.ingresos.recaudacion);
-            document.getElementById('emp-ingreso-est').textContent = formatCurrency(data.ingresos.estacionamiento);
-            
-            document.getElementById('emp-egreso-fijo').textContent = formatCurrency(data.egresos.fijos);
-            document.getElementById('emp-egreso-arca').textContent = formatCurrency(data.egresos.proveedores) + ` (Pendiente: ${formatCurrency(data.pendientes.proveedores)})`;
-            document.getElementById('emp-egreso-caja').textContent = formatCurrency(data.egresos.caja_chica);
+            // Margen de rentabilidad
+            const margenElem = document.getElementById('emp-stat-margen');
+            if (margenElem) {
+                const margen = data.margen_rentabilidad || 0;
+                margenElem.textContent = `${margen > 0 ? '+' : ''}${margen}%`;
+                margenElem.style.color = margen >= 0 ? '#10b981' : '#ef4444';
+            }
+
+            // Cubiertos KPIs
+            if (document.getElementById('emp-stat-total-cubiertos')) {
+                document.getElementById('emp-stat-total-cubiertos').textContent = `${data.cubiertos.total.toLocaleString('es-AR')} CUB`;
+            }
+            if (document.getElementById('emp-sub-dias-cubiertos')) {
+                document.getElementById('emp-sub-dias-cubiertos').textContent = `${data.cubiertos.dias_activos} días registrados`;
+            }
+            if (document.getElementById('emp-stat-promedio-cubiertos')) {
+                document.getElementById('emp-stat-promedio-cubiertos').textContent = `${data.cubiertos.promedio_diario.toLocaleString('es-AR')} CUB/día`;
+            }
+
+            // Mejor Día de Cubierto
+            const mejorCub = data.cubiertos.mejor_dia;
+            if (document.getElementById('emp-stat-mejor-cubierto')) {
+                if (mejorCub) {
+                    const parts = mejorCub.fecha.split('-');
+                    const fechaFmt = `${parts[2]}/${parts[1]}`;
+                    const diaFmt = (mejorCub.dia_nombre || '').charAt(0).toUpperCase() + (mejorCub.dia_nombre || '').slice(1);
+                    document.getElementById('emp-stat-mejor-cubierto').textContent = `${diaFmt} ${fechaFmt} (${mejorCub.cubiertos})`;
+                } else {
+                    document.getElementById('emp-stat-mejor-cubierto').textContent = 'Sin registros';
+                }
+            }
+            if (document.getElementById('emp-sub-mejor-cubierto')) {
+                if (mejorCub) {
+                    document.getElementById('emp-sub-mejor-cubierto').textContent = `Recaudación: ${formatCurrency(mejorCub.total_diario)}`;
+                } else {
+                    document.getElementById('emp-sub-mejor-cubierto').textContent = 'Máxima afluencia';
+                }
+            }
+
+            // Ticket Promedio / Cubierto
+            if (document.getElementById('emp-stat-ticket-promedio')) {
+                document.getElementById('emp-stat-ticket-promedio').textContent = formatCurrency(data.cubiertos.ticket_promedio);
+            }
+
+            // Desglose de Ingresos
+            if (document.getElementById('emp-ingreso-rec')) {
+                document.getElementById('emp-ingreso-rec').textContent = formatCurrency(data.ingresos.recaudacion);
+            }
+            if (document.getElementById('emp-ingreso-est')) {
+                document.getElementById('emp-ingreso-est').textContent = formatCurrency(data.ingresos.estacionamiento);
+            }
+            if (document.getElementById('emp-ingreso-est-cash')) {
+                document.getElementById('emp-ingreso-est-cash').textContent = formatCurrency(data.ingresos.estacionamiento_cash || 0);
+            }
+            if (document.getElementById('emp-ingreso-est-mp')) {
+                document.getElementById('emp-ingreso-est-mp').textContent = formatCurrency(data.ingresos.estacionamiento_mp || 0);
+            }
+
+            // Desglose de Egresos
+            if (document.getElementById('emp-egreso-fijo')) {
+                document.getElementById('emp-egreso-fijo').textContent = formatCurrency(data.egresos.fijos);
+            }
+            if (document.getElementById('emp-egreso-arca')) {
+                const pendText = data.pendientes.proveedores > 0 ? ` (Pendiente: ${formatCurrency(data.pendientes.proveedores)})` : '';
+                document.getElementById('emp-egreso-arca').textContent = formatCurrency(data.egresos.proveedores) + pendText;
+            }
+            if (document.getElementById('emp-egreso-caja')) {
+                document.getElementById('emp-egreso-caja').textContent = formatCurrency(data.egresos.caja_chica);
+            }
+            if (document.getElementById('emp-egreso-retiros')) {
+                document.getElementById('emp-egreso-retiros').textContent = formatCurrency(data.egresos.retiros_recaudacion || 0);
+            }
+
+            // Renderizar Gráficos de Dashboard Empresa
+            await waitForChart();
+
+            // Gráfico 1: Estructura Financiera (Ingresos vs Egresos)
+            const canvasEstructura = document.getElementById('chartEmpresaEstructura');
+            if (canvasEstructura) {
+                if (chartEmpresaEstructuraInst) chartEmpresaEstructuraInst.destroy();
+                const ctx1 = canvasEstructura.getContext('2d');
+                chartEmpresaEstructuraInst = new Chart(ctx1, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Ingresos Totales', 'Gastos Fijos', 'Proveedores (ARCA)', 'Caja Chica', 'Retiros Recaudación'],
+                        datasets: [{
+                            label: 'Monto ($)',
+                            data: [data.ingresos.total, data.egresos.fijos, data.egresos.proveedores, data.egresos.caja_chica, data.egresos.retiros_recaudacion || 0],
+                            backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#dc2626'],
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: {
+                                ticks: {
+                                    callback: function (value) {
+                                        return '$' + (value / 1000000).toFixed(1) + 'M';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Gráfico 2: Evolución Diaria de Cubiertos (CUB) y Recaudación
+            const canvasCubiertos = document.getElementById('chartEmpresaCubiertos');
+            if (canvasCubiertos && data.diario && data.diario.length > 0) {
+                if (chartEmpresaCubiertosInst) chartEmpresaCubiertosInst.destroy();
+                const ctx2 = canvasCubiertos.getContext('2d');
+
+                const labelsDiario = data.diario.map(d => {
+                    const parts = d.fecha.split('-');
+                    return `${parts[2]}/${parts[1]}`;
+                });
+                const recDiariaData = data.diario.map(d => d.total_diario || 0);
+                const cubDiarioData = data.diario.map(d => d.cubiertos || 0);
+
+                chartEmpresaCubiertosInst = new Chart(ctx2, {
+                    type: 'bar',
+                    data: {
+                        labels: labelsDiario,
+                        datasets: [
+                            {
+                                type: 'line',
+                                label: 'Cubiertos (CUB)',
+                                data: cubDiarioData,
+                                borderColor: '#a855f7',
+                                backgroundColor: '#a855f7',
+                                yAxisID: 'y1',
+                                tension: 0.3,
+                                borderWidth: 3,
+                                pointRadius: 4
+                            },
+                            {
+                                type: 'bar',
+                                label: 'Recaudación ($)',
+                                data: recDiariaData,
+                                backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                                borderColor: '#3b82f6',
+                                borderWidth: 1,
+                                yAxisID: 'y',
+                                borderRadius: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'top' }
+                        },
+                        scales: {
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: { display: true, text: 'Recaudación ($)', color: '#64748b' },
+                                ticks: {
+                                    callback: function (val) { return '$' + (val / 1000000).toFixed(1) + 'M'; }
+                                }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                title: { display: true, text: 'Cubiertos (CUB)', color: '#a855f7' },
+                                ticks: { precision: 0 }
+                            }
+                        }
+                    }
+                });
+            }
 
         } catch (e) {
             console.error('Error fetching dashboard empresa:', e);
@@ -3257,14 +3434,14 @@ if (btnNuevoMovCaja && modalCaja) {
             driverInstance = window.driver.js.driver({
                 showProgress: true,
                 steps: [
-                    { element: '#group-facturas',     popover: { title: 'Facturas',             description: 'Gestiona todas tus facturas: procesa, visualiza y carga CSV de ARCA.', side: 'right' } },
+                    { element: '#group-facturas', popover: { title: 'Facturas', description: 'Gestiona todas tus facturas: procesa, visualiza y carga CSV de ARCA.', side: 'right' } },
                     { element: '[data-tab="cuentas-pagar"]', popover: { title: 'Proveedores a Pagar', description: 'Seguimiento de deudas con proveedores y estado de pagos.', side: 'right' } },
-                    { element: '[data-tab="recaudacion"]',   popover: { title: 'Recaudación',      description: 'Conciliación diaria entre Maxirest y cada plataforma de cobro.', side: 'right' } },
+                    { element: '[data-tab="recaudacion"]', popover: { title: 'Recaudación', description: 'Conciliación diaria entre Maxirest y cada plataforma de cobro.', side: 'right' } },
                     { element: '[data-tab="estacionamiento"]', popover: { title: 'Estacionamiento', description: 'Arqueo diario de TicketControl vs efectivo y MercadoPago.', side: 'right' } },
-                    { element: '[data-tab="caja-chica"]',    popover: { title: 'Caja Chica',       description: 'Movimientos de fondos, retiros y arqueo de billetes.', side: 'right' } },
-                    { element: '[data-tab="gastos-fijos"]',  popover: { title: 'Gastos Fijos',     description: 'Dashboard de ganancia neta contra costos estructurales.', side: 'right' } },
-                    { element: '[data-tab="suppliers"]',     popover: { title: 'Proveedores',      description: 'Lista de proveedores y sus reglas de detección automática.', side: 'right' } },
-                    { element: '[data-tab="settings"]',      popover: { title: 'Ajustes',          description: 'Configura tu API Key de Gemini, CUIT y credenciales de ARCA.', side: 'right' } },
+                    { element: '[data-tab="caja-chica"]', popover: { title: 'Caja Chica', description: 'Movimientos de fondos, retiros y arqueo de billetes.', side: 'right' } },
+                    { element: '[data-tab="gastos-fijos"]', popover: { title: 'Gastos Fijos', description: 'Dashboard de ganancia neta contra costos estructurales.', side: 'right' } },
+                    { element: '[data-tab="suppliers"]', popover: { title: 'Proveedores', description: 'Lista de proveedores y sus reglas de detección automática.', side: 'right' } },
+                    { element: '[data-tab="settings"]', popover: { title: 'Ajustes', description: 'Configura tu API Key de Gemini, CUIT y credenciales de ARCA.', side: 'right' } },
                 ]
             });
         }
@@ -3276,6 +3453,151 @@ if (btnNuevoMovCaja && modalCaja) {
             loadDriverJs(startTour);
         });
     }
+
+    // --- Retiros Directos de Recaudación ---
+    async function fetchRetirosRecaudacion() {
+        try {
+            const url = '/api/recaudacion/retiros' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const res = await fetch(url);
+            const data = await res.json();
+
+            const statElem = document.getElementById('rec-stat-retiros');
+            if (statElem) statElem.textContent = formatCurrency(data.total || 0);
+
+            const tbody = document.getElementById('tbl-retiros-recaudacion-body');
+            if (!tbody) return;
+
+            if (!data.retiros || data.retiros.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">No hay retiros de recaudación registrados en este período</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.retiros.map(r => {
+                let badgeColor = '#ef4444';
+                if (r.medio_pago === 'MercadoPago') badgeColor = '#3b82f6';
+                if (r.medio_pago === 'Banco') badgeColor = '#f59e0b';
+
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(r.fecha)}</strong></td>
+                        <td><strong style="color: #ef4444;">${formatCurrency(r.monto)}</strong></td>
+                        <td><span class="badge" style="background: ${badgeColor}20; color: ${badgeColor}; border: 1px solid ${badgeColor}40; font-weight:700;">${escapeHtml(r.medio_pago || 'Efectivo')}</span></td>
+                        <td><strong>${escapeHtml(r.motivo || '-')}</strong></td>
+                        <td>${escapeHtml(r.responsable || '-')}</td>
+                        <td>${escapeHtml(r.comentario || '-')}</td>
+                        <td style="display: flex; gap: 4px;">
+                            <button class="btn btn-secondary btn-sm" onclick="editarRetiroRecaudacion(${r.id}, '${escapeHtml(r.fecha)}', ${r.monto}, '${escapeHtml(r.medio_pago || 'Efectivo')}', '${escapeHtml(r.motivo || '').replace(/'/g, "\\'")}', '${escapeHtml(r.responsable || '').replace(/'/g, "\\'")}', '${escapeHtml(r.comentario || '').replace(/'/g, "\\\'")}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                            <button class="btn btn-secondary btn-sm" onclick="eliminarRetiroRecaudacion(${r.id})" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error("Error cargando retiros de recaudación:", e);
+        }
+    }
+
+    const modalRetiro = document.getElementById('modal-retiro-recaudacion');
+    const btnNuevoRetiroRec = document.getElementById('btn-nuevo-retiro-rec');
+    const btnCloseModalRetiro = document.getElementById('btn-close-modal-retiro');
+    const btnCancelModalRetiro = document.getElementById('btn-cancel-modal-retiro');
+    const btnSaveModalRetiro = document.getElementById('btn-save-modal-retiro');
+
+    window.abrirModalRetiro = function (id = null, fecha = '', monto = '', medio = 'Efectivo', motivo = '', responsable = '', comentario = '') {
+        if (!modalRetiro) return;
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        document.getElementById('modal-retiro-id').value = id || '';
+        document.getElementById('modal-retiro-fecha').value = fecha || todayStr;
+        document.getElementById('modal-retiro-monto').value = monto || '';
+        document.getElementById('modal-retiro-medio').value = medio || 'Efectivo';
+        document.getElementById('modal-retiro-motivo').value = motivo || '';
+        document.getElementById('modal-retiro-responsable').value = responsable || '';
+        document.getElementById('modal-retiro-comentario').value = comentario || '';
+
+        const titleEl = document.getElementById('modal-retiro-title');
+        if (titleEl) {
+            titleEl.innerHTML = id ?
+                '<i class="fa-solid fa-pen-to-square" style="color: #ef4444;"></i> Editar Retiro de Recaudación' :
+                '<i class="fa-solid fa-hand-holding-dollar" style="color: #ef4444;"></i> Registrar Retiro de Recaudación';
+        }
+
+        modalRetiro.style.display = 'flex';
+        setTimeout(() => {
+            document.getElementById('modal-retiro-monto')?.focus();
+        }, 50);
+    };
+
+    function closeModalRetiro() {
+        if (modalRetiro) modalRetiro.style.display = 'none';
+    }
+
+    if (btnNuevoRetiroRec) btnNuevoRetiroRec.addEventListener('click', () => abrirModalRetiro());
+    if (btnCloseModalRetiro) btnCloseModalRetiro.addEventListener('click', closeModalRetiro);
+    if (btnCancelModalRetiro) btnCancelModalRetiro.addEventListener('click', closeModalRetiro);
+
+    if (btnSaveModalRetiro) {
+        btnSaveModalRetiro.addEventListener('click', async () => {
+            const id = document.getElementById('modal-retiro-id').value;
+            const fecha = document.getElementById('modal-retiro-fecha').value;
+            const montoStr = document.getElementById('modal-retiro-monto').value;
+            const monto = parseFloat(montoStr) || 0;
+            const medio_pago = document.getElementById('modal-retiro-medio').value;
+            const motivo = document.getElementById('modal-retiro-motivo').value.trim();
+            const responsable = document.getElementById('modal-retiro-responsable').value.trim();
+            const comentario = document.getElementById('modal-retiro-comentario').value.trim();
+
+            if (!fecha) return showToast("Selecciona una fecha", "error");
+            if (isNaN(monto) || monto <= 0) return showToast("Ingresa un monto válido", "error");
+
+            const payload = {
+                fecha,
+                monto,
+                medio_pago,
+                motivo,
+                responsable,
+                comentario
+            };
+            if (id) payload.id = parseInt(id);
+
+            try {
+                const res = await fetch('/api/recaudacion/retiros', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(id ? "Retiro de recaudación actualizado" : "Retiro de recaudación registrado");
+                    closeModalRetiro();
+                    fetchRecaudacion();
+                } else {
+                    showToast(data.error || "Error al guardar retiro", "error");
+                }
+            } catch (e) {
+                showToast("Error de conexión", "error");
+            }
+        });
+    }
+
+    window.editarRetiroRecaudacion = function (id, fecha, monto, medio, motivo, responsable, comentario) {
+        abrirModalRetiro(id, fecha, monto, medio, motivo, responsable, comentario);
+    };
+
+    window.eliminarRetiroRecaudacion = async function (id) {
+        if (!confirm('¿Eliminar este retiro de recaudación?')) return;
+        try {
+            const res = await fetch(`/api/recaudacion/retiros?id=${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast('Retiro eliminado');
+                fetchRecaudacion();
+            } else {
+                showToast('Error al eliminar retiro', 'error');
+            }
+        } catch (e) {
+            showToast('Error de conexión', 'error');
+        }
+    };
 });
 
 

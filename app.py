@@ -747,6 +747,64 @@ def api_recaudacion():
     return jsonify(rows)
 
 
+@app.route('/api/recaudacion/retiros', methods=['GET', 'POST', 'DELETE'])
+def api_recaudacion_retiros():
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    
+    if request.method == 'DELETE':
+        item_id = request.args.get('id')
+        if not item_id:
+            conn.close()
+            return jsonify({"error": "ID es requerido"}), 400
+        cursor.execute("DELETE FROM retiros_recaudacion WHERE id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+
+    if request.method == 'POST':
+        data = request.json or {}
+        item_id = data.get('id')
+        fecha = data.get('fecha', datetime.now().strftime('%Y-%m-%d'))
+        monto = float(data.get('monto', 0))
+        medio_pago = data.get('medio_pago', 'Efectivo')
+        motivo = data.get('motivo', '')
+        responsable = data.get('responsable', '')
+        comentario = data.get('comentario', '')
+        
+        if item_id:
+            cursor.execute('''
+                UPDATE retiros_recaudacion
+                SET fecha=?, monto=?, medio_pago=?, motivo=?, responsable=?, comentario=?
+                WHERE id=?
+            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, item_id))
+        else:
+            cursor.execute('''
+                INSERT INTO retiros_recaudacion (fecha, monto, medio_pago, motivo, responsable, comentario)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (fecha, monto, medio_pago, motivo, responsable, comentario))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+        
+    mes = request.args.get('mes')
+    if mes and mes != 'all':
+        cursor.execute("SELECT * FROM retiros_recaudacion WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC", (f"{mes}%",))
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion WHERE fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT * FROM retiros_recaudacion ORDER BY fecha DESC, id DESC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion")
+        
+    total_monto = cursor.fetchone()[0] or 0
+    conn.close()
+    return jsonify({
+        "retiros": rows,
+        "total": total_monto
+    })
+
+
 @app.route('/api/estacionamiento', methods=['GET', 'POST', 'DELETE'])
 def api_estacionamiento():
     conn = db_manager.get_connection()
@@ -1159,33 +1217,83 @@ def api_dashboard_empresa():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
     mes = request.args.get('mes')
-    if not mes or mes == 'all':
-        mes = datetime.now().strftime('%Y-%m')
     
+    if mes and mes != 'all':
+        filter_rec = "WHERE fecha LIKE ?"
+        filter_est = "WHERE fecha LIKE ?"
+        filter_gf = "WHERE mes = ?"
+        filter_arca = "WHERE mes = ?"
+        filter_caja = "WHERE fecha LIKE ?"
+        param_rec = (f"{mes}%",)
+        param_est = (f"{mes}%",)
+        param_gf = (mes,)
+        param_arca = (mes,)
+        param_caja = (f"{mes}%",)
+    else:
+        filter_rec = ""
+        filter_est = ""
+        filter_gf = ""
+        filter_arca = ""
+        filter_caja = ""
+        param_rec = ()
+        param_est = ()
+        param_gf = ()
+        param_arca = ()
+        param_caja = ()
+        mes = 'all'
+
     # INGRESOS
-    cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria WHERE fecha LIKE ?", (f"{mes}%",))
+    cursor.execute(f"SELECT SUM(total_diario) FROM recaudacion_diaria {filter_rec}", param_rec)
     ingreso_recaudacion = cursor.fetchone()[0] or 0
     
-    cursor.execute("SELECT SUM(total) FROM estacionamiento_diario WHERE fecha LIKE ?", (f"{mes}%",))
-    ingreso_estacionamiento = cursor.fetchone()[0] or 0
+    cursor.execute(f"SELECT SUM(total), SUM(controlado_cash), SUM(controlado_mp) FROM estacionamiento_diario {filter_est}", param_est)
+    row_est = cursor.fetchone()
+    ingreso_estacionamiento = row_est[0] or 0
+    estacionamiento_cash = row_est[1] or 0
+    estacionamiento_mp = row_est[2] or 0
     
     total_ingresos = ingreso_recaudacion + ingreso_estacionamiento
+
+    # CUBIERTOS
+    cursor.execute(f"SELECT SUM(cubiertos), COUNT(CASE WHEN cubiertos > 0 THEN 1 END) FROM recaudacion_diaria {filter_rec}", param_rec)
+    row_cub = cursor.fetchone()
+    total_cubiertos = row_cub[0] or 0
+    dias_con_cubiertos = row_cub[1] or 0
     
+    cubierto_promedio_diario = round(total_cubiertos / dias_con_cubiertos, 1) if dias_con_cubiertos > 0 else 0
+    ticket_promedio = round(ingreso_recaudacion / total_cubiertos, 2) if total_cubiertos > 0 else 0
+    
+    # Mejor día de cubiertos
+    cursor.execute(f"SELECT fecha, dia_nombre, cubiertos, total_diario FROM recaudacion_diaria {filter_rec} ORDER BY cubiertos DESC, total_diario DESC LIMIT 1", param_rec)
+    row_best_cub = cursor.fetchone()
+    mejor_dia_cubierto = dict(row_best_cub) if row_best_cub and row_best_cub['cubiertos'] > 0 else None
+
+    # Registros diarios para gráfico de tendencia
+    cursor.execute(f"SELECT fecha, dia_nombre, total_diario, cubiertos FROM recaudacion_diaria {filter_rec} ORDER BY fecha ASC", param_rec)
+    diario_list = [dict(r) for r in cursor.fetchall()]
+
     # EGRESOS
-    cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos WHERE mes = ?", (mes,))
+    cursor.execute(f"SELECT SUM(monto_mensual) FROM gastos_fijos {filter_gf}", param_gf)
     egreso_fijos = cursor.fetchone()[0] or 0
     
-    cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
+    cursor.execute(f"SELECT SUM(imp_total) FROM arca_compras_csv {filter_arca}", param_arca)
     egreso_arca = cursor.fetchone()[0] or 0
     
-    cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ? AND estado != 'Pagado'", (mes,))
+    if filter_arca:
+        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ? AND estado != 'Pagado'", (mes,))
+    else:
+        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE estado != 'Pagado'")
     pendiente_proveedores = cursor.fetchone()[0] or 0
     
-    cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos WHERE fecha LIKE ?", (f"{mes}%",))
+    cursor.execute(f"SELECT SUM(monto_retirado) FROM caja_chica_movimientos {filter_caja}", param_caja)
     egreso_caja = cursor.fetchone()[0] or 0
     
-    total_egresos = egreso_fijos + egreso_arca + egreso_caja
+    cursor.execute(f"SELECT SUM(monto) FROM retiros_recaudacion {filter_caja}", param_caja)
+    egreso_retiros = cursor.fetchone()[0] or 0
+    
+    total_egresos = egreso_fijos + egreso_arca + egreso_caja + egreso_retiros
     ganancia_neta = total_ingresos - total_egresos
+    margen_rentabilidad = round((ganancia_neta / total_ingresos * 100), 2) if total_ingresos > 0 else 0
     
     conn.close()
     return jsonify({
@@ -1193,18 +1301,30 @@ def api_dashboard_empresa():
         "ingresos": {
             "recaudacion": ingreso_recaudacion,
             "estacionamiento": ingreso_estacionamiento,
+            "estacionamiento_cash": estacionamiento_cash,
+            "estacionamiento_mp": estacionamiento_mp,
             "total": total_ingresos
         },
         "egresos": {
             "fijos": egreso_fijos,
             "proveedores": egreso_arca,
             "caja_chica": egreso_caja,
+            "retiros_recaudacion": egreso_retiros,
             "total": total_egresos
         },
         "pendientes": {
             "proveedores": pendiente_proveedores
         },
-        "ganancia_neta": ganancia_neta
+        "ganancia_neta": ganancia_neta,
+        "margen_rentabilidad": margen_rentabilidad,
+        "cubiertos": {
+            "total": total_cubiertos,
+            "dias_activos": dias_con_cubiertos,
+            "promedio_diario": cubierto_promedio_diario,
+            "ticket_promedio": ticket_promedio,
+            "mejor_dia": mejor_dia_cubierto
+        },
+        "diario": diario_list
     })
 
 
@@ -1223,6 +1343,9 @@ def api_dashboard_resumen():
         
         cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos WHERE fecha LIKE ?", (f"{mes}%",))
         gasto_caja = cursor.fetchone()[0] or 0
+        
+        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion WHERE fecha LIKE ?", (f"{mes}%",))
+        gasto_retiros = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria")
         tot_rec = cursor.fetchone()[0] or 0
@@ -1233,18 +1356,22 @@ def api_dashboard_resumen():
         cursor.execute("SELECT SUM(monto_retirado) FROM caja_chica_movimientos")
         gasto_caja = cursor.fetchone()[0] or 0
         
+        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion")
+        gasto_retiros = cursor.fetchone()[0] or 0
+        
     ganancia_bruta = tot_rec + tot_est
     
     cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos")
     gasto_fijo = cursor.fetchone()[0] or 0
     
-    ganancia_neta = ganancia_bruta - gasto_caja - gasto_fijo
+    ganancia_neta = ganancia_bruta - gasto_caja - gasto_fijo - gasto_retiros
     
     conn.close()
     return jsonify({
         "ganancia_bruta": ganancia_bruta,
         "gasto_caja": gasto_caja,
         "gasto_fijo": gasto_fijo,
+        "gasto_retiros": gasto_retiros,
         "ganancia_neta": ganancia_neta,
         "recaudacion_total": tot_rec,
         "estacionamiento_total": tot_est

@@ -231,6 +231,19 @@ def init_db(seed_samples=False):
     )
     ''')
 
+    # Tabla 12: Retiros Directos de Recaudación (Adelantos sueldos, pagos a proveedores no registrados, etc.)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS retiros_recaudacion (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha TEXT,
+        monto REAL DEFAULT 0,
+        medio_pago TEXT DEFAULT 'Efectivo',
+        motivo TEXT DEFAULT '',
+        responsable TEXT DEFAULT '',
+        comentario TEXT DEFAULT ''
+    )
+    ''')
+
     conn.commit()
     conn.close()
     if seed_samples:
