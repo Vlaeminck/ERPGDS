@@ -1526,6 +1526,10 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(data.message, "success");
             if (btnSyncArca) btnSyncArca.disabled = true;
             if (btnSyncArcaUpload) btnSyncArcaUpload.disabled = true;
+            const bCompras = document.getElementById('btn-sync-arca-compras');
+            if (bCompras) bCompras.disabled = true;
+            const bCP = document.getElementById('btn-sync-arca-cp');
+            if (bCP) bCP.disabled = true;
 
             if (arcaPollInterval) clearInterval(arcaPollInterval);
             arcaPollInterval = setInterval(pollArcaStatus, 2000);
@@ -1548,29 +1552,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 arcaSyncStatusMsg.textContent = status.message || status.step;
             }
 
-            if (arcaHeaderBadge && arcaHeaderStatusText) {
-                if (status.running) {
-                    arcaHeaderBadge.style.display = 'inline-flex';
-                    arcaHeaderBadge.style.background = 'rgba(155, 89, 182, 0.2)';
-                    arcaHeaderBadge.style.color = '#9b59b6';
-                    arcaHeaderBadge.style.borderColor = 'rgba(155, 89, 182, 0.4)';
-                    if (arcaHeaderIcon) arcaHeaderIcon.className = 'fa-solid fa-arrows-rotate fa-spin';
-                    arcaHeaderStatusText.textContent = status.message || status.step;
-                } else if (status.step === 'COMPLETED') {
-                    arcaHeaderBadge.style.display = 'inline-flex';
-                    arcaHeaderBadge.style.background = 'rgba(16, 185, 129, 0.2)';
-                    arcaHeaderBadge.style.color = '#34d399';
-                    arcaHeaderBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-                    if (arcaHeaderIcon) arcaHeaderIcon.className = 'fa-solid fa-circle-check';
-                    arcaHeaderStatusText.textContent = 'ARCA Sincronizado';
-                } else if (status.step === 'ERROR') {
-                    arcaHeaderBadge.style.display = 'inline-flex';
-                    arcaHeaderBadge.style.background = 'rgba(239, 68, 68, 0.2)';
-                    arcaHeaderBadge.style.color = '#f87171';
-                    arcaHeaderBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                    if (arcaHeaderIcon) arcaHeaderIcon.className = 'fa-solid fa-triangle-exclamation';
-                    arcaHeaderStatusText.textContent = 'Error en ARCA';
-                }
+            const allBadges = document.querySelectorAll('.arca-header-badge');
+            const allIcons = document.querySelectorAll('.arca-header-icon');
+            const allTexts = document.querySelectorAll('.arca-header-status-text');
+
+            if (status.running) {
+                allBadges.forEach(b => {
+                    b.style.display = 'inline-flex';
+                    b.style.background = 'rgba(155, 89, 182, 0.2)';
+                    b.style.color = '#9b59b6';
+                    b.style.borderColor = 'rgba(155, 89, 182, 0.4)';
+                });
+                allIcons.forEach(i => i.className = 'arca-header-icon fa-solid fa-arrows-rotate fa-spin');
+                allTexts.forEach(t => t.textContent = status.message || status.step);
+            } else if (status.step === 'COMPLETED') {
+                allBadges.forEach(b => {
+                    b.style.display = 'inline-flex';
+                    b.style.background = 'rgba(16, 185, 129, 0.2)';
+                    b.style.color = '#34d399';
+                    b.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                });
+                allIcons.forEach(i => i.className = 'arca-header-icon fa-solid fa-circle-check');
+                allTexts.forEach(t => t.textContent = 'ARCA Sincronizado');
+            } else if (status.step === 'ERROR') {
+                allBadges.forEach(b => {
+                    b.style.display = 'inline-flex';
+                    b.style.background = 'rgba(239, 68, 68, 0.2)';
+                    b.style.color = '#f87171';
+                    b.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                });
+                allIcons.forEach(i => i.className = 'arca-header-icon fa-solid fa-triangle-exclamation');
+                allTexts.forEach(t => t.textContent = 'Error en ARCA');
             }
 
             if (!status.running) {
@@ -1578,6 +1590,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 arcaPollInterval = null;
                 if (btnSyncArca) btnSyncArca.disabled = false;
                 if (btnSyncArcaUpload) btnSyncArcaUpload.disabled = false;
+                const bCompras = document.getElementById('btn-sync-arca-compras');
+                if (bCompras) bCompras.disabled = false;
+                const bCP = document.getElementById('btn-sync-arca-cp');
+                if (bCP) bCP.disabled = false;
 
                 if (status.step === 'COMPLETED') {
                     showToast(status.message, "success");
@@ -1591,8 +1607,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    const btnSyncArcaCompras = document.getElementById('btn-sync-arca-compras');
+    const btnSyncArcaCP = document.getElementById('btn-sync-arca-cp');
     if (btnSyncArca) btnSyncArca.addEventListener('click', () => startArcaSync(false));
     if (btnSyncArcaUpload) btnSyncArcaUpload.addEventListener('click', () => startArcaSync(false));
+    if (btnSyncArcaCompras) btnSyncArcaCompras.addEventListener('click', () => startArcaSync(false));
+    if (btnSyncArcaCP) btnSyncArcaCP.addEventListener('click', () => startArcaSync(false));
 
     window.addEventListener('click', (e) => {
         if (e.target == arcaCredsModal) {
@@ -1788,13 +1808,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (c.estado === 'Pagado') badgeClass = 'badge-paid';
                 if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
 
-                const actionBtn = c.estado !== 'Pagado' ?
-                    METODOS_PAGO.map((m, i) => `
-                    <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i === 0 ? '52,211,153' : i === 1 ? '96,165,250' : '168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
-                        onclick="registrarPagoProveedor(${c.id}, '${m.key}')" title="${m.label}">
-                        M${i + 1}
-                    </button>`).join('') :
-                    `<span style="color: #047857;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+                const actionBtn = c.estado !== 'Pagado' ? `
+                    <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                        onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
+                        <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                        <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
+                        <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
+                        <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
+                        <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
+                    </select>
+                ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
 
                 return `
                     <tr>
@@ -2441,9 +2464,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 5. Gastos Fijos & Ganancia Neta — Editable por mes
     const METODOS_PAGO = [
-        { key: 'Efectivo/Caja Chica', label: 'Método 1: Efectivo', color: '#34d399' },
-        { key: 'Banco/Transferencia', label: 'Método 2: Banco', color: '#60a5fa' },
-        { key: 'MercadoPago/Digital', label: 'Método 3: MercadoPago', color: '#a855f7' }
+        { key: 'Efectivo', label: 'Efectivo', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', border: 'rgba(16, 185, 129, 0.4)' },
+        { key: 'Galicia', label: 'Galicia', color: '#ea580c', bg: 'rgba(249, 115, 22, 0.15)', border: 'rgba(249, 115, 22, 0.4)' },
+        { key: 'Mercado Pago', label: 'Mercado Pago', color: '#2563eb', bg: 'rgba(59, 130, 246, 0.15)', border: 'rgba(59, 130, 246, 0.4)' },
+        { key: 'Tarjeta crédito', label: 'Tarjeta crédito', color: '#7c3aed', bg: 'rgba(139, 92, 246, 0.15)', border: 'rgba(139, 92, 246, 0.4)' }
     ];
 
     async function fetchGastosFijos() {
@@ -2728,13 +2752,38 @@ document.addEventListener('DOMContentLoaded', () => {
                    <br><small style="color: var(--text-secondary); font-size: 0.7rem;">${escapeHtml(c.metodo_pago || '')}</small>`
                 : `<span style="color: #f59e0b; font-size: 0.8rem;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
 
-            const metodoBtns = c.estado !== 'Pagado' ? METODOS_PAGO.map((m, i) => `
-                <button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(${i === 0 ? '52,211,153' : i === 1 ? '96,165,250' : '168,85,247'},0.15); color: ${m.color}; border: 1px solid ${m.color}40; border-radius: 6px; cursor:pointer; margin: 1px;"
-                    onclick="pagarArcaCompra(${c.id}, '${m.key}')">
-                    M${i + 1}
-                </button>`).join('')
-                : `<button class="btn btn-sm" style="font-size: 0.72rem; padding: 3px 8px; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid #f8717140; border-radius: 6px; cursor:pointer;"
-                    onclick="despagarArcaCompra(${c.id})"><i class="fa-solid fa-rotate-left"></i> Deshacer</button>`;
+            let metodoColContent = '';
+            if (c.estado !== 'Pagado') {
+                metodoColContent = `
+                    <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); width: 155px; display: inline-block;"
+                        onchange="if(this.value) pagarArcaCompra(${c.id}, this.value)">
+                        <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                        <option value="Efectivo" style="color: #10b981; font-weight: 700; background: #ecfdf5;">🟩 Efectivo</option>
+                        <option value="Galicia" style="color: #ea580c; font-weight: 700; background: #fff7ed;">🟧 Galicia</option>
+                        <option value="Mercado Pago" style="color: #2563eb; font-weight: 700; background: #eff6ff;">🟦 Mercado Pago</option>
+                        <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700; background: #faf5ff;">🟪 Tarjeta crédito</option>
+                    </select>
+                `;
+            } else {
+                let mObj = METODOS_PAGO.find(m => m.key.toLowerCase() === (c.metodo_pago || '').toLowerCase());
+                if (!mObj) {
+                    if (c.metodo_pago === 'Efectivo' || c.metodo_pago === 'M1' || c.metodo_pago === 'Efectivo/Caja Chica') mObj = METODOS_PAGO[0];
+                    else if (c.metodo_pago === 'Galicia') mObj = METODOS_PAGO[1];
+                    else if (c.metodo_pago === 'Mercado Pago' || c.metodo_pago === 'M2') mObj = METODOS_PAGO[2];
+                    else mObj = METODOS_PAGO[3];
+                }
+
+                metodoColContent = `
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <span class="badge" style="background: ${mObj.bg}; color: ${mObj.color}; border: 1px solid ${mObj.border}; font-weight: 700; font-size: 0.78rem; padding: 4px 10px; border-radius: 8px;">
+                            ${escapeHtml(mObj.label)}
+                        </span>
+                        <button class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 3px 7px;" onclick="despagarArcaCompra(${c.id})" title="Deshacer Pago">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                    </div>
+                `;
+            }
 
             const rowBg = c.estado === 'Pagado' ? 'background: rgba(52,211,153,0.04);' : (c.factura_recibida ? 'background: rgba(59,130,246,0.05);' : '');
 
@@ -2746,10 +2795,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}</td>
                     <td title="${denom}"><strong>${shortDenom}</strong></td>
                     <td style="text-align: right; color: #f59e0b;">${formatCurrency(c.total_iva)}</td>
-                    <td style="text-align: right; font-weight: 700; color: #f8fafc;">${formatCurrency(c.imp_total)}</td>
+                    <td style="text-align: right; font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">${formatCurrency(c.imp_total)}</td>
                     <td style="text-align: center;">${recibida}</td>
                     <td style="text-align: center;">${estadoBadge}</td>
-                    <td style="text-align: center; white-space: nowrap;">${metodoBtns}</td>
+                    <td style="text-align: center; white-space: nowrap;">${metodoColContent}</td>
                 </tr>
             `;
         }).join('');
@@ -2823,30 +2872,6 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchArcaCompras();
         } catch (e) { showToast('Error', 'error'); }
     };
-
-    // Botón Importar CSV ARCA manualmente
-    const btnSyncArcaCompras = document.getElementById('btn-sync-arca-compras');
-    if (btnSyncArcaCompras) {
-        btnSyncArcaCompras.addEventListener('click', async () => {
-            btnSyncArcaCompras.disabled = true;
-            btnSyncArcaCompras.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Importando...';
-            try {
-                const res = await fetch('/api/arca_compras/sync_from_csv', { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    showToast(data.message || 'Importación completada');
-                    fetchArcaCompras();
-                } else {
-                    showToast(data.message || 'Error al importar', 'error');
-                }
-            } catch (e) {
-                showToast('Error de red al importar', 'error');
-            } finally {
-                btnSyncArcaCompras.disabled = false;
-                btnSyncArcaCompras.innerHTML = '<i class="fa-solid fa-rotate"></i> Importar CSV ARCA';
-            }
-        });
-    }
 
 
     // ==========================================
