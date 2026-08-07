@@ -771,32 +771,46 @@ def api_recaudacion_retiros():
         motivo = data.get('motivo', '')
         responsable = data.get('responsable', '')
         comentario = data.get('comentario', '')
+        origen = data.get('origen', 'Recaudación')
         
         if item_id:
             cursor.execute('''
                 UPDATE retiros_recaudacion
-                SET fecha=?, monto=?, medio_pago=?, motivo=?, responsable=?, comentario=?
+                SET fecha=?, monto=?, medio_pago=?, motivo=?, responsable=?, comentario=?, origen=?
                 WHERE id=?
-            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, item_id))
+            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, origen, item_id))
         else:
             cursor.execute('''
-                INSERT INTO retiros_recaudacion (fecha, monto, medio_pago, motivo, responsable, comentario)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (fecha, monto, medio_pago, motivo, responsable, comentario))
+                INSERT INTO retiros_recaudacion (fecha, monto, medio_pago, motivo, responsable, comentario, origen)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, origen))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
         
     mes = request.args.get('mes')
+    origen = request.args.get('origen')
+    
+    where_clauses = []
+    params = []
+    
     if mes and mes != 'all':
-        cursor.execute("SELECT * FROM retiros_recaudacion WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC", (f"{mes}%",))
-        rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion WHERE fecha LIKE ?", (f"{mes}%",))
-    else:
-        cursor.execute("SELECT * FROM retiros_recaudacion ORDER BY fecha DESC, id DESC")
-        rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion")
+        where_clauses.append("fecha LIKE ?")
+        params.append(f"{mes}%")
         
+    if origen:
+        if origen == 'Recaudación':
+            where_clauses.append("(origen = 'Recaudación' OR origen IS NULL OR origen = '')")
+        else:
+            where_clauses.append("origen = ?")
+            params.append(origen)
+            
+    where_str = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    
+    cursor.execute(f"SELECT * FROM retiros_recaudacion{where_str} ORDER BY fecha DESC, id DESC", params)
+    rows = [dict(r) for r in cursor.fetchall()]
+    
+    cursor.execute(f"SELECT SUM(monto) FROM retiros_recaudacion{where_str}", params)
     total_monto = cursor.fetchone()[0] or 0
     conn.close()
     return jsonify({
@@ -864,7 +878,16 @@ def api_estacionamiento():
     
     # Gastos fijos propios del estacionamiento
     cursor.execute("SELECT SUM(monto) FROM estacionamiento_gastos")
-    gasto_operativo = cursor.fetchone()[0] or 0
+    gasto_fijo_est = cursor.fetchone()[0] or 0
+    
+    # Retiros de estacionamiento
+    if mes and mes != 'all':
+        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion WHERE origen = 'Estacionamiento' AND fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion WHERE origen = 'Estacionamiento'")
+    gasto_retiros_est = cursor.fetchone()[0] or 0
+    
+    gasto_operativo = gasto_fijo_est + gasto_retiros_est
     ganancia_neta_estacionamiento = tot_total - gasto_operativo
     
     conn.close()
@@ -876,6 +899,8 @@ def api_estacionamiento():
             "total_ganancia": tot_total,
             "total_diferencia": tot_diff,
             "gasto_operativo": gasto_operativo,
+            "gasto_fijo": gasto_fijo_est,
+            "gasto_retiros": gasto_retiros_est,
             "ganancia_neta": ganancia_neta_estacionamiento
         }
     })
@@ -1427,10 +1452,16 @@ def _import_arca_csv_to_db(csv_folder):
     """Parsea CSVs de Compras de ARCA en la carpeta y los guarda en arca_compras_csv."""
     import csv as csv_mod
     import io
+    import datetime
     conn = db_manager.get_connection()
     cursor = conn.cursor()
     total_nuevos = 0
-    
+
+    cursor.execute("SELECT mes, MAX(fecha_emision) FROM arca_compras_csv GROUP BY mes")
+    max_fechas_pre = { r[0]: r[1] for r in cursor.fetchall() if r[0] and r[1] }
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     csv_files = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
     for fp in csv_files:
         encodings = ['utf-8-sig', 'latin-1', 'cp1252', 'utf-8']
@@ -1467,7 +1498,8 @@ def _import_arca_csv_to_db(csv_folder):
         idx_total = find_col(['Imp. Total', 'Importe Total', 'Total'])
         idx_cae = find_col(['Cód. Autorización', 'Cod Autorizacion', 'CAE'])
         idx_comp = find_col(['Número Desde', 'Numero Desde', 'Nro. Comprobante', 'Nro Comprobante'])
-        
+        idx_tipo = find_col(['Tipo de Comprobante', 'Tipo Comprobante', 'Tipo'])
+
         for row in rows[1:]:
             def get_val(idx, default=''):
                 if idx < 0 or idx >= len(row):
@@ -1482,7 +1514,7 @@ def _import_arca_csv_to_db(csv_folder):
             mes = ''
             for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
                 try:
-                    d = __import__('datetime').datetime.strptime(fecha_em, fmt)
+                    d = datetime.datetime.strptime(fecha_em, fmt)
                     mes = d.strftime('%Y-%m')
                     fecha_em = d.strftime('%Y-%m-%d')
                     break
@@ -1494,6 +1526,7 @@ def _import_arca_csv_to_db(csv_folder):
             nombre = get_val(idx_nombre)
             cae = get_val(idx_cae)
             comp = get_val(idx_comp)
+            tipo_comp = get_val(idx_tipo)
             
             try:
                 iva = float(get_val(idx_iva, '0').replace(',', '.') or 0)
@@ -1512,10 +1545,18 @@ def _import_arca_csv_to_db(csv_folder):
             if cursor.fetchone()[0] > 0:
                 continue
             
+            # Evaluar si es retroactiva (ingresada días para atrás respecto a facturas ya registradas)
+            es_retro = 0
+            if mes in max_fechas_pre and max_fechas_pre[mes]:
+                if fecha_em < max_fechas_pre[mes]:
+                    es_retro = 1
+            elif fecha_em < today_str:
+                es_retro = 1
+
             cursor.execute('''
-                INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (fecha_em, pv, nro, nombre, iva, total, mes, cae, comp))
+                INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante, tipo_comprobante, es_retroactiva, fecha_importacion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (fecha_em, pv, nro, nombre, iva, total, mes, cae, comp, tipo_comp, es_retro, now_str))
             total_nuevos += 1
     
     conn.commit()
@@ -1542,11 +1583,21 @@ def api_arca_compras():
     tot_imp = tot_imp or 0
     tot_iva = tot_iva or 0
     
-    # Contar pendientes y pagados
-    pendientes = sum(1 for r in rows if r['estado'] == 'Pendiente')
-    pagados_count = sum(1 for r in rows if r['estado'] == 'Pagado')
-    pagados_total = sum(r['imp_total'] for r in rows if r['estado'] == 'Pagado')
-    
+    AFIP_NC_CODES = {'3', '8', '13', '15', '53', '03', '08', '003', '008', '013', '053'}
+    def _is_nc(tipo):
+        t = str(tipo or '').strip().lower()
+        return t in AFIP_NC_CODES or ('nota' in t and ('cr' in t or 'credito' in t)) or t == 'nc'
+
+    for r in rows:
+        r['is_nc'] = _is_nc(r.get('tipo_comprobante'))
+
+    # Contar pendientes, pagados, retroactivas y notas de crédito
+    pendientes = sum(1 for r in rows if r.get('estado') == 'Pendiente')
+    pagados_count = sum(1 for r in rows if r.get('estado') == 'Pagado')
+    pagados_total = sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado')
+    retroactivas_count = sum(1 for r in rows if r.get('es_retroactiva') == 1)
+    nc_count = sum(1 for r in rows if r.get('is_nc'))
+
     conn.close()
     return jsonify({
         "compras": rows,
@@ -1556,7 +1607,9 @@ def api_arca_compras():
             "total_iva": tot_iva,
             "pendientes": pendientes,
             "pagados": pagados_count,
-            "pagados_total": pagados_total
+            "pagados_total": pagados_total,
+            "retroactivas": retroactivas_count,
+            "notas_credito": nc_count
         }
     })
 

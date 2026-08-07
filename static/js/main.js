@@ -1598,6 +1598,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (status.step === 'COMPLETED') {
                     showToast(status.message, "success");
                     fetchSuppliers();
+                    fetchArcaCompras();
+                    fetchCuentasPorPagar();
+                    fetchAvailableMonths();
+                    if (typeof currentActiveTab !== 'undefined' && currentActiveTab === 'empresa') {
+                        fetchDashboardEmpresa();
+                    }
                 } else if (status.step === 'ERROR') {
                     showToast(status.message || status.last_error, "error");
                 }
@@ -1885,6 +1891,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (document.getElementById('rec-stat-banco')) document.getElementById('rec-stat-banco').textContent = formatCurrency(totBanco);
             if (document.getElementById('rec-stat-alivios')) document.getElementById('rec-stat-alivios').textContent = formatCurrency(totAlivios);
 
+            const totDiff = data.reduce((s, r) => s + (r.diferencia_total || 0), 0);
+            const diffElem = document.getElementById('rec-stat-diff');
+            if (diffElem) {
+                diffElem.textContent = formatCurrency(totDiff);
+                diffElem.style.color = totDiff < 0 ? '#ef4444' : (totDiff > 0 ? '#10b981' : 'var(--text-primary)');
+            }
+
             tbody.innerHTML = data.map((r, idx) => {
                 let lotesText = '';
                 if (r.lotes_json) {
@@ -1987,13 +2000,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const tbody = document.getElementById('tbl-estacionamiento-body');
-            const todayStr = new Date().toISOString().split('T')[0];
+            const yesterdayObj = new Date();
+            yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+            const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
             const daysMap = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-            const dayNameStr = daysMap[new Date().getDay()];
+            const dayNameStr = daysMap[yesterdayObj.getDay()];
 
             let inlineRowHtml = `
                 <tr class="tr-inline-add" id="row-inline-add-est">
-                    <td><input type="date" class="form-input-inline" id="est-in-fecha" value="${todayStr}"></td>
+                    <td><input type="date" class="form-input-inline" id="est-in-fecha" value="${yesterdayStr}"></td>
                     <td><input type="text" class="form-input-inline" id="est-in-dia" value="${dayNameStr}" style="width: 100px;"></td>
                     <td><input type="number" class="form-input-inline" id="est-in-tc" placeholder="0"></td>
                     <td><input type="number" class="form-input-inline" id="est-in-cash" placeholder="0"></td>
@@ -2032,6 +2047,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             tbody.innerHTML = recordsHtml + inlineRowHtml;
+            setTimeout(() => setupEnterKeyNavigation('#row-inline-add-est'), 50);
 
             // Event listeners para cálculo en línea
             ['est-in-tc', 'est-in-cash', 'est-in-mp'].forEach(id => {
@@ -2082,8 +2098,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } }
             });
 
-            // Cargar gastos fijos independientes del Estacionamiento
+            // Cargar gastos fijos y retiros independientes del Estacionamiento
             fetchEstacionamientoGastos();
+            fetchRetirosEstacionamiento();
         } catch (e) {
             console.error("Error cargando estacionamiento:", e);
         }
@@ -2317,6 +2334,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const total = b20k + b10k + b2k + b1k + b500 + b200 + b100 + b50 + b20;
         if (document.getElementById('arqueo-total-contado')) document.getElementById('arqueo-total-contado').textContent = formatCurrency(total);
+
+        // Destacar recuadros con monto mayor a 0 en verde
+        const denominaciones = ['20000', '10000', '2000', '1000', '500', '200', '100', '50', '20'];
+        denominaciones.forEach(den => {
+            const input = document.getElementById('b-' + den);
+            if (input) {
+                const card = input.closest('.billete-card-mini');
+                const cnt = parseInt(input.value || 0);
+                if (card) {
+                    if (!isNaN(cnt) && cnt > 0) {
+                        card.classList.add('has-value');
+                    } else {
+                        card.classList.remove('has-value');
+                    }
+                }
+            }
+        });
+
+        // Calcular diferencia (rec-stat-diff = total contado - esperado)
+        const totalEsperado = parseFloat(document.getElementById('arqueo-esperado-hidden')?.value || 0);
+        const diff = total - totalEsperado;
+        const diffEl = document.getElementById('rec-stat-diff');
+        if (diffEl) {
+            diffEl.textContent = (diff >= 0 ? '+' : '') + formatCurrency(diff);
+            diffEl.style.color = diff === 0 ? 'var(--text-primary)' : (diff > 0 ? '#10b981' : '#ef4444');
+        }
     }
 
     // Navegación por tecla Enter entre recuadros de denominación (20000 -> 10000 -> 2000 ...)
@@ -2325,7 +2368,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = document.getElementById(id);
         if (!input) return;
 
-        input.addEventListener('input', calculateArqueo);
+        input.addEventListener('input', () => {
+            input.value = input.value.replace(/[^0-9]/g, '');
+            calculateArqueo();
+        });
 
         // Selección automática del valor al enfocar para sobreescribir rápido
         input.addEventListener('focus', () => {
@@ -2355,31 +2401,27 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/caja_chica/arqueo');
             const data = await res.json();
             if (data.id) {
-                if (document.getElementById('b-20000')) document.getElementById('b-20000').value = data.b_20000 || 0;
-                if (document.getElementById('b-10000')) document.getElementById('b-10000').value = data.b_10000 || 0;
-                if (document.getElementById('b-2000')) document.getElementById('b-2000').value = data.b_2000 || 0;
-                if (document.getElementById('b-1000')) document.getElementById('b-1000').value = data.b_1000 || 0;
-                if (document.getElementById('b-500')) document.getElementById('b-500').value = data.b_500 || 0;
-                if (document.getElementById('b-200')) document.getElementById('b-200').value = data.b_200 || 0;
-                if (document.getElementById('b-100')) document.getElementById('b-100').value = data.b_100 || 0;
-                if (document.getElementById('b-50')) document.getElementById('b-50').value = data.b_50 || 0;
-                if (document.getElementById('b-20')) document.getElementById('b-20').value = data.b_20 || 0;
+                if (document.getElementById('b-20000')) document.getElementById('b-20000').value = data.b_20000 || '';
+                if (document.getElementById('b-10000')) document.getElementById('b-10000').value = data.b_10000 || '';
+                if (document.getElementById('b-2000')) document.getElementById('b-2000').value = data.b_2000 || '';
+                if (document.getElementById('b-1000')) document.getElementById('b-1000').value = data.b_1000 || '';
+                if (document.getElementById('b-500')) document.getElementById('b-500').value = data.b_500 || '';
+                if (document.getElementById('b-200')) document.getElementById('b-200').value = data.b_200 || '';
+                if (document.getElementById('b-100')) document.getElementById('b-100').value = data.b_100 || '';
+                if (document.getElementById('b-50')) document.getElementById('b-50').value = data.b_50 || '';
+                if (document.getElementById('b-20')) document.getElementById('b-20').value = data.b_20 || '';
                 calculateArqueo();
             }
         } catch (e) { }
     }
 
     window.limpiarBilletes = function () {
-        if (!confirm("¿Deseas limpiar todos los campos del arqueo?")) return;
         const denominaciones = ['20000', '10000', '2000', '1000', '500', '200', '100', '50', '20'];
         denominaciones.forEach(den => {
             const input = document.getElementById('b-' + den);
             if (input) input.value = '';
         });
         calculateArqueo();
-
-        // Opcional: limpiar también en la base de datos si así lo desean,
-        // pero por ahora solo borraremos los campos visualmente.
     };
 
     const btnNuevoMovCaja = document.getElementById('btn-nuevo-movimiento-caja');
@@ -2700,15 +2742,41 @@ document.addEventListener('DOMContentLoaded', () => {
             const el_pend = document.getElementById('arca-count-pendientes');
             const el_pag = document.getElementById('arca-count-pagados');
             const el_tot = document.getElementById('arca-total-importe');
-            if (el_pend) el_pend.textContent = data.resumen.pendientes;
-            if (el_pag) el_pag.innerHTML = `${data.resumen.pagados} (<span style="color:var(--text-secondary); font-size:0.85em;">${formatCurrency(data.resumen.pagados_total || 0)}</span>)`;
-            if (el_tot) el_tot.textContent = formatCurrency(data.resumen.total_importe);
+            const el_retro_cnt = document.getElementById('arca-count-retroactivas');
+            const el_retro_badge = document.getElementById('arca-badge-retro');
+            const el_nc_cnt = document.getElementById('arca-count-nc');
+            const el_nc_badge = document.getElementById('arca-badge-nc');
+
+            if (el_pend) el_pend.textContent = data.resumen.pendientes || 0;
+            if (el_pag) el_pag.innerHTML = `${data.resumen.pagados || 0} (<span style="color:var(--text-secondary); font-size:0.85em;">${formatCurrency(data.resumen.pagados_total || 0)}</span>)`;
+            if (el_tot) el_tot.textContent = formatCurrency(data.resumen.total_importe || 0);
+
+            if (el_retro_cnt && el_retro_badge) {
+                const retroCnt = data.resumen.retroactivas || 0;
+                el_retro_cnt.textContent = retroCnt;
+                el_retro_badge.style.display = retroCnt > 0 ? 'inline-flex' : 'none';
+            }
+
+            if (el_nc_cnt && el_nc_badge) {
+                const ncCnt = data.resumen.notas_credito || 0;
+                el_nc_cnt.textContent = ncCnt;
+                el_nc_badge.style.display = ncCnt > 0 ? 'inline-flex' : 'none';
+            }
 
             arcaData = data.compras || [];
             renderArcaCompras();
         } catch (e) {
             console.error("Error cargando compras ARCA:", e);
         }
+    }
+
+    const AFIP_NC_CODES = ['3', '8', '13', '15', '53', '03', '08', '003', '008', '013', '053'];
+
+    function checkIsNC(c) {
+        if (!c) return false;
+        if (c.is_nc) return true;
+        const t = String(c.tipo_comprobante || '').trim().toLowerCase();
+        return AFIP_NC_CODES.includes(t) || (t.includes('nota') && (t.includes('cr') || t.includes('credito'))) || t === 'nc';
     }
 
     window.renderArcaCompras = function () {
@@ -2722,6 +2790,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (filterVal === 'no_recibida') filtered = filtered.filter(c => !c.factura_recibida);
         if (filterVal === 'pendiente') filtered = filtered.filter(c => c.estado !== 'Pagado');
         if (filterVal === 'pagado') filtered = filtered.filter(c => c.estado === 'Pagado');
+        if (filterVal === 'nc') filtered = filtered.filter(c => checkIsNC(c));
+        if (filterVal === 'retroactiva') filtered = filtered.filter(c => c.es_retroactiva == 1);
 
         if (arcaSortKey) {
             filtered.sort((a, b) => {
@@ -2785,17 +2855,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             }
 
-            const rowBg = c.estado === 'Pagado' ? 'background: rgba(52,211,153,0.04);' : (c.factura_recibida ? 'background: rgba(59,130,246,0.05);' : '');
+            const esNC = checkIsNC(c);
+            const esRetro = c.es_retroactiva == 1;
+
+            const ncTag = esNC ? ` <span class="badge" style="background: rgba(239, 68, 68, 0.18); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px;" title="${escapeHtml(c.tipo_comprobante || 'Nota de Crédito')}"><i class="fa-solid fa-file-invoice-dollar"></i> NC</span>` : '';
+            const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px;" title="Ingresada días para atrás respecto a la carga previa"><i class="fa-solid fa-clock-rotate-left"></i> Retroactiva</span>` : '';
+
+            const rowBg = esNC 
+                ? 'background: rgba(239, 68, 68, 0.06);' 
+                : (c.estado === 'Pagado' ? 'background: rgba(52,211,153,0.04);' : (c.factura_recibida ? 'background: rgba(59,130,246,0.05);' : ''));
+
+            const amountStyle = esNC 
+                ? 'text-align: right; font-size: 0.88rem; font-weight: 700; color: #ef4444;' 
+                : 'text-align: right; font-size: 0.88rem; font-weight: 700; color: var(--text-primary);';
 
             const denom = escapeHtml(c.denominacion_emisor || '-');
             const shortDenom = denom.length > 35 ? denom.substring(0, 35) + '...' : denom;
 
             return `
                 <tr style="${rowBg}">
-                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}</td>
-                    <td title="${denom}"><strong>${shortDenom}</strong></td>
-                    <td style="text-align: right; color: #f59e0b;">${formatCurrency(c.total_iva)}</td>
-                    <td style="text-align: right; font-size: 0.88rem; font-weight: 700; color: var(--text-primary);">${formatCurrency(c.imp_total)}</td>
+                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
+                    <td title="${denom}"><strong>${shortDenom}</strong>${ncTag}</td>
+                    <td style="text-align: right; color: ${esNC ? '#ef4444' : '#f59e0b'};">${formatCurrency(c.total_iva)}</td>
+                    <td style="${amountStyle}">${formatCurrency(c.imp_total)}</td>
                     <td style="text-align: center;">${recibida}</td>
                     <td style="text-align: center;">${estadoBadge}</td>
                     <td style="text-align: center; white-space: nowrap;">${metodoColContent}</td>
@@ -2986,31 +3068,33 @@ document.addEventListener('DOMContentLoaded', () => {
     function openModalRecaudacion(record = null) {
         if (!modalRecaudacion) return;
 
-        const todayStr = new Date().toISOString().split('T')[0];
+        const yesterdayObj = new Date();
+        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+        const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
 
-        document.getElementById('rec-modal-fecha').value = record ? record.fecha : todayStr;
+        document.getElementById('rec-modal-fecha').value = record ? record.fecha : yesterdayStr;
         updateModalRecDiaAuto();
         if (record && record.dia_nombre) {
             document.getElementById('rec-modal-dia').value = record.dia_nombre;
         }
 
-        document.getElementById('rec-modal-cubiertos').value = record ? record.cubiertos || 0 : '';
+        document.getElementById('rec-modal-cubiertos').value = record ? (record.cubiertos || '') : '';
         const inputFeriado = document.getElementById('rec-modal-feriado');
         if (inputFeriado) {
             inputFeriado.checked = record ? (record.es_feriado == 1) : false;
         }
 
-        document.getElementById('rec-modal-mp-real').value = record ? record.mp_real || 0 : '';
-        document.getElementById('rec-modal-nave-real').value = record ? record.nave_real || 0 : '';
-        document.getElementById('rec-modal-py-real').value = record ? record.py_real || 0 : '';
-        document.getElementById('rec-modal-banco-real').value = record ? record.banco_real || 0 : '';
-        document.getElementById('rec-modal-efec-real').value = record ? record.efectivo_real || 0 : '';
+        document.getElementById('rec-modal-mp-real').value = record ? (record.mp_real || '') : '';
+        document.getElementById('rec-modal-nave-real').value = record ? (record.nave_real || '') : '';
+        document.getElementById('rec-modal-py-real').value = record ? (record.py_real || '') : '';
+        document.getElementById('rec-modal-banco-real').value = record ? (record.banco_real || '') : '';
+        document.getElementById('rec-modal-efec-real').value = record ? (record.efectivo_real || '') : '';
 
-        document.getElementById('rec-modal-mp-maxi').value = record ? record.mp_maxi || 0 : '';
-        document.getElementById('rec-modal-nave-maxi').value = record ? record.nave_maxi || 0 : '';
-        document.getElementById('rec-modal-py-maxi').value = record ? record.py_maxi || 0 : '';
-        document.getElementById('rec-modal-banco-maxi').value = record ? record.banco_maxi || 0 : '';
-        document.getElementById('rec-modal-efec-maxi').value = record ? record.efectivo_maxi || 0 : '';
+        document.getElementById('rec-modal-mp-maxi').value = record ? (record.mp_maxi || '') : '';
+        document.getElementById('rec-modal-nave-maxi').value = record ? (record.nave_maxi || '') : '';
+        document.getElementById('rec-modal-py-maxi').value = record ? (record.py_maxi || '') : '';
+        document.getElementById('rec-modal-banco-maxi').value = record ? (record.banco_maxi || '') : '';
+        document.getElementById('rec-modal-efec-maxi').value = record ? (record.efectivo_maxi || '') : '';
 
         document.getElementById('rec-modal-comentario').value = record ? record.comentario || '' : '';
 
@@ -3047,8 +3131,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            const cubiertosRaw = document.getElementById('rec-modal-cubiertos')?.value;
+            const cubiertos = parseInt(cubiertosRaw || 0, 10);
+            if (!cubiertosRaw || isNaN(cubiertos) || cubiertos <= 0) {
+                showToast("Debe ingresar la cantidad de cubiertos (CUB) obligatoriamente", "error");
+                document.getElementById('rec-modal-cubiertos')?.focus();
+                return;
+            }
+
             const diaNombre = document.getElementById('rec-modal-dia')?.value || '';
-            const cubiertos = parseInt(document.getElementById('rec-modal-cubiertos')?.value || 0);
             const esFeriado = document.getElementById('rec-modal-feriado')?.checked ? 1 : 0;
 
             const mpReal = parseFloat(document.getElementById('rec-modal-mp-real')?.value || 0);
@@ -3479,10 +3570,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Retiros Directos de Recaudación ---
+    // --- Retiros Directos de Recaudación y Estacionamiento ---
     async function fetchRetirosRecaudacion() {
         try {
-            const url = '/api/recaudacion/retiros' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const monthQuery = currentSelectedMonth ? '&mes=' + currentSelectedMonth : '';
+            const url = '/api/recaudacion/retiros?origen=Recaudación' + monthQuery;
             const res = await fetch(url);
             const data = await res.json();
 
@@ -3511,7 +3603,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td>${escapeHtml(r.responsable || '-')}</td>
                         <td>${escapeHtml(r.comentario || '-')}</td>
                         <td style="display: flex; gap: 4px;">
-                            <button class="btn btn-secondary btn-sm" onclick="editarRetiroRecaudacion(${r.id}, '${escapeHtml(r.fecha)}', ${r.monto}, '${escapeHtml(r.medio_pago || 'Efectivo')}', '${escapeHtml(r.motivo || '').replace(/'/g, "\\'")}', '${escapeHtml(r.responsable || '').replace(/'/g, "\\'")}', '${escapeHtml(r.comentario || '').replace(/'/g, "\\\'")}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                            <button class="btn btn-secondary btn-sm" onclick="editarRetiroRecaudacion(${r.id}, '${escapeHtml(r.fecha)}', ${r.monto}, '${escapeHtml(r.medio_pago || 'Efectivo')}', '${escapeHtml(r.motivo || '').replace(/'/g, "\\'")}', '${escapeHtml(r.responsable || '').replace(/'/g, "\\'")}', '${escapeHtml(r.comentario || '').replace(/'/g, "\\\'")}', 'Recaudación')" title="Editar"><i class="fa-solid fa-pen"></i></button>
                             <button class="btn btn-secondary btn-sm" onclick="eliminarRetiroRecaudacion(${r.id})" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
                         </td>
                     </tr>
@@ -3522,20 +3614,117 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function fetchRetirosEstacionamiento() {
+        try {
+            const monthQuery = currentSelectedMonth ? '&mes=' + currentSelectedMonth : '';
+            const url = '/api/recaudacion/retiros?origen=Estacionamiento' + monthQuery;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            const tbody = document.getElementById('tbl-retiros-estacionamiento-body');
+            if (!tbody) return;
+
+            if (!data.retiros || data.retiros.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">No hay retiros de estacionamiento registrados en este período</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.retiros.map(r => {
+                let badgeColor = '#ef4444';
+                if (r.medio_pago === 'MercadoPago') badgeColor = '#3b82f6';
+                if (r.medio_pago === 'Banco') badgeColor = '#f59e0b';
+
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(r.fecha)}</strong></td>
+                        <td><strong style="color: #ef4444;">${formatCurrency(r.monto)}</strong></td>
+                        <td><span class="badge" style="background: ${badgeColor}20; color: ${badgeColor}; border: 1px solid ${badgeColor}40; font-weight:700;">${escapeHtml(r.medio_pago || 'Efectivo')}</span></td>
+                        <td><strong>${escapeHtml(r.motivo || '-')}</strong></td>
+                        <td>${escapeHtml(r.responsable || '-')}</td>
+                        <td>${escapeHtml(r.comentario || '-')}</td>
+                        <td style="display: flex; gap: 4px;">
+                            <button class="btn btn-secondary btn-sm" onclick="editarRetiroRecaudacion(${r.id}, '${escapeHtml(r.fecha)}', ${r.monto}, '${escapeHtml(r.medio_pago || 'Efectivo')}', '${escapeHtml(r.motivo || '').replace(/'/g, "\\'")}', '${escapeHtml(r.responsable || '').replace(/'/g, "\\'")}', '${escapeHtml(r.comentario || '').replace(/'/g, "\\\'")}', 'Estacionamiento')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                            <button class="btn btn-secondary btn-sm" onclick="eliminarRetiroRecaudacion(${r.id})" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error("Error cargando retiros de estacionamiento:", e);
+        }
+    }
+
+    function updateModalRetiroMedios(origenVal, currentMedio = 'Efectivo') {
+        const medioSelect = document.getElementById('modal-retiro-medio');
+        if (!medioSelect) return;
+
+        if (origenVal === 'Estacionamiento') {
+            medioSelect.innerHTML = `
+                <option value="Efectivo">Efectivo (Caja Estacionamiento)</option>
+                <option value="MercadoPago">MercadoPago (Estacionamiento)</option>
+            `;
+        } else {
+            medioSelect.innerHTML = `
+                <option value="Efectivo">Efectivo (Caja / Alivio Recaudado)</option>
+                <option value="MercadoPago">MercadoPago</option>
+                <option value="Banco">Banco / Transferencia</option>
+            `;
+        }
+
+        if (currentMedio && Array.from(medioSelect.options).some(o => o.value === currentMedio)) {
+            medioSelect.value = currentMedio;
+        } else {
+            medioSelect.selectedIndex = 0;
+        }
+    }
+
     const modalRetiro = document.getElementById('modal-retiro-recaudacion');
     const btnNuevoRetiroRec = document.getElementById('btn-nuevo-retiro-rec');
+    const btnNuevoRetiroEst = document.getElementById('btn-nuevo-retiro-est');
     const btnCloseModalRetiro = document.getElementById('btn-close-modal-retiro');
     const btnCancelModalRetiro = document.getElementById('btn-cancel-modal-retiro');
     const btnSaveModalRetiro = document.getElementById('btn-save-modal-retiro');
+    const modalOrigenSelect = document.getElementById('modal-retiro-origen');
 
-    window.abrirModalRetiro = function (id = null, fecha = '', monto = '', medio = 'Efectivo', motivo = '', responsable = '', comentario = '') {
+    if (modalOrigenSelect) {
+        modalOrigenSelect.addEventListener('change', (e) => {
+            const newOrigen = e.target.value;
+            const currentMedio = document.getElementById('modal-retiro-medio')?.value;
+            updateModalRetiroMedios(newOrigen, currentMedio);
+
+            const titleEl = document.getElementById('modal-retiro-title');
+            const id = document.getElementById('modal-retiro-id')?.value;
+            if (titleEl) {
+                titleEl.innerHTML = id ?
+                    `<i class="fa-solid fa-pen-to-square" style="color: #ef4444;"></i> Editar Retiro (${escapeHtml(newOrigen)})` :
+                    `<i class="fa-solid fa-hand-holding-dollar" style="color: #ef4444;"></i> Registrar Retiro (${escapeHtml(newOrigen)})`;
+            }
+        });
+    }
+
+    window.abrirModalRetiro = function (targetOrigen = 'Recaudación', id = null, fecha = '', monto = '', medio = 'Efectivo', motivo = '', responsable = '', comentario = '') {
         if (!modalRetiro) return;
 
-        const todayStr = new Date().toISOString().split('T')[0];
+        let origenVal = targetOrigen;
+        if (typeof targetOrigen === 'number' || (typeof targetOrigen === 'string' && !isNaN(targetOrigen))) {
+            id = targetOrigen;
+            origenVal = 'Recaudación';
+        }
+        if (origenVal !== 'Recaudación' && origenVal !== 'Estacionamiento') {
+            origenVal = 'Recaudación';
+        }
+
+        const yesterdayObj = new Date();
+        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+        const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
+
+        if (modalOrigenSelect) modalOrigenSelect.value = origenVal;
+
+        updateModalRetiroMedios(origenVal, medio || 'Efectivo');
+
         document.getElementById('modal-retiro-id').value = id || '';
-        document.getElementById('modal-retiro-fecha').value = fecha || todayStr;
+        document.getElementById('modal-retiro-fecha').value = fecha || yesterdayStr;
         document.getElementById('modal-retiro-monto').value = monto || '';
-        document.getElementById('modal-retiro-medio').value = medio || 'Efectivo';
         document.getElementById('modal-retiro-motivo').value = motivo || '';
         document.getElementById('modal-retiro-responsable').value = responsable || '';
         document.getElementById('modal-retiro-comentario').value = comentario || '';
@@ -3543,8 +3732,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const titleEl = document.getElementById('modal-retiro-title');
         if (titleEl) {
             titleEl.innerHTML = id ?
-                '<i class="fa-solid fa-pen-to-square" style="color: #ef4444;"></i> Editar Retiro de Recaudación' :
-                '<i class="fa-solid fa-hand-holding-dollar" style="color: #ef4444;"></i> Registrar Retiro de Recaudación';
+                `<i class="fa-solid fa-pen-to-square" style="color: #ef4444;"></i> Editar Retiro (${escapeHtml(origenVal)})` :
+                `<i class="fa-solid fa-hand-holding-dollar" style="color: #ef4444;"></i> Registrar Retiro (${escapeHtml(origenVal)})`;
         }
 
         modalRetiro.style.display = 'flex';
@@ -3557,13 +3746,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modalRetiro) modalRetiro.style.display = 'none';
     }
 
-    if (btnNuevoRetiroRec) btnNuevoRetiroRec.addEventListener('click', () => abrirModalRetiro());
+    if (btnNuevoRetiroRec) btnNuevoRetiroRec.addEventListener('click', () => abrirModalRetiro('Recaudación'));
+    if (btnNuevoRetiroEst) btnNuevoRetiroEst.addEventListener('click', () => abrirModalRetiro('Estacionamiento'));
     if (btnCloseModalRetiro) btnCloseModalRetiro.addEventListener('click', closeModalRetiro);
     if (btnCancelModalRetiro) btnCancelModalRetiro.addEventListener('click', closeModalRetiro);
 
     if (btnSaveModalRetiro) {
         btnSaveModalRetiro.addEventListener('click', async () => {
             const id = document.getElementById('modal-retiro-id').value;
+            const origen = document.getElementById('modal-retiro-origen')?.value || 'Recaudación';
             const fecha = document.getElementById('modal-retiro-fecha').value;
             const montoStr = document.getElementById('modal-retiro-monto').value;
             const monto = parseFloat(montoStr) || 0;
@@ -3576,6 +3767,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isNaN(monto) || monto <= 0) return showToast("Ingresa un monto válido", "error");
 
             const payload = {
+                origen,
                 fecha,
                 monto,
                 medio_pago,
@@ -3593,9 +3785,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    showToast(id ? "Retiro de recaudación actualizado" : "Retiro de recaudación registrado");
+                    showToast(id ? "Retiro actualizado" : "Retiro registrado correctamente");
                     closeModalRetiro();
                     fetchRecaudacion();
+                    fetchEstacionamiento();
                 } else {
                     showToast(data.error || "Error al guardar retiro", "error");
                 }
@@ -3605,17 +3798,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    window.editarRetiroRecaudacion = function (id, fecha, monto, medio, motivo, responsable, comentario) {
-        abrirModalRetiro(id, fecha, monto, medio, motivo, responsable, comentario);
+    window.editarRetiroRecaudacion = function (id, fecha, monto, medio, motivo, responsable, comentario, origen = 'Recaudación') {
+        abrirModalRetiro(origen, id, fecha, monto, medio, motivo, responsable, comentario);
     };
 
     window.eliminarRetiroRecaudacion = async function (id) {
-        if (!confirm('¿Eliminar este retiro de recaudación?')) return;
+        if (!confirm('¿Eliminar este retiro?')) return;
         try {
             const res = await fetch(`/api/recaudacion/retiros?id=${id}`, { method: 'DELETE' });
             if (res.ok) {
                 showToast('Retiro eliminado');
                 fetchRecaudacion();
+                fetchEstacionamiento();
             } else {
                 showToast('Error al eliminar retiro', 'error');
             }
@@ -3623,6 +3817,64 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Error de conexión', 'error');
         }
     };
+
+    function setupEnterKeyNavigation(containerSelector) {
+        const container = typeof containerSelector === 'string' ? document.querySelector(containerSelector) : containerSelector;
+        if (!container) return;
+
+        container.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') {
+                const focusables = Array.from(container.querySelectorAll('input:not([type="hidden"]):not([readonly]):not([disabled]), select:not([disabled])'));
+                const index = focusables.indexOf(e.target);
+                if (index > -1 && index < focusables.length - 1) {
+                    e.preventDefault();
+                    const next = focusables[index + 1];
+                    next.focus();
+                    if (typeof next.select === 'function') next.select();
+                }
+            }
+        });
+    }
+
+    setupEnterKeyNavigation('#modal-recaudacion');
+    setupEnterKeyNavigation('#modal-retiro-recaudacion');
+    setupEnterKeyNavigation('#arqueo-panel');
+
+    function isStrictNumericInput(el) {
+        if (!el || el.tagName !== 'INPUT') return false;
+        if (el.id === 'rec-modal-fecha' || el.id === 'modal-retiro-fecha' || el.id === 'est-in-fecha') return false;
+        return el.type === 'number' || el.inputMode === 'numeric' || el.classList.contains('billete-input') || el.classList.contains('input-lote-monto') || el.classList.contains('form-input-inline') || el.id?.includes('monto') || el.id?.includes('real') || el.id?.includes('maxi') || el.id?.includes('cubiertos') || el.id?.includes('cash') || el.id?.includes('mp') || el.id?.includes('tc');
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (isStrictNumericInput(e.target)) {
+            if (e.key === '.' || e.key === ',' || e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E' || e.key === '$') {
+                e.preventDefault();
+            }
+        }
+    });
+
+    document.addEventListener('input', (e) => {
+        if (isStrictNumericInput(e.target)) {
+            const val = e.target.value;
+            if (val && typeof val === 'string') {
+                const clean = val.replace(/\D/g, '');
+                if (clean !== val) {
+                    e.target.value = clean;
+                }
+            }
+        }
+    });
+
+    document.addEventListener('paste', (e) => {
+        if (isStrictNumericInput(e.target)) {
+            e.preventDefault();
+            const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+            const cleanText = pastedText.replace(/\D/g, '');
+            e.target.value = cleanText;
+            e.target.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    });
 });
 
 

@@ -1123,6 +1123,12 @@ body {
     background: oklch(98% 0.01 95);
 }
 
+.billete-card-mini.has-value {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3);
+}
+
 .billete-label {
     font-size: 0.78rem;
     font-weight: 700;

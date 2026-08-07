@@ -166,7 +166,10 @@ def init_db(seed_samples=False):
         metodo_pago TEXT DEFAULT '',
         fecha_pago TEXT DEFAULT '',
         cae TEXT DEFAULT '',
-        nro_comprobante TEXT DEFAULT ''
+        nro_comprobante TEXT DEFAULT '',
+        tipo_comprobante TEXT DEFAULT '',
+        es_retroactiva INTEGER DEFAULT 0,
+        fecha_importacion TEXT DEFAULT ''
     )
     ''')
     try:
@@ -175,6 +178,18 @@ def init_db(seed_samples=False):
         pass
     try:
         cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN nro_comprobante TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN tipo_comprobante TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN es_retroactiva INTEGER DEFAULT 0")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN fecha_importacion TEXT DEFAULT ''")
     except Exception:
         pass
 
@@ -231,7 +246,7 @@ def init_db(seed_samples=False):
     )
     ''')
 
-    # Tabla 12: Retiros Directos de Recaudación (Adelantos sueldos, pagos a proveedores no registrados, etc.)
+    # Tabla 12: Retiros Directos de Recaudación / Estacionamiento
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS retiros_recaudacion (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,9 +255,16 @@ def init_db(seed_samples=False):
         medio_pago TEXT DEFAULT 'Efectivo',
         motivo TEXT DEFAULT '',
         responsable TEXT DEFAULT '',
-        comentario TEXT DEFAULT ''
+        comentario TEXT DEFAULT '',
+        origen TEXT DEFAULT 'Recaudación'
     )
     ''')
+
+    # Migración de columna origen si no existe
+    cursor.execute("PRAGMA table_info(retiros_recaudacion)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if 'origen' not in cols:
+        cursor.execute("ALTER TABLE retiros_recaudacion ADD COLUMN origen TEXT DEFAULT 'Recaudación'")
 
     conn.commit()
     conn.close()

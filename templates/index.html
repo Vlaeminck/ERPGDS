@@ -657,10 +657,12 @@
                                 <option value="all">Todas</option>
                                 <option value="pendiente">Pendientes de Pago</option>
                                 <option value="pagado">Pagadas</option>
+                                <option value="nc">Notas de Crédito 🔴</option>
+                                <option value="retroactiva">Retroactivas 🟠</option>
                                 <option value="recibida">Recibidas Físicas</option>
                                 <option value="no_recibida">Faltantes Físicas</option>
                             </select>
-                            <div id="arca-compras-stats" style="display: flex; gap: 12px; align-items: center;">
+                            <div id="arca-compras-stats" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
                                 <span class="badge"
                                     style="background: rgba(239,68,68,0.15); color: #f87171;">Pendientes: <strong
                                         id="arca-count-pendientes">0</strong></span>
@@ -669,6 +671,12 @@
                                 <span class="badge"
                                     style="background: rgba(59,130,246,0.15); color: var(--primary-color);">Total:
                                     <strong id="arca-total-importe">$0</strong></span>
+                                <span class="badge" id="arca-badge-retro"
+                                    style="background: rgba(245, 158, 11, 0.2); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); display: none;"
+                                    title="Facturas ingresadas con fecha anterior a cargas previas"><i class="fa-solid fa-clock-rotate-left"></i> Retroactivas: <strong id="arca-count-retroactivas">0</strong></span>
+                                <span class="badge" id="arca-badge-nc"
+                                    style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); display: none;"
+                                    title="Notas de Crédito"><i class="fa-solid fa-file-circle-minus"></i> NC: <strong id="arca-count-nc">0</strong></span>
                             </div>
                             <span class="arca-header-badge badge"
                                 style="display: none; padding: 0.5rem 0.9rem; font-size: 0.82rem; border-radius: 20px; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4); align-items: center;">
@@ -803,6 +811,15 @@
                             <p class="stat-number" id="rec-stat-retiros">$0</p>
                         </div>
                     </div>
+                    <div class="glass-card stat-card">
+                        <div class="stat-icon" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">
+                            <i class="fa-solid fa-scale-unbalanced"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Diferencias Totales (DIFF)</h3>
+                            <p class="stat-number" id="rec-stat-diff">$0</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
@@ -869,7 +886,7 @@
                                 para adelantos de sueldo, proveedores no registrados u otros motivos.
                             </p>
                         </div>
-                        <button class="btn btn-primary" id="btn-nuevo-retiro-rec">
+                        <button class="btn btn-primary" id="btn-nuevo-retiro-rec" onclick="abrirModalRetiro('Recaudación')">
                             <i class="fa-solid fa-plus"></i> Cargar Retiro de Fondos
                         </button>
                     </div>
@@ -1003,6 +1020,46 @@
                             </thead>
                             <tbody id="tbl-estacionamiento-body">
                                 <!-- Fila de carga en línea y filas dinámicas -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Recuadro: Retiros & Pagos Directos de Estacionamiento -->
+                <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-hand-holding-dollar" style="color: #ef4444;"></i> Retiros & Pagos Directos de Estacionamiento
+                            </h3>
+                            <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 4px 0 0 0;">
+                                Registro de retiros directos de los fondos recaudados en estacionamiento (Efectivo o MercadoPago).
+                            </p>
+                        </div>
+                        <button class="btn btn-primary" id="btn-nuevo-retiro-est" onclick="abrirModalRetiro('Estacionamiento')">
+                            <i class="fa-solid fa-plus"></i> Cargar Retiro Estacionamiento
+                        </button>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Monto Retirado</th>
+                                    <th>Medio de Pago</th>
+                                    <th>Motivo / Concepto</th>
+                                    <th>Responsable</th>
+                                    <th>Comentario / Detalle</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-retiros-estacionamiento-body">
+                                <tr>
+                                    <td colspan="7" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">
+                                        No hay retiros de estacionamiento registrados en este período.
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -1884,7 +1941,7 @@
                         </div>
                         <div class="form-group" style="margin: 0;">
                             <label style="font-size: 0.82rem; font-weight: 600;">Cubiertos (CUB)</label>
-                            <input type="number" class="form-control" id="rec-modal-cubiertos" placeholder="0">
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-cubiertos" placeholder="0">
                         </div>
                         <div class="form-group" style="margin: 0; padding-bottom: 0.4rem;">
                             <label
@@ -1938,87 +1995,86 @@
                         <i class="fa-solid fa-scale-balanced"></i> Conciliación de Medios de Pago (Real vs Maxirest)
                     </h4>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-                        <!-- Real Column -->
+                        <!-- Maxirest Column (Left Side) -->
                         <div>
-                            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: #3b82f6;">Valores Reales /
-                                Percibidos</h5>
-                            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label
-                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #8b5cf6;"><i
-                                            class="fa-solid fa-credit-card"></i> NAVE ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-nave-real" placeholder="0"
-                                        style="flex:1; border-left: 3px solid #8b5cf6;">
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label
-                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #3b82f6;"><i
-                                            class="fa-solid fa-qrcode"></i> MercadoPago ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-mp-real" placeholder="0"
-                                        style="flex:1; border-left: 3px solid #3b82f6;">
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label
-                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #10b981;"><i
-                                            class="fa-solid fa-money-bill-wave"></i> Efectivo Real ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-efec-real" placeholder="0"
-                                        style="flex:1; border-left: 3px solid #10b981; background: oklch(98% 0.01 95);"
-                                        readonly>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label
-                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #ef4444;"><i
-                                            class="fa-solid fa-motorcycle"></i> PedidosYa ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-py-real" placeholder="0"
-                                        style="flex:1; border-left: 3px solid #ef4444;">
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label
-                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #f59e0b;"><i
-                                            class="fa-solid fa-building-columns"></i> Banco ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-banco-real" placeholder="0"
-                                        style="flex:1; border-left: 3px solid #f59e0b;">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Maxirest Column -->
-                        <div>
-                            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: #8b5cf6;">Según Maxirest</h5>
+                            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: #8b5cf6;"><i class="fa-solid fa-desktop"></i> Según Maxirest</h5>
                             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <label
                                         style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #8b5cf6;"><i
                                             class="fa-solid fa-credit-card"></i> NAVE Maxi ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-nave-maxi" placeholder="0"
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-nave-maxi" placeholder="0"
                                         style="flex:1; border-left: 3px solid #8b5cf6;">
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <label
                                         style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #3b82f6;"><i
                                             class="fa-solid fa-qrcode"></i> MP Maxi ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-mp-maxi" placeholder="0"
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-mp-maxi" placeholder="0"
                                         style="flex:1; border-left: 3px solid #3b82f6;">
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <label
                                         style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #10b981;"><i
                                             class="fa-solid fa-money-bill-wave"></i> Efec Maxi ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-efec-maxi" placeholder="0"
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-efec-maxi" placeholder="0"
                                         style="flex:1; border-left: 3px solid #10b981;">
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <label
                                         style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #ef4444;"><i
                                             class="fa-solid fa-motorcycle"></i> PY Maxi ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-py-maxi" placeholder="0"
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-py-maxi" placeholder="0"
                                         style="flex:1; border-left: 3px solid #ef4444;">
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <label
                                         style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #f59e0b;"><i
                                             class="fa-solid fa-building-columns"></i> Banco Maxi ($):</label>
-                                    <input type="number" class="form-control" id="rec-modal-banco-maxi" placeholder="0"
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-banco-maxi" placeholder="0"
+                                        style="flex:1; border-left: 3px solid #f59e0b;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Real Column (Right Side - Comparaciones) -->
+                        <div>
+                            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: #3b82f6;"><i class="fa-solid fa-hand-holding-dollar"></i> Valores Reales / Comparaciones</h5>
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label
+                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #8b5cf6;"><i
+                                            class="fa-solid fa-credit-card"></i> NAVE Real ($):</label>
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-nave-real" placeholder="0"
+                                        style="flex:1; border-left: 3px solid #8b5cf6;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label
+                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #3b82f6;"><i
+                                            class="fa-solid fa-qrcode"></i> MP Real ($):</label>
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-mp-real" placeholder="0"
+                                        style="flex:1; border-left: 3px solid #3b82f6;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label
+                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #10b981;"><i
+                                            class="fa-solid fa-money-bill-wave"></i> Efectivo Real ($):</label>
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-efec-real" placeholder="0"
+                                        style="flex:1; border-left: 3px solid #10b981; background: oklch(98% 0.01 95);"
+                                        readonly>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label
+                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #ef4444;"><i
+                                            class="fa-solid fa-motorcycle"></i> PedidosYa Real ($):</label>
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-py-real" placeholder="0"
+                                        style="flex:1; border-left: 3px solid #ef4444;">
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label
+                                        style="width: 130px; font-size: 0.82rem; font-weight: 700; color: #f59e0b;"><i
+                                            class="fa-solid fa-building-columns"></i> Banco Real ($):</label>
+                                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" id="rec-modal-banco-real" placeholder="0"
                                         style="flex:1; border-left: 3px solid #f59e0b;">
                                 </div>
                             </div>
@@ -2102,6 +2158,14 @@
             <input type="hidden" id="modal-retiro-id" value="">
 
             <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.85rem; font-weight: 600;">Módulo / Unidad de Origen</label>
+                    <select class="form-control" id="modal-retiro-origen" style="width: 100%;">
+                        <option value="Recaudación">Recaudación (Gastronomía)</option>
+                        <option value="Estacionamiento">Estacionamiento</option>
+                    </select>
+                </div>
+
                 <div class="form-group" style="margin: 0;">
                     <label style="font-size: 0.85rem; font-weight: 600;">Fecha del Retiro</label>
                     <input type="date" class="form-control" id="modal-retiro-fecha" style="width: 100%;">
