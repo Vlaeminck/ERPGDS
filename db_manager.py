@@ -266,6 +266,40 @@ def init_db(seed_samples=False):
     if 'origen' not in cols:
         cursor.execute("ALTER TABLE retiros_recaudacion ADD COLUMN origen TEXT DEFAULT 'Recaudación'")
 
+    # Migración de columnas de Sincronización Nube (Firebase Sync Relay)
+    sync_tables = [
+        'recaudacion_diaria', 'estacionamiento_diario', 'estacionamiento_gastos',
+        'caja_chica_movimientos', 'caja_chica_arqueo', 'gastos_fijos',
+        'proveedores_cuentas_pagar', 'arca_compras_csv', 'proveedores',
+        'facturas_procesadas', 'retiros_recaudacion'
+    ]
+    import uuid as uuid_mod
+    import datetime as dt_mod
+
+    for table in sync_tables:
+        cursor.execute(f"PRAGMA table_info({table})")
+        cols = [r[1] for r in cursor.fetchall()]
+        if 'uuid' not in cols:
+            try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN uuid TEXT DEFAULT ''")
+            except Exception: pass
+        if 'updated_at' not in cols:
+            try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN updated_at TEXT DEFAULT ''")
+            except Exception: pass
+        if 'sync_status' not in cols:
+            try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN sync_status INTEGER DEFAULT 0")
+            except Exception: pass
+        if 'is_deleted' not in cols:
+            try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN is_deleted INTEGER DEFAULT 0")
+            except Exception: pass
+
+        # Asignar UUID y updated_at a registros existentes que tengan uuid vacío
+        cursor.execute(f"SELECT id FROM {table} WHERE uuid IS NULL OR uuid = ''")
+        rows_to_update = cursor.fetchall()
+        for r in rows_to_update:
+            u_id = uuid_mod.uuid4().hex
+            now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute(f"UPDATE {table} SET uuid = ?, updated_at = ? WHERE id = ?", (u_id, now_iso, r[0]))
+
     conn.commit()
     conn.close()
     if seed_samples:

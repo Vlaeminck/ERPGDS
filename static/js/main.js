@@ -138,6 +138,56 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabName === 'unrecognized') fetchUnrecognizedInvoices();
     }
 
+    async function fetchCloudSyncStatus() {
+        try {
+            const res = await fetch('/api/firebase/status');
+            const data = await res.json();
+            const badge = document.getElementById('cloud-sync-badge');
+            const text = document.getElementById('cloud-sync-text');
+            const icon = document.getElementById('cloud-sync-icon');
+
+            if (!badge || !text || !icon) return;
+
+            if (data.mode === 'ONLINE_SYNC') {
+                badge.style.background = 'rgba(16, 185, 129, 0.12)';
+                badge.style.color = '#059669';
+                badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                icon.className = 'fa-solid fa-cloud-arrow-up';
+                text.textContent = data.pending_count > 0 ? `Sync Nube: Subiendo (${data.pending_count})` : 'Sync Nube: Conectado';
+            } else if (data.mode === 'ERROR') {
+                badge.style.background = 'rgba(239, 68, 68, 0.12)';
+                badge.style.color = '#dc2626';
+                badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                icon.className = 'fa-solid fa-triangle-exclamation';
+                text.textContent = 'Sync Nube: Error';
+            } else {
+                badge.style.background = 'rgba(59, 130, 246, 0.1)';
+                badge.style.color = '#2563eb';
+                badge.style.borderColor = 'rgba(59, 130, 246, 0.25)';
+                icon.className = 'fa-solid fa-cloud';
+                text.textContent = 'Sync Nube: Modo Local';
+            }
+        } catch (e) { }
+    }
+
+    window.checkCloudSyncNow = async function () {
+        try {
+            const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
+            const data = await res.json();
+            fetchCloudSyncStatus();
+            if (data.mode === 'ONLINE_SYNC') {
+                showToast("Sincronización Cloud completada exitosamente");
+            } else {
+                showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");
+            }
+        } catch (e) {
+            showToast("Modo Local Activo", "info");
+        }
+    };
+
+    fetchCloudSyncStatus();
+    setInterval(fetchCloudSyncStatus, 15000);
+
     allTabItems.forEach(link => {
         link.addEventListener('click', (e) => {
             e.stopPropagation();

@@ -12,11 +12,17 @@ import doctor
 import config
 import license_manager
 import db_manager
+import firebase_sync
 
 try:
     db_manager.init_db()
 except Exception as e:
     print(f"Error al inicializar DB control interno: {e}")
+
+try:
+    firebase_sync.start_sync_engine(interval=10)
+except Exception as e:
+    print(f"Error al iniciar Firebase Sync Engine: {e}")
 
 if getattr(sys, 'frozen', False):
     template_folder = os.path.join(sys._MEIPASS, 'templates')
@@ -24,6 +30,15 @@ if getattr(sys, 'frozen', False):
     app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
 else:
     app = Flask(__name__)
+
+@app.route('/api/firebase/status', methods=['GET'])
+def api_firebase_status():
+    return jsonify(firebase_sync.get_sync_status())
+
+@app.route('/api/firebase/sync_now', methods=['POST'])
+def api_firebase_sync_now():
+    firebase_sync.sync_cycle()
+    return jsonify(firebase_sync.get_sync_status())
 
 app.config['UPLOAD_FOLDER'] = config.CSV_ARCA_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024 # 16 MB max

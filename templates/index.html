@@ -140,7 +140,11 @@
                             mes seleccionado.</span>
                     </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span class="badge" id="cloud-sync-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 0.5rem 0.8rem; font-size: 0.8rem; border-radius: 8px; font-weight: 600; background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25); cursor: pointer;" onclick="checkCloudSyncNow()" title="Clic para sincronizar con Firebase Cloud ahora">
+                        <i class="fa-solid fa-cloud" id="cloud-sync-icon"></i>
+                        <span id="cloud-sync-text">Sync Nube: Modo Local</span>
+                    </span>
                     <label for="global-month-select"
                         style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin: 0;">Mes /
                         Año:</label>
