@@ -138,6 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabName === 'unrecognized') fetchUnrecognizedInvoices();
     }
 
+    let lastKnownRemoteUpdate = null;
+
     async function fetchCloudSyncStatus() {
         try {
             const res = await fetch('/api/firebase/status');
@@ -148,18 +150,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!badge || !text || !icon) return;
 
+            // Auto-refrescar la pantalla si otra PC envió cambios en tiempo real
+            if (data.last_remote_update && lastKnownRemoteUpdate && data.last_remote_update !== lastKnownRemoteUpdate) {
+                console.log("[CloudSync] Actualización remota recibida desde otra PC. Refrescando interfaz...");
+                showToast("¡Nuevos datos recibidos en tiempo real desde otra PC!", "info");
+                if (typeof switchTab === 'function' && currentActiveTab) {
+                    switchTab(currentActiveTab);
+                }
+            }
+            if (data.last_remote_update) {
+                lastKnownRemoteUpdate = data.last_remote_update;
+            }
+
             if (data.mode === 'ONLINE_SYNC') {
-                badge.style.background = 'rgba(16, 185, 129, 0.12)';
-                badge.style.color = '#059669';
-                badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-                icon.className = 'fa-solid fa-cloud-arrow-up';
-                text.textContent = data.pending_count > 0 ? `Sync Nube: Subiendo (${data.pending_count})` : 'Sync Nube: Conectado';
+                if (data.pending_count > 0) {
+                    badge.style.background = 'rgba(245, 158, 11, 0.15)';
+                    badge.style.color = '#d97706';
+                    badge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                    icon.className = 'fa-solid fa-arrows-rotate fa-spin';
+                    const pct = data.progress_percent !== undefined ? `${data.progress_percent}%` : '';
+                    text.textContent = `Sync Nube: Subiendo ${pct} (${data.synced_count || 0}/${data.total_count || 0})`;
+                } else {
+                    badge.style.background = 'rgba(16, 185, 129, 0.12)';
+                    badge.style.color = '#059669';
+                    badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                    icon.className = 'fa-solid fa-cloud-check';
+                    text.textContent = `Sync Nube: 100% Sincronizado (${data.total_count || 0} reg)`;
+                }
             } else if (data.mode === 'ERROR') {
                 badge.style.background = 'rgba(239, 68, 68, 0.12)';
                 badge.style.color = '#dc2626';
                 badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
                 icon.className = 'fa-solid fa-triangle-exclamation';
-                text.textContent = 'Sync Nube: Error';
+                text.textContent = data.message ? `Sync Nube: ${data.message}` : 'Sync Nube: Error';
             } else {
                 badge.style.background = 'rgba(59, 130, 246, 0.1)';
                 badge.style.color = '#2563eb';
@@ -176,7 +199,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             fetchCloudSyncStatus();
             if (data.mode === 'ONLINE_SYNC') {
-                showToast("Sincronización Cloud completada exitosamente");
+                if (data.pending_count > 0) {
+                    showToast(`Sincronización en curso: ${data.progress_percent}% (${data.synced_count}/${data.total_count})`, "info");
+                } else {
+                    showToast("¡Sincronización Cloud al 100% completada!");
+                }
             } else {
                 showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");
             }
@@ -186,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     fetchCloudSyncStatus();
-    setInterval(fetchCloudSyncStatus, 15000);
+    setInterval(fetchCloudSyncStatus, 3000);
 
     allTabItems.forEach(link => {
         link.addEventListener('click', (e) => {
@@ -2481,7 +2508,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSaveCaja = document.getElementById('btn-save-modal-caja');
 
     if (btnNuevoMovCaja && modalCaja) {
-        const closeModal = () => modalCaja.classList.remove('show');
+        const closeModal = () => {
+            modalCaja.style.display = 'none';
+            modalCaja.classList.remove('show');
+        };
 
         btnNuevoMovCaja.addEventListener('click', async () => {
             // Retrieve last responsible from SQLite via API
@@ -2489,31 +2519,57 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const resConfig = await fetch('/api/configuraciones/caja_responsable');
                 const dataConfig = await resConfig.json();
-                if (dataConfig.valor) lastResponsable = dataConfig.valor;
+                if (dataConfig && dataConfig.valor) lastResponsable = dataConfig.valor;
             } catch (e) { }
 
             // Reset fields
-            document.getElementById('modal-caja-tipo').value = 'E';
-            document.getElementById('modal-caja-monto').value = '';
-            document.getElementById('modal-caja-motivo').value = '';
-            document.getElementById('modal-caja-responsable').value = lastResponsable;
-            if (document.getElementById('modal-caja-categoria')) {
-                document.getElementById('modal-caja-categoria').value = 'General';
-            }
+            const elTipo = document.getElementById('modal-caja-tipo');
+            const elMonto = document.getElementById('modal-caja-monto');
+            const elMotivo = document.getElementById('modal-caja-motivo');
+            const elResp = document.getElementById('modal-caja-responsable');
+            const elCat = document.getElementById('modal-caja-categoria');
 
+            if (elTipo) elTipo.value = 'E';
+            if (elMonto) elMonto.value = '';
+            if (elMotivo) elMotivo.value = '';
+            if (elResp) elResp.value = lastResponsable;
+            if (elCat) elCat.value = 'General';
+
+            modalCaja.style.display = 'flex';
             modalCaja.classList.add('show');
+
+            setTimeout(() => {
+                if (elMonto) elMonto.focus();
+            }, 100);
         });
 
         if (btnCloseCaja) btnCloseCaja.addEventListener('click', closeModal);
         if (btnCancelCaja) btnCancelCaja.addEventListener('click', closeModal);
 
+        modalCaja.addEventListener('click', (e) => {
+            if (e.target === modalCaja) closeModal();
+        });
+
+        // Soporte para guardar al presionar Enter en los campos del modal
+        ['modal-caja-monto', 'modal-caja-motivo', 'modal-caja-responsable'].forEach(fieldId => {
+            const inputEl = document.getElementById(fieldId);
+            if (inputEl) {
+                inputEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (btnSaveCaja) btnSaveCaja.click();
+                    }
+                });
+            }
+        });
+
         if (btnSaveCaja) {
             btnSaveCaja.addEventListener('click', async () => {
-                const tipo = document.getElementById('modal-caja-tipo').value;
-                const montoStr = document.getElementById('modal-caja-monto').value;
-                const motivo = document.getElementById('modal-caja-motivo').value || 'Gasto diario';
-                const responsable = document.getElementById('modal-caja-responsable').value || 'Tomás';
-                const categoria = document.getElementById('modal-caja-categoria') ? document.getElementById('modal-caja-categoria').value : 'General';
+                const tipo = document.getElementById('modal-caja-tipo')?.value || 'E';
+                const montoStr = document.getElementById('modal-caja-monto')?.value || '';
+                const motivo = document.getElementById('modal-caja-motivo')?.value || 'Gasto diario';
+                const responsable = document.getElementById('modal-caja-responsable')?.value || 'Tomás';
+                const categoria = document.getElementById('modal-caja-categoria')?.value || 'General';
 
                 // Save responsible to SQLite via API
                 fetch('/api/configuraciones/caja_responsable', {
@@ -2523,7 +2579,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }).catch(() => { });
 
                 const monto = parseFloat(montoStr);
-                if (isNaN(monto) || monto <= 0) return showToast("Monto inválido", "error");
+                if (isNaN(monto) || monto <= 0) return showToast("Por favor ingresa un monto válido", "error");
 
                 const payload = {
                     monto_retirado: tipo === 'E' ? monto : 0,
@@ -2552,6 +2608,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
+    }
+
+    const btnAbrirArqueo = document.getElementById('btn-abrir-arqueo');
+    if (btnAbrirArqueo) {
+        btnAbrirArqueo.addEventListener('click', () => {
+            const panel = document.getElementById('arqueo-panel');
+            if (panel) {
+                panel.scrollIntoView({ behavior: 'smooth' });
+                const b20k = document.getElementById('b-20000');
+                if (b20k) {
+                    setTimeout(() => b20k.focus(), 300);
+                }
+            }
+        });
     }
 
     // 5. Gastos Fijos & Ganancia Neta — Editable por mes
@@ -2775,6 +2845,41 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchArcaCompras();
     };
 
+    window.refrescarArcaCSV = async function () {
+        const btn = document.getElementById('btn-refrescar-csv');
+        let origHtml = '';
+        if (btn) {
+            origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Leyendo CSVs...`;
+        }
+
+        try {
+            const res = await fetch('/api/arca_compras/sync_from_csv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                showToast(data.message || 'CSVs procesados correctamente', 'success');
+                if (typeof fetchArcaComprasLocal === 'function') {
+                    fetchArcaComprasLocal();
+                }
+            } else {
+                showToast('Error al refrescar CSV: ' + (data.message || 'Error desconocido'), 'error');
+            }
+        } catch (e) {
+            console.error("Error en refrescarArcaCSV:", e);
+            showToast('Error de conexión al refrescar CSV', 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
+
     async function fetchArcaCompras() {
         try {
             const localMonthFilter = document.getElementById('arca-month-filter');
@@ -2909,7 +3014,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const esRetro = c.es_retroactiva == 1;
 
             const ncTag = esNC ? ` <span class="badge" style="background: rgba(239, 68, 68, 0.18); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px;" title="${escapeHtml(c.tipo_comprobante || 'Nota de Crédito')}"><i class="fa-solid fa-file-invoice-dollar"></i> NC</span>` : '';
-            const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px;" title="Ingresada días para atrás respecto a la carga previa"><i class="fa-solid fa-clock-rotate-left"></i> Retroactiva</span>` : '';
+            const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px; cursor: help;" title="Factura Retroactiva: Comprobante cuya fecha de emisión es anterior a la fecha máxima previamente sincronizada para este proveedor en el mes (inserción de factura atrasada)."><i class="fa-solid fa-clock-rotate-left"></i> Retroactiva</span>` : '';
 
             const rowBg = esNC 
                 ? 'background: rgba(239, 68, 68, 0.06);' 
@@ -3406,14 +3511,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Mejor Día de Cubierto
             const mejorCub = data.cubiertos.mejor_dia;
-            if (document.getElementById('emp-stat-mejor-cubierto')) {
+            const elMejor = document.getElementById('emp-stat-mejor-cubierto');
+            if (elMejor) {
                 if (mejorCub) {
                     const parts = mejorCub.fecha.split('-');
                     const fechaFmt = `${parts[2]}/${parts[1]}`;
                     const diaFmt = (mejorCub.dia_nombre || '').charAt(0).toUpperCase() + (mejorCub.dia_nombre || '').slice(1);
-                    document.getElementById('emp-stat-mejor-cubierto').textContent = `${diaFmt} ${fechaFmt} (${mejorCub.cubiertos})`;
+                    const textVal = `${diaFmt} ${fechaFmt} (${mejorCub.cubiertos})`;
+                    elMejor.textContent = textVal;
+                    elMejor.title = textVal;
                 } else {
-                    document.getElementById('emp-stat-mejor-cubierto').textContent = 'Sin registros';
+                    elMejor.textContent = 'Sin registros';
+                    elMejor.title = 'Sin registros';
                 }
             }
             if (document.getElementById('emp-sub-mejor-cubierto')) {

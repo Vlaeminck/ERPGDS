@@ -551,43 +551,79 @@ def run_arca_bot_sync(full_year=False):
 
         time.sleep(6)
 
-        # Paso 7: Descargar CSV (Paso dificil 2)
-        update_status("DOWNLOADING", "Descargando archivo CSV de comprobantes...")
+        # Paso 7: Descargar CSV / RAR / ZIP
+        update_status("DOWNLOADING", "Descargando archivo comprobantes desde ARCA...")
+
+        # Limpiar descargas anteriores en la carpeta CSV ARCA antes de obtener los archivos nuevos
+        log_arca_event("INFO", "Limpiando archivos anteriores en la carpeta CSV ARCA...")
+        try:
+            for f in os.listdir(download_folder):
+                fp = os.path.join(download_folder, f)
+                if os.path.isfile(fp):
+                    try:
+                        os.remove(fp)
+                    except Exception as e_del:
+                        log_arca_event("WARNING", f"No se pudo eliminar archivo previo {f}: {e_del}")
+        except Exception as e_clean:
+            log_arca_event("WARNING", f"Error al limpiar la carpeta CSV ARCA: {e_clean}")
+
+        files_before = set(glob.glob(os.path.join(download_folder, "*")))
+
         if not find_and_click_csv(driver):
             log_arca_event("ERROR", "No se pudo localizar el botón CSV en la tabla de resultados.")
             raise RuntimeError("No se pudo localizar el botón CSV en los resultados de la consulta.")
 
-        # Esperar archivo descargado en CSV ARCA (soporta .csv y .zip)
+        # Esperar archivo descargado en CSV ARCA (soporta .csv, .zip, .rar, .7z)
         downloaded_file = None
         for i in range(35):
             time.sleep(1)
             files_after = set(glob.glob(os.path.join(download_folder, "*")))
-            new_files = {f for f in (files_after - files_before) if f.lower().endswith(('.csv', '.zip')) and not f.endswith('.crdownload') and not f.endswith('.tmp')}
+            new_files = {f for f in (files_after - files_before) if f.lower().endswith(('.csv', '.zip', '.rar', '.7z')) and not f.endswith('.crdownload') and not f.endswith('.tmp')}
             if new_files:
                 downloaded_file = list(new_files)[0]
                 break
 
         if not downloaded_file:
-            all_valid = sorted([f for f in glob.glob(os.path.join(download_folder, "*")) if f.lower().endswith(('.csv', '.zip'))], key=os.path.getmtime, reverse=True)
+            all_valid = sorted([f for f in glob.glob(os.path.join(download_folder, "*")) if f.lower().endswith(('.csv', '.zip', '.rar', '.7z'))], key=os.path.getmtime, reverse=True)
             if all_valid:
                 downloaded_file = all_valid[0]
                 log_arca_event("INFO", f"Comprobante tomado de la carpeta: {os.path.basename(downloaded_file)}")
             else:
-                raise RuntimeError("No se detectó el archivo CSV/ZIP descargado de ARCA en la carpeta CSV ARCA.")
+                raise RuntimeError("No se detectó el archivo CSV/ZIP/RAR descargado de ARCA en la carpeta CSV ARCA.")
 
-        # Si el archivo descargado es un ZIP, descomprimirlo automáticamente
-        if downloaded_file.lower().endswith('.zip'):
+        # Si el archivo descargado es un ZIP/RAR/7Z, descomprimirlo conservando el archivo comprimido original en el directorio
+        ext = os.path.splitext(downloaded_file)[1].lower()
+        if ext in ('.zip', '.rar', '.7z'):
+            log_arca_event("INFO", f"Descomprimiendo archivo comprimido ({ext}): {os.path.basename(downloaded_file)}...")
+            extracted_ok = False
+
+            # Intentar extracción mediante zipfile (muchos reportes de ARCA son formato ZIP)
             import zipfile
-            try:
-                log_arca_event("INFO", f"Descomprimiendo archivo ZIP descargado: {os.path.basename(downloaded_file)}...")
-                with zipfile.ZipFile(downloaded_file, 'r') as zip_ref:
-                    for zip_info in zip_ref.infolist():
-                        if zip_info.filename.lower().endswith('.csv'):
-                            zip_info.filename = os.path.basename(zip_info.filename)
-                            zip_ref.extract(zip_info, download_folder)
-                            log_arca_event("INFO", f"CSV extraído exitosamente desde ZIP: {zip_info.filename}")
-            except Exception as e_unzip:
-                log_arca_event("WARNING", f"Advertencia al descomprimir ZIP: {e_unzip}")
+            if zipfile.is_zipfile(downloaded_file):
+                try:
+                    with zipfile.ZipFile(downloaded_file, 'r') as zip_ref:
+                        for zip_info in zip_ref.infolist():
+                            if zip_info.filename.lower().endswith('.csv'):
+                                zip_info.filename = os.path.basename(zip_info.filename)
+                                zip_ref.extract(zip_info, download_folder)
+                                log_arca_event("INFO", f"CSV extraído exitosamente desde comprimido: {zip_info.filename}")
+                                extracted_ok = True
+                except Exception as e_unzip:
+                    log_arca_event("WARNING", f"Advertencia al descomprimir con zipfile: {e_unzip}")
+
+            # Si es RAR y no se pudo con zipfile, intentar rarfile si está disponible
+            if not extracted_ok and ext == '.rar':
+                try:
+                    import rarfile
+                    with rarfile.RarFile(downloaded_file, 'r') as rf:
+                        for rf_info in rf.infolist():
+                            if rf_info.filename.lower().endswith('.csv'):
+                                rf_info.filename = os.path.basename(rf_info.filename)
+                                rf.extract(rf_info, download_folder)
+                                log_arca_event("INFO", f"CSV extraído exitosamente desde RAR: {rf_info.filename}")
+                                extracted_ok = True
+                except Exception as e_rar:
+                    log_arca_event("WARNING", f"No se pudo descompresionar RAR mediante librería rarfile ({e_rar}). El archivo RAR original permanece en la carpeta.")
 
         # Paso 8: Procesar el CSV e integrar proveedores
         update_status("PROCESSING", "Procesando archivo CSV y actualizando lista de proveedores...")

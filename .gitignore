@@ -24,5 +24,6 @@ dist/
 impeccable-main
 JUNIO CSV TEST.csv
 arca_credentials.json
+firebase_credentials.json
 api_key.txt
 suppliers.json

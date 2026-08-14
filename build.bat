@@ -28,44 +28,19 @@ if not exist "CSV ARCA\*.csv" (
 )
 echo.
 
-echo [1/4] Instalando dependencias necesarias (incluyendo PyInstaller)...
-python -m pip install -r requirements.txt
-python -m pip install pyinstaller
-
-echo [2/4] Generando el archivo ejecutable...
-:: Usa --add-data para incluir las carpetas de Flask (templates y static) y --collect-all para empaquetar Selenium completo
-python -m PyInstaller --noconfirm --onedir --windowed --name "GDSERP" --version-file=version.txt --collect-all="selenium" --hidden-import="selenium.webdriver.edge.webdriver" --hidden-import="selenium.webdriver.chrome.webdriver" --hidden-import="selenium.webdriver.edge.options" --hidden-import="selenium.webdriver.chrome.options" --hidden-import="selenium.webdriver.common.by" --hidden-import="selenium.webdriver.support.ui" --hidden-import="selenium.webdriver.support.expected_conditions" --add-data "templates;templates/" --add-data "static;static/" app.py
+echo [1/1] Ejecutando compilador automatizado (build.py)...
+python build.py
 
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Hubo un error al generar el ejecutable.
+    echo [ERROR] Hubo un error al generar la compilación.
     pause
     exit /b 1
 )
 
 echo.
-echo [3/4] Limpiando archivos temporales de compilacion...
-rmdir /s /q build
-del /q GDSERP.spec 2>nul
-del /q PDFWatcher.spec 2>nul
-
-echo.
-echo [4/4] Creando carpetas de entorno en dist\GDSERP...
-mkdir "dist\GDSERP\Facturas_A_Procesar" 2>nul
-mkdir "dist\GDSERP\Facturas_Procesadas" 2>nul
-mkdir "dist\GDSERP\Facturas_No_Reconocidas" 2>nul
-mkdir "dist\GDSERP\CSV ARCA" 2>nul
-mkdir "dist\GDSERP\Remitos" 2>nul
-mkdir "dist\GDSERP\registros" 2>nul
-
-echo.
 echo ===================================================
-echo ¡Ejecutable generado con exito!
-echo.
-echo Lo encontrara dentro de la carpeta "dist\GDSERP".
-echo El archivo para ejecutar la aplicacion se llama "GDSERP.exe".
-echo.
-echo NOTA: Tenga en cuenta que en el nuevo equipo todavia necesita 
-echo instalar Tesseract OCR y NAPS2 si los usa para escanear y procesar.
+echo ¡Proceso de compilación finalizado!
+echo El ejecutable final se encuentra en "dist\GDSERP\GDSERP.exe".
 echo ===================================================
 pause

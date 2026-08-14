@@ -193,6 +193,18 @@ def init_db(seed_samples=False):
     except Exception:
         pass
 
+    # Tabla 8.1: Snapshots de Compras ARCA (previos a cargas/actualizaciones)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS arca_compras_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        origen TEXT DEFAULT 'Refrescar CSV',
+        total_compras_pre INTEGER DEFAULT 0,
+        max_fechas_mes_json TEXT DEFAULT '{}',
+        max_fechas_proveedor_json TEXT DEFAULT '{}'
+    )
+    ''')
+
     # Tabla 7: Cuentas por Pagar (Proveedores)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS proveedores_cuentas_pagar (

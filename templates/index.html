@@ -247,7 +247,7 @@
                         </div>
                         <div class="stat-details">
                             <h3>Mejor Día de Cubierto</h3>
-                            <p class="stat-number" id="emp-stat-mejor-cubierto" style="font-size: 1.15rem;">-</p>
+                            <p class="stat-number" id="emp-stat-mejor-cubierto" style="font-size: clamp(0.9rem, 1.1vw, 1.15rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</p>
                             <span style="font-size: 0.78rem; color: var(--text-secondary);"
                                 id="emp-sub-mejor-cubierto">Máxima afluencia</span>
                         </div>
@@ -635,64 +635,82 @@
 
                 <!-- Sección ARCA Compras CSV -->
                 <div class="glass-card" style="margin-top: 2rem; padding: 1.5rem;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap; gap: 10px;">
-                        <div>
-                            <h3 style="margin: 0;"><i class="fa-solid fa-file-csv"
-                                    style="color: var(--primary-color);"></i> Compras del Mes (ARCA)</h3>
-                            <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0 0;">Facturas
-                                emitidas por proveedores según el CSV de ARCA &mdash; Sincronizar ARCA para actualizar
-                            </p>
-                        </div>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <select id="arca-month-filter" class="form-control"
-                                style="width: 140px; font-size: 0.8rem; padding: 4px;"
-                                onchange="fetchArcaComprasLocal()">
-                                <option value="all">Todos los meses</option>
-                                <!-- Se llena dinámicamente -->
-                            </select>
-                            <label
-                                style="font-size: 0.8rem; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text-primary); margin: 0;"
-                                title="Tilda para pagar todas las facturas del mes seleccionado">
-                                <input type="checkbox" id="cbx-pagar-mes" onchange="handleMarcarMesPagado(this)"> Pagado
-                            </label>
-                            <select id="arca-filter" class="form-control"
-                                style="width: 150px; font-size: 0.8rem; padding: 4px;" onchange="renderArcaCompras()">
-                                <option value="all">Todas</option>
-                                <option value="pendiente">Pendientes de Pago</option>
-                                <option value="pagado">Pagadas</option>
-                                <option value="nc">Notas de Crédito 🔴</option>
-                                <option value="retroactiva">Retroactivas 🟠</option>
-                                <option value="recibida">Recibidas Físicas</option>
-                                <option value="no_recibida">Faltantes Físicas</option>
-                            </select>
-                            <div id="arca-compras-stats" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                                <span class="badge"
-                                    style="background: rgba(239,68,68,0.15); color: #f87171;">Pendientes: <strong
-                                        id="arca-count-pendientes">0</strong></span>
-                                <span class="badge" style="background: rgba(52,211,153,0.15); color: #34d399;">Pagados:
-                                    <strong id="arca-count-pagados">0</strong></span>
-                                <span class="badge"
-                                    style="background: rgba(59,130,246,0.15); color: var(--primary-color);">Total:
-                                    <strong id="arca-total-importe">$0</strong></span>
-                                <span class="badge" id="arca-badge-retro"
-                                    style="background: rgba(245, 158, 11, 0.2); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); display: none;"
-                                    title="Facturas ingresadas con fecha anterior a cargas previas"><i class="fa-solid fa-clock-rotate-left"></i> Retroactivas: <strong id="arca-count-retroactivas">0</strong></span>
-                                <span class="badge" id="arca-badge-nc"
-                                    style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); display: none;"
-                                    title="Notas de Crédito"><i class="fa-solid fa-file-circle-minus"></i> NC: <strong id="arca-count-nc">0</strong></span>
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.2rem;">
+                        <!-- Fila 1: Título y Botones de Acción -->
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem;">
+                            <div>
+                                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-file-csv" style="color: var(--primary-color);"></i> Compras del Mes (ARCA)
+                                </h3>
+                                <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0 0;">
+                                    Facturas emitidas por proveedores según el CSV de ARCA &mdash; Sincronizar ARCA para actualizar
+                                </p>
                             </div>
-                            <span class="arca-header-badge badge"
-                                style="display: none; padding: 0.5rem 0.9rem; font-size: 0.82rem; border-radius: 20px; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4); align-items: center;">
-                                <i class="arca-header-icon fa-solid fa-arrows-rotate fa-spin"
-                                    style="margin-right: 6px;"></i>
-                                <span class="arca-header-status-text">Sincronizando ARCA...</span>
-                            </span>
-                            <button class="btn btn-secondary btn-sm" id="btn-sync-arca-compras"
-                                style="background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4); font-weight: 600;"
-                                title="Descargar comprobantes desde el portal de ARCA">
-                                <i class="fa-solid fa-arrows-rotate"></i> Sincronizar ARCA
-                            </button>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <button class="btn btn-outline-primary btn-sm" id="btn-refrescar-csv" onclick="refrescarArcaCSV()"
+                                    style="background: rgba(59, 130, 246, 0.08); color: var(--primary-color); border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600; padding: 0.45rem 0.85rem;"
+                                    title="Re-leer los archivos CSV de la carpeta CSV ARCA y evaluar facturas retroactivas">
+                                    <i class="fa-solid fa-file-csv"></i> Refrescar CSV
+                                </button>
+                                <button class="btn btn-secondary btn-sm" id="btn-sync-arca-compras"
+                                    style="background: rgba(155, 89, 182, 0.15); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.35); font-weight: 600; padding: 0.45rem 0.85rem;"
+                                    title="Descargar comprobantes desde el portal de ARCA">
+                                    <i class="fa-solid fa-arrows-rotate"></i> Sincronizar ARCA
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Fila 2: Filtros y Badges Estadísticos en orden lógico (Total -> Pendientes -> Pagados -> Retroactivas -> NC) -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.85rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-color);">
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <select id="arca-month-filter" class="form-control"
+                                    style="width: 140px; font-size: 0.82rem; padding: 0.35rem 0.6rem;"
+                                    onchange="fetchArcaComprasLocal()">
+                                    <option value="all">Todos los meses</option>
+                                    <!-- Se llena dinámicamente -->
+                                </select>
+                                <label
+                                    style="font-size: 0.82rem; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-primary); margin: 0; font-weight: 600;"
+                                    title="Tilda para pagar todas las facturas del mes seleccionado">
+                                    <input type="checkbox" id="cbx-pagar-mes" onchange="handleMarcarMesPagado(this)"> Pagado
+                                </label>
+                                <select id="arca-filter" class="form-control"
+                                    style="width: 155px; font-size: 0.82rem; padding: 0.35rem 0.6rem;" onchange="renderArcaCompras()">
+                                    <option value="all">Todas</option>
+                                    <option value="pendiente">Pendientes de Pago</option>
+                                    <option value="pagado">Pagadas</option>
+                                    <option value="nc">Notas de Crédito 🔴</option>
+                                    <option value="retroactiva">Retroactivas 🟠</option>
+                                    <option value="recibida">Recibidas Físicas</option>
+                                    <option value="no_recibida">Faltantes Físicas</option>
+                                </select>
+                            </div>
+
+                            <div id="arca-compras-stats" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                <span class="badge"
+                                    style="background: rgba(59,130,246,0.12); color: #2563eb; border: 1px solid rgba(59,130,246,0.25); font-weight: 600; padding: 0.4rem 0.75rem; font-size: 0.8rem;">
+                                    Total: <strong id="arca-total-importe">$0</strong>
+                                </span>
+                                <span class="badge"
+                                    style="background: rgba(239,68,68,0.12); color: #dc2626; border: 1px solid rgba(239,68,68,0.25); font-weight: 600; padding: 0.4rem 0.75rem; font-size: 0.8rem;">
+                                    Pendientes: <strong id="arca-count-pendientes">0</strong>
+                                </span>
+                                <span class="badge"
+                                    style="background: rgba(16,185,129,0.12); color: #059669; border: 1px solid rgba(16,185,129,0.25); font-weight: 600; padding: 0.4rem 0.75rem; font-size: 0.8rem;">
+                                    Pagados: <strong id="arca-count-pagados">0</strong>
+                                </span>
+                                <span class="badge" id="arca-badge-retro"
+                                    style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600; padding: 0.4rem 0.75rem; font-size: 0.8rem; display: none; cursor: help;"
+                                    title="¿Cómo se detectan las Retroactivas? Se marcan automáticamente cuando se descarga una factura cuya fecha de emisión es anterior a la fecha máxima ya registrada previamente para ese proveedor en ese mes (inserción de un comprobante atrasado entre facturas existentes).">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> Retroactivas: <strong id="arca-count-retroactivas">0</strong>
+                                    <i class="fa-solid fa-circle-question" style="margin-left: 4px; opacity: 0.85;"></i>
+                                </span>
+                                <span class="badge" id="arca-badge-nc"
+                                    style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 600; padding: 0.4rem 0.75rem; font-size: 0.8rem; display: none;"
+                                    title="Notas de Crédito">
+                                    <i class="fa-solid fa-file-circle-minus"></i> NC: <strong id="arca-count-nc">0</strong>
+                                </span>
+                            </div>
                         </div>
                     </div>
                     <div class="table-container" style="max-height: 440px; overflow-y: auto;">

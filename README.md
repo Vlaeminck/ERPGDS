@@ -118,13 +118,28 @@ python reset.py --force
 ```
 
 ### 4. Compilar Ejecutable de Windows (.exe)
+Para generar una compilación completa y empaquetar todas las dependencias (Flask, SQLite, Firebase, Selenium, plantillas y archivos estáticos):
+```bash
+python build.py
+```
+o ejecutando el script automático:
 ```bash
 build.bat
 ```
-El ejecutable final se generará en `dist/GDSERP/GDSERP.exe`.
+El instalador/ejecutable final se generará automáticamente en `dist/GDSERP/GDSERP.exe`, creando la estructura completa de carpetas de producción (`CSV ARCA`, `Facturas_A_Procesar`, `Facturas_Procesadas`, `Remitos`, `registros`, etc.).
+
+---
+
+## ☁️ Sincronización Multi-Equipo (Cloud Sync Relay con Firebase)
+El sistema utiliza una arquitectura **Local-First + Cloud Sync Relay**:
+- Cada computadora trabaja de forma 100% autónoma y rápida leyendo y escribiendo en su propia base de datos **SQLite local (`control_interno.db`)**.
+- Para sincronizar varias computadoras entre sí en tiempo real a costo $0 (sin pagar servidores VPS):
+  1. Descarga el archivo de credenciales de Firebase `firebase_credentials.json` desde Firebase Console.
+  2. Coloca `firebase_credentials.json` en la misma carpeta que `GDSERP.exe` (o en la raíz del proyecto).
+  3. El motor `firebase_sync.py` se activará automáticamente e intercambiará deltas entre todas las computadoras vinculadas.
 
 ---
 
 ## 🔒 Privacidad y Seguridad
 - Todas las credenciales y datos contables se almacenan **exclusivamente de forma local en la base de datos SQLite (`control_interno.db`)**.
-- No se envía información ni datos contables a servidores de terceros, excepto las consultas dirigidas estrictamente a la API oficial de Google Gemini o al portal de ARCA/AFIP.
+- No se envía información ni datos contables a servidores de terceros, excepto las consultas dirigidas estrictamente a la API oficial de Google Gemini, al portal de ARCA/AFIP o al proyecto privado de Firebase Cloud Sync configurado por el usuario.

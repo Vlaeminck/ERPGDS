@@ -563,7 +563,8 @@ def arca_sync():
             print(f"Error reordenando configuración tras sync: {e_reload}")
         # Auto-importar compras ARCA a la DB después del sync
         try:
-            n_importados = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER)
+            res_imp = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER, origen='ARCA Bot Sync')
+            n_importados = res_imp.get('nuevas_importadas', 0) if isinstance(res_imp, dict) else res_imp
             print(f"[ARCA-SYNC] {n_importados} nuevas compras importadas a arca_compras_csv.", flush=True)
         except Exception as e_import:
             print(f"[ARCA-SYNC] Error importando compras a DB: {e_import}", flush=True)
@@ -737,7 +738,9 @@ def api_recaudacion():
                 comentario=excluded.comentario,
                 diff_proyeccion=excluded.diff_proyeccion,
                 lotes_json=excluded.lotes_json,
-                es_feriado=excluded.es_feriado
+                es_feriado=excluded.es_feriado,
+                updated_at=excluded.updated_at,
+                sync_status=0
         ''', (
             fecha, data.get('dia_nombre', ''), int(data.get('efectivo_cub', 0)), int(data.get('cubiertos', 0)),
             nave_real, nave_maxi, diff_nave,
@@ -746,7 +749,8 @@ def api_recaudacion():
             mp_real, mp_maxi, diff_mp,
             banco_real, banco_maxi, diff_banco,
             total_diario, diferencia_total, proyeccion, data.get('comentario', ''), diff_proy,
-            lotes_json, es_feriado
+            lotes_json, es_feriado,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         ))
         conn.commit()
         conn.close()
@@ -787,18 +791,19 @@ def api_recaudacion_retiros():
         responsable = data.get('responsable', '')
         comentario = data.get('comentario', '')
         origen = data.get('origen', 'Recaudación')
+        now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         if item_id:
             cursor.execute('''
                 UPDATE retiros_recaudacion
-                SET fecha=?, monto=?, medio_pago=?, motivo=?, responsable=?, comentario=?, origen=?
+                SET fecha=?, monto=?, medio_pago=?, motivo=?, responsable=?, comentario=?, origen=?, updated_at=?, sync_status=0
                 WHERE id=?
-            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, origen, item_id))
+            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, origen, now_iso, item_id))
         else:
             cursor.execute('''
-                INSERT INTO retiros_recaudacion (fecha, monto, medio_pago, motivo, responsable, comentario, origen)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, origen))
+                INSERT INTO retiros_recaudacion (fecha, monto, medio_pago, motivo, responsable, comentario, origen, updated_at, sync_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            ''', (fecha, monto, medio_pago, motivo, responsable, comentario, origen, now_iso))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
@@ -859,9 +864,10 @@ def api_estacionamiento():
         total = cash + mp
         diferencia = total - caja_tc
         
+        now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            INSERT INTO estacionamiento_diario (fecha, dia_nombre, caja_ticketcontrol, controlado_cash, controlado_mp, total, diferencia, comentario)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO estacionamiento_diario (fecha, dia_nombre, caja_ticketcontrol, controlado_cash, controlado_mp, total, diferencia, comentario, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(fecha) DO UPDATE SET
                 dia_nombre=excluded.dia_nombre,
                 caja_ticketcontrol=excluded.caja_ticketcontrol,
@@ -869,8 +875,10 @@ def api_estacionamiento():
                 controlado_mp=excluded.controlado_mp,
                 total=excluded.total,
                 diferencia=excluded.diferencia,
-                comentario=excluded.comentario
-        ''', (fecha, data.get('dia_nombre', ''), caja_tc, cash, mp, total, diferencia, data.get('comentario', '')))
+                comentario=excluded.comentario,
+                updated_at=excluded.updated_at,
+                sync_status=0
+        ''', (fecha, data.get('dia_nombre', ''), caja_tc, cash, mp, total, diferencia, data.get('comentario', ''), now_iso))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
@@ -932,11 +940,12 @@ def api_estacionamiento_gastos():
         if not concepto:
             return jsonify({"error": "Concepto requerido"}), 400
             
+        now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            INSERT INTO estacionamiento_gastos (concepto, monto)
-            VALUES (?, ?)
-            ON CONFLICT(concepto) DO UPDATE SET monto=excluded.monto
-        ''', (concepto, monto))
+            INSERT INTO estacionamiento_gastos (concepto, monto, updated_at, sync_status)
+            VALUES (?, ?, ?, 0)
+            ON CONFLICT(concepto) DO UPDATE SET monto=excluded.monto, updated_at=excluded.updated_at, sync_status=0
+        ''', (concepto, monto, now_iso))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
@@ -979,11 +988,12 @@ def api_caja_chica_movimientos():
         motivo = data.get('motivo', '')
         responsable = data.get('responsable', 'Admin')
         categoria = data.get('categoria', 'General')
+        now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute('''
-            INSERT INTO caja_chica_movimientos (fecha, monto_retirado, monto_ingresado, motivo, responsable, categoria)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (fecha, retirado, ingresado, motivo, responsable, categoria))
+            INSERT INTO caja_chica_movimientos (fecha, monto_retirado, monto_ingresado, motivo, responsable, categoria, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        ''', (fecha, retirado, ingresado, motivo, responsable, categoria, now_iso))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
@@ -1463,21 +1473,73 @@ def api_meses_disponibles():
 # RUTAS COMPRAS ARCA CSV
 # ==========================================
 
-def _import_arca_csv_to_db(csv_folder):
-    """Parsea CSVs de Compras de ARCA en la carpeta y los guarda en arca_compras_csv."""
+def _crear_snapshot_arca(conn, origen='Refrescar CSV'):
+    """Toma un snapshot del estado actual de arca_compras_csv antes de una importación o actualización."""
+    import json
+    import datetime
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM arca_compras_csv")
+    total_pre = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT mes, MAX(fecha_emision) FROM arca_compras_csv WHERE mes IS NOT NULL AND mes != '' GROUP BY mes")
+    max_mes = { r[0]: r[1] for r in cursor.fetchall() if r[0] and r[1] }
+    
+    cursor.execute("SELECT mes || '_' || nro_doc_emisor, MAX(fecha_emision) FROM arca_compras_csv WHERE mes IS NOT NULL AND nro_doc_emisor IS NOT NULL GROUP BY mes, nro_doc_emisor")
+    max_prov = { r[0]: r[1] for r in cursor.fetchall() if r[0] and r[1] }
+    
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    cursor.execute('''
+        INSERT INTO arca_compras_snapshots (timestamp, origen, total_compras_pre, max_fechas_mes_json, max_fechas_proveedor_json)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (now_str, origen, total_pre, json.dumps(max_mes), json.dumps(max_prov)))
+    
+    snapshot_id = cursor.lastrowid
+    conn.commit()
+    
+    return {
+        "id": snapshot_id,
+        "total_pre": total_pre,
+        "max_mes": max_mes,
+        "max_prov": max_prov
+    }
+
+
+def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
+    """Parsea CSVs de Compras de ARCA en la carpeta y los guarda en arca_compras_csv evaluando snapshots y retroactivos."""
     import csv as csv_mod
     import io
     import datetime
+
     conn = db_manager.get_connection()
     cursor = conn.cursor()
-    total_nuevos = 0
 
-    cursor.execute("SELECT mes, MAX(fecha_emision) FROM arca_compras_csv GROUP BY mes")
-    max_fechas_pre = { r[0]: r[1] for r in cursor.fetchall() if r[0] and r[1] }
+    # 1. Snapshot previo a la carga
+    snapshot = _crear_snapshot_arca(conn, origen=origen)
+    max_mes_snapshot = snapshot["max_mes"]
+    max_prov_snapshot = snapshot["max_prov"]
+
     today_str = datetime.date.today().strftime('%Y-%m-%d')
     now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    total_nuevos = 0
+    retroactivas_nuevas = 0
+
+    # Cargar deduplicación
+    cursor.execute("SELECT fecha_emision, nro_doc_emisor, denominacion_emisor, nro_comprobante, cae FROM arca_compras_csv")
+    existentes = set()
+    for r in cursor.fetchall():
+        key1 = (str(r[0] or '').strip(), str(r[1] or '').strip(), str(r[2] or '').strip(), str(r[3] or '').strip())
+        existentes.add(key1)
+        if r[4]:
+            existentes.add(('CAE', str(r[4]).strip()))
+
     csv_files = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
+    
+    max_mes_running = dict(max_mes_snapshot)
+    max_prov_running = dict(max_prov_snapshot)
+
     for fp in csv_files:
         encodings = ['utf-8-sig', 'latin-1', 'cp1252', 'utf-8']
         content = None
@@ -1490,21 +1552,20 @@ def _import_arca_csv_to_db(csv_folder):
                 continue
         if not content:
             continue
-        
+
         reader = csv_mod.reader(io.StringIO(content), delimiter=';')
         rows = list(reader)
         if not rows:
             continue
         header = [col.strip().replace('\"', '').strip() for col in rows[0]]
-        
-        # Mapear columnas flexiblemente
+
         def find_col(names):
             for n in names:
                 for i, h in enumerate(header):
                     if n.lower() in h.lower():
                         return i
             return -1
-        
+
         idx_fecha = find_col(['Fecha de Emisión', 'Fecha de emision', 'Fecha Emision'])
         idx_pv = find_col(['Punto de Venta', 'Pto Venta'])
         idx_nro = find_col(['Nro. Doc. Emisor', 'Nro Doc Emisor', 'Nro. Documento'])
@@ -1520,12 +1581,11 @@ def _import_arca_csv_to_db(csv_folder):
                 if idx < 0 or idx >= len(row):
                     return default
                 return row[idx].strip().replace('"', '').strip()
-            
+
             fecha_em = get_val(idx_fecha)
             if not fecha_em:
                 continue
-            
-            # Parsear fecha y extraer mes
+
             mes = ''
             for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
                 try:
@@ -1535,14 +1595,20 @@ def _import_arca_csv_to_db(csv_folder):
                     break
                 except Exception:
                     continue
-            
+
             pv = get_val(idx_pv)
             nro = get_val(idx_nro)
             nombre = get_val(idx_nombre)
             cae = get_val(idx_cae)
             comp = get_val(idx_comp)
             tipo_comp = get_val(idx_tipo)
-            
+
+            key1 = (fecha_em, nro, nombre, comp)
+            if key1 in existentes:
+                continue
+            if cae and ('CAE', cae) in existentes:
+                continue
+
             try:
                 iva = float(get_val(idx_iva, '0').replace(',', '.') or 0)
             except Exception:
@@ -1551,32 +1617,46 @@ def _import_arca_csv_to_db(csv_folder):
                 total = float(get_val(idx_total, '0').replace(',', '.') or 0)
             except Exception:
                 total = 0
-            
-            # Deduplicar por fecha+nro_doc+emisor+nro_comprobante
-            cursor.execute(
-                "SELECT COUNT(*) FROM arca_compras_csv WHERE fecha_emision=? AND nro_doc_emisor=? AND denominacion_emisor=? AND nro_comprobante=?",
-                (fecha_em, nro, nombre, comp)
-            )
-            if cursor.fetchone()[0] > 0:
-                continue
-            
-            # Evaluar si es retroactiva (ingresada días para atrás respecto a facturas ya registradas)
+
+            # Clasificación de retroactividad:
+            # Es retroactiva ÚNICAMENTE si se inserta entre medio de fechas ya existentes ("abcDdefg").
+            # Es decir, su fecha_emision es estrictamente menor a la fecha máxima ya cargada en el snapshot previo para su proveedor o su mes.
             es_retro = 0
-            if mes in max_fechas_pre and max_fechas_pre[mes]:
-                if fecha_em < max_fechas_pre[mes]:
+            key_prov = f"{mes}_{nro}"
+
+            if key_prov in max_prov_snapshot and max_prov_snapshot[key_prov]:
+                if fecha_em < max_prov_snapshot[key_prov]:
                     es_retro = 1
-            elif fecha_em < today_str:
-                es_retro = 1
+            elif mes in max_mes_snapshot and max_mes_snapshot[mes]:
+                if fecha_em < max_mes_snapshot[mes]:
+                    es_retro = 1
 
             cursor.execute('''
                 INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante, tipo_comprobante, es_retroactiva, fecha_importacion)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (fecha_em, pv, nro, nombre, iva, total, mes, cae, comp, tipo_comp, es_retro, now_str))
+
             total_nuevos += 1
-    
+            if es_retro:
+                retroactivas_nuevas += 1
+
+            existentes.add(key1)
+            if cae:
+                existentes.add(('CAE', cae))
+
+            if mes not in max_mes_running or fecha_em > max_mes_running[mes]:
+                max_mes_running[mes] = fecha_em
+            if key_prov not in max_prov_running or fecha_em > max_prov_running[key_prov]:
+                max_prov_running[key_prov] = fecha_em
+
     conn.commit()
     conn.close()
-    return total_nuevos
+
+    return {
+        "nuevas_importadas": total_nuevos,
+        "retroactivas_nuevas": retroactivas_nuevas,
+        "snapshot_id": snapshot["id"]
+    }
 
 
 @app.route('/api/arca_compras', methods=['GET'])
@@ -1636,13 +1716,14 @@ def api_arca_marcar_pago(item_id):
     data = request.json or {}
     metodo = data.get('metodo_pago', '')  # 'Efectivo/Caja Chica', 'Banco/Transferencia', 'MercadoPago/Digital'
     fecha_pago = data.get('fecha_pago', datetime.now().strftime('%Y-%m-%d'))
+    now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     cursor.execute("SELECT * FROM arca_compras_csv WHERE id=?", (item_id,))
     arca_row = cursor.fetchone()
     
     cursor.execute(
-        "UPDATE arca_compras_csv SET estado='Pagado', metodo_pago=?, fecha_pago=? WHERE id=?",
-        (metodo, fecha_pago, item_id)
+        "UPDATE arca_compras_csv SET estado='Pagado', metodo_pago=?, fecha_pago=?, updated_at=?, sync_status=0 WHERE id=?",
+        (metodo, fecha_pago, now_iso, item_id)
     )
     
     # Sincronizar pago con Cuentas por Pagar (Archivos procesados)
@@ -1664,9 +1745,9 @@ def api_arca_marcar_pago(item_id):
                 if match and int(match.group(1)) == pv and int(match.group(2)) == nro:
                     cursor.execute('''
                         UPDATE proveedores_cuentas_pagar
-                        SET estado='Pagado', monto_pagado=monto_total, fecha_pago=?, medio_pago=?
+                        SET estado='Pagado', monto_pagado=monto_total, fecha_pago=?, medio_pago=?, updated_at=?, sync_status=0
                         WHERE id=?
-                    ''', (fecha_pago, cp_metodo, cp_row['id']))
+                    ''', (fecha_pago, cp_metodo, now_iso, cp_row['id']))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -1676,12 +1757,13 @@ def api_arca_marcar_pago(item_id):
 def api_arca_desmarcar_pago(item_id):
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute("SELECT * FROM arca_compras_csv WHERE id=?", (item_id,))
     arca_row = cursor.fetchone()
 
     cursor.execute(
-        "UPDATE arca_compras_csv SET estado='Pendiente', metodo_pago='', fecha_pago='' WHERE id=?",
-        (item_id,)
+        "UPDATE arca_compras_csv SET estado='Pendiente', metodo_pago='', fecha_pago='', updated_at=?, sync_status=0 WHERE id=?",
+        (now_iso, item_id)
     )
     
     # Sincronizar desmarcar pago con Cuentas por Pagar
@@ -1699,9 +1781,9 @@ def api_arca_desmarcar_pago(item_id):
                 if match and int(match.group(1)) == pv and int(match.group(2)) == nro:
                     cursor.execute('''
                         UPDATE proveedores_cuentas_pagar
-                        SET estado='Pendiente', monto_pagado=0, fecha_pago='', medio_pago=''
+                        SET estado='Pendiente', monto_pagado=0, fecha_pago='', medio_pago='', updated_at=?, sync_status=0
                         WHERE id=?
-                    ''', (cp_row['id'],))
+                    ''', (now_iso, cp_row['id']))
                     
     conn.commit()
     conn.close()
@@ -1713,9 +1795,10 @@ def api_arca_marcar_recibida(item_id):
     """Marca la factura del proveedor como recibida fisicamente (desde el escáner o manualmente)."""
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute(
-        "UPDATE arca_compras_csv SET factura_recibida=1 WHERE id=?",
-        (item_id,)
+        "UPDATE arca_compras_csv SET factura_recibida=1, updated_at=?, sync_status=0 WHERE id=?",
+        (now_iso, item_id)
     )
     conn.commit()
     conn.close()
@@ -1724,12 +1807,25 @@ def api_arca_marcar_recibida(item_id):
 
 @app.route('/api/arca_compras/sync_from_csv', methods=['POST'])
 def api_arca_sync_from_csv():
-    """Importa las compras del CSV de ARCA a la tabla arca_compras_csv."""
+    """Importa/refresca las compras del CSV de ARCA a la tabla arca_compras_csv con snapshot de inserción secuencial."""
     try:
-        n = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER)
-        return jsonify({"success": True, "importados": n, "message": f"{n} nuevas compras importadas desde ARCA"})
+        res = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER, origen='Refrescar CSV')
+        n = res.get("nuevas_importadas", 0)
+        r_nuevas = res.get("retroactivas_nuevas", 0)
+        
+        msg = f"{n} facturas nuevas importadas desde CSV."
+        if r_nuevas > 0:
+            msg += f" {r_nuevas} facturas retroactivas detectadas."
+            
+        return jsonify({
+            "success": True, 
+            "importados": n, 
+            "retroactivas_nuevas": r_nuevas,
+            "message": msg
+        })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
 @app.route('/api/test/marcar_mes_pagado', methods=['POST'])
 def api_test_marcar_mes_pagado():
     data = request.json
@@ -1739,11 +1835,16 @@ def api_test_marcar_mes_pagado():
         
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute('''
         UPDATE arca_compras_csv 
-        SET estado = 'Pagado', metodo_pago = 'M1', fecha_pago = date('now')
+        SET estado = 'Pagado', metodo_pago = 'M1', fecha_pago = date('now'), updated_at=?, sync_status=0
         WHERE mes = ? AND estado != 'Pagado'
-    ''', (mes,))
+    ''', (now_iso, mes))
+    
+    actualizados = cursor.rowcount
+    conn.commit()
+    conn.close()
     
     actualizados = cursor.rowcount
     conn.commit()

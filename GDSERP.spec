@@ -1,10 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('templates', 'templates/'), ('static', 'static/')]
+datas = [('templates', 'templates'), ('static', 'static')]
 binaries = []
-hiddenimports = ['selenium.webdriver.edge.webdriver', 'selenium.webdriver.chrome.webdriver', 'selenium.webdriver.edge.options', 'selenium.webdriver.chrome.options', 'selenium.webdriver.common.by', 'selenium.webdriver.support.ui', 'selenium.webdriver.support.expected_conditions']
+hiddenimports = ['firebase_admin', 'firebase_admin.credentials', 'firebase_admin.firestore', 'firebase_sync', 'db_manager', 'sqlite3', 'selenium.webdriver.edge.webdriver', 'selenium.webdriver.chrome.webdriver']
 tmp_ret = collect_all('selenium')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('firebase_admin')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('google')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
