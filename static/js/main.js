@@ -2057,11 +2057,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 3. Estacionamiento Diario
+    let currentEstacionamientoRecords = [];
+
     async function fetchEstacionamiento() {
         try {
             const url = '/api/estacionamiento' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const res = await fetch(url);
             const data = await res.json();
+
+            currentEstacionamientoRecords = data.registros || [];
 
             document.getElementById('est-stat-cash').textContent = formatCurrency(data.totales.total_cash);
             document.getElementById('est-stat-mp').textContent = formatCurrency(data.totales.total_mp);
@@ -2086,16 +2090,16 @@ document.addEventListener('DOMContentLoaded', () => {
             let inlineRowHtml = `
                 <tr class="tr-inline-add" id="row-inline-add-est">
                     <td><input type="date" class="form-input-inline" id="est-in-fecha" value="${yesterdayStr}"></td>
-                    <td><input type="text" class="form-input-inline" id="est-in-dia" value="${dayNameStr}" style="width: 100px;"></td>
+                    <td><input type="text" class="form-input-inline" id="est-in-dia" value="${dayNameStr}"></td>
                     <td><input type="number" class="form-input-inline" id="est-in-tc" placeholder="0"></td>
                     <td><input type="number" class="form-input-inline" id="est-in-cash" placeholder="0"></td>
                     <td><input type="number" class="form-input-inline" id="est-in-mp" placeholder="0"></td>
                     <td><span id="est-in-total-val" style="font-weight:700; color:#10b981;">$0</span></td>
                     <td><span id="est-in-diff-val" class="diff-tag zero">$0</span></td>
                     <td><input type="text" class="form-input-inline" id="est-in-comentario" placeholder="Comentario u observación..."></td>
-                    <td>
+                    <td style="text-align: center;">
                         <button class="btn btn-primary btn-sm" id="btn-save-inline-est" title="Guardar nuevo día">
-                            <i class="fa-solid fa-floppy-disk"></i> Guardar
+                            <i class="fa-solid fa-floppy-disk"></i>
                         </button>
                     </td>
                 </tr>
@@ -2105,16 +2109,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.registros && data.registros.length > 0) {
                 recordsHtml = data.registros.map(r => `
                     <tr>
-                        <td>${escapeHtml(r.fecha)}</td>
+                        <td><strong>${escapeHtml(r.fecha)}</strong></td>
                         <td>${escapeHtml(r.dia_nombre)}</td>
                         <td>${formatCurrency(r.caja_ticketcontrol)}</td>
                         <td>${formatCurrency(r.controlado_cash)}</td>
                         <td>${formatCurrency(r.controlado_mp)}</td>
                         <td><strong>${formatCurrency(r.total)}</strong></td>
                         <td>${renderDiffTag(r.diferencia)}</td>
-                        <td>${escapeHtml(r.comentario || '')}</td>
-                        <td style="display: flex; gap: 4px;">
-                            <button class="btn btn-secondary btn-sm" onclick="editarDiaEstacionamiento('${r.fecha}', '${escapeHtml(r.dia_nombre)}', ${r.caja_ticketcontrol}, ${r.controlado_cash}, ${r.controlado_mp}, '${escapeHtml(r.comentario || '').replace(/'/g, "\\'")}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                        <td title="${escapeHtml(r.comentario || '')}">${escapeHtml(r.comentario || '-')}</td>
+                        <td style="display: flex; gap: 4px; justify-content: center;">
+                            <button class="btn btn-secondary btn-sm" onclick="editarDiaEstacionamiento('${r.fecha}')" title="Editar"><i class="fa-solid fa-pen"></i></button>
                             <button class="btn btn-secondary btn-sm" onclick="eliminarDiaEstacionamiento('${r.fecha}')" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
                         </td>
                     </tr>
@@ -2159,21 +2163,203 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
 
-            // Chart
-            const labelsEst = data.registros ? data.registros.map(r => r.fecha.substring(5)) : [];
-            const totalesEst = data.registros ? data.registros.map(r => r.total) : [];
-
+            // --- Chart with Trend & Projection ---
             await waitForChart();
+
+            let labelsEst = [];
+            let realDataset = [];
+            let trendDataset = [];
+            let projectedDataset = [];
+
+            const records = data.registros || [];
+            const recordMap = {};
+            records.forEach(r => { recordMap[r.fecha] = r.total; });
+
+            let targetYear, targetMonth;
+            if (currentSelectedMonth && currentSelectedMonth !== 'all' && currentSelectedMonth.length === 7) {
+                const [y, m] = currentSelectedMonth.split('-');
+                targetYear = parseInt(y, 10);
+                targetMonth = parseInt(m, 10);
+            } else if (records.length > 0) {
+                const [y, m] = records[0].fecha.split('-');
+                targetYear = parseInt(y, 10);
+                targetMonth = parseInt(m, 10);
+            } else {
+                const now = new Date();
+                targetYear = now.getFullYear();
+                targetMonth = now.getMonth() + 1;
+            }
+
+            const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+            const monthStr = String(targetMonth).padStart(2, '0');
+
+            const points = [];
+            let sumReal = 0;
+            let countReal = 0;
+            let lastRecordedDayIdx = -1;
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayStr = String(day).padStart(2, '0');
+                const fullDate = `${targetYear}-${monthStr}-${dayStr}`;
+                labelsEst.push(`${dayStr}/${monthStr}`);
+
+                if (recordMap.hasOwnProperty(fullDate)) {
+                    const val = recordMap[fullDate];
+                    realDataset.push(val);
+                    points.push({ x: day, y: val });
+                    sumReal += val;
+                    countReal++;
+                    lastRecordedDayIdx = day - 1;
+                } else {
+                    realDataset.push(null);
+                }
+            }
+
+            let slope = 0, intercept = 0;
+            if (countReal > 1) {
+                let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+                points.forEach(p => {
+                    sumX += p.x;
+                    sumY += p.y;
+                    sumXY += p.x * p.y;
+                    sumXX += p.x * p.x;
+                });
+                const denom = (countReal * sumXX - sumX * sumX);
+                if (denom !== 0) {
+                    slope = (countReal * sumXY - sumX * sumY) / denom;
+                    intercept = (sumY - slope * sumX) / countReal;
+                } else {
+                    intercept = sumY / countReal;
+                }
+            } else if (countReal === 1) {
+                intercept = points[0].y;
+            }
+
+            const avgDaily = countReal > 0 ? sumReal / countReal : 0;
+            let projectedMonthTotal = sumReal;
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayIdx = day - 1;
+                const trendVal = countReal > 0 ? Math.max(0, Math.round(slope * day + intercept)) : null;
+                trendDataset.push(trendVal);
+
+                if (dayIdx < lastRecordedDayIdx) {
+                    projectedDataset.push(null);
+                } else if (dayIdx === lastRecordedDayIdx) {
+                    projectedDataset.push(realDataset[dayIdx]);
+                } else {
+                    const projVal = countReal > 0 ? Math.max(0, Math.round((avgDaily + (trendVal || avgDaily)) / 2)) : 0;
+                    projectedDataset.push(projVal);
+                    projectedMonthTotal += projVal;
+                }
+            }
+
+            const elProm = document.getElementById('est-stat-prom-diario');
+            const elProy = document.getElementById('est-stat-proy-mes');
+            const cardProyVal = document.getElementById('est-stat-proyeccion-card');
+            const cardProy = document.getElementById('card-est-proyeccion');
+
+            if (elProm) elProm.textContent = formatCurrency(avgDaily);
+            if (elProy) elProy.textContent = formatCurrency(projectedMonthTotal);
+
+            const chkProy = document.getElementById('chk-toggle-proyeccion-est');
+            const showProjection = chkProy ? chkProy.checked : true;
+
+            if (cardProyVal) cardProyVal.textContent = showProjection ? formatCurrency(projectedMonthTotal) : '$0 (Desactivada)';
+            if (cardProy) cardProy.style.opacity = showProjection ? '1' : '0.45';
+
             if (chartEstacionamientoInst) chartEstacionamientoInst.destroy();
             const ctx = document.getElementById('chartEstacionamiento').getContext('2d');
             chartEstacionamientoInst = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labelsEst,
-                    datasets: [{ label: 'Total Diario ($)', data: totalesEst, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true }]
+                    datasets: [
+                        {
+                            label: 'Recaudación Real ($)',
+                            data: realDataset,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                            fill: true,
+                            tension: 0.25,
+                            pointRadius: 4,
+                            pointBackgroundColor: '#10b981'
+                        },
+                        {
+                            label: 'Tendencia ($)',
+                            data: trendDataset,
+                            borderColor: '#3b82f6',
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            fill: false,
+                            pointRadius: 0,
+                            hidden: !showProjection
+                        },
+                        {
+                            label: 'Proyección ($)',
+                            data: projectedDataset,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                            borderWidth: 2,
+                            borderDash: [3, 3],
+                            fill: true,
+                            tension: 0.25,
+                            pointRadius: 3,
+                            pointBackgroundColor: '#f59e0b',
+                            hidden: !showProjection
+                        }
+                    ]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: '#64748b', font: { weight: '600' } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function (context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (context.parsed.y !== null) {
+                                        label += formatCurrency(context.parsed.y);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y: {
+                            ticks: {
+                                color: '#64748b',
+                                callback: function (val) { return '$' + val.toLocaleString('es-AR'); }
+                            },
+                            grid: { color: 'rgba(0,0,0,0.05)' }
+                        }
+                    }
+                }
             });
+
+            if (chkProy) {
+                const updateToggleState = function () {
+                    const isChecked = chkProy.checked;
+                    if (chartEstacionamientoInst) {
+                        chartEstacionamientoInst.setDatasetVisibility(1, isChecked);
+                        chartEstacionamientoInst.setDatasetVisibility(2, isChecked);
+                        chartEstacionamientoInst.update();
+                    }
+                    const statsEl = document.getElementById('est-projection-stats');
+                    if (statsEl) statsEl.style.opacity = isChecked ? '1' : '0.45';
+                    if (cardProy) cardProy.style.opacity = isChecked ? '1' : '0.45';
+                    if (cardProyVal) {
+                        cardProyVal.textContent = isChecked ? formatCurrency(projectedMonthTotal) : '$0 (Desactivada)';
+                    }
+                };
+                chkProy.onchange = updateToggleState;
+                chkProy.onclick = function (e) { e.stopPropagation(); updateToggleState(); };
+            }
 
             // Cargar gastos fijos y retiros independientes del Estacionamiento
             fetchEstacionamientoGastos();
@@ -3404,17 +3590,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    window.editarDiaEstacionamiento = function (fecha, dia_nombre, tc, cash, mp, comentario) {
-        document.getElementById('est-in-fecha').value = fecha || '';
-        if (typeof updateEstacionamientoDiaAuto === 'function') {
-            updateEstacionamientoDiaAuto();
+    window.editarDiaEstacionamiento = function (fecha) {
+        const rec = (currentEstacionamientoRecords || []).find(r => r.fecha === fecha);
+        if (rec) {
+            document.getElementById('est-in-fecha').value = rec.fecha || '';
+            document.getElementById('est-in-dia').value = rec.dia_nombre || '';
+            document.getElementById('est-in-tc').value = rec.caja_ticketcontrol ?? '';
+            document.getElementById('est-in-cash').value = rec.controlado_cash ?? '';
+            document.getElementById('est-in-mp').value = rec.controlado_mp ?? '';
+            document.getElementById('est-in-comentario').value = rec.comentario || '';
         } else {
-            document.getElementById('est-in-dia').value = dia_nombre || '';
+            document.getElementById('est-in-fecha').value = fecha || '';
+            if (typeof updateEstacionamientoDiaAuto === 'function') {
+                updateEstacionamientoDiaAuto();
+            }
         }
-        document.getElementById('est-in-tc').value = tc || '';
-        document.getElementById('est-in-cash').value = cash || '';
-        document.getElementById('est-in-mp').value = mp || '';
-        document.getElementById('est-in-comentario').value = comentario || '';
 
         const rowInline = document.getElementById('row-inline-add-est');
         if (rowInline) {
@@ -4001,8 +4191,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function isStrictNumericInput(el) {
         if (!el || el.tagName !== 'INPUT') return false;
-        if (el.id === 'rec-modal-fecha' || el.id === 'modal-retiro-fecha' || el.id === 'est-in-fecha') return false;
-        return el.type === 'number' || el.inputMode === 'numeric' || el.classList.contains('billete-input') || el.classList.contains('input-lote-monto') || el.classList.contains('form-input-inline') || el.id?.includes('monto') || el.id?.includes('real') || el.id?.includes('maxi') || el.id?.includes('cubiertos') || el.id?.includes('cash') || el.id?.includes('mp') || el.id?.includes('tc');
+        if (el.type === 'text' || el.type === 'date' || el.type === 'search') return false;
+        if (el.id === 'rec-modal-fecha' || el.id === 'modal-retiro-fecha' || el.id === 'est-in-fecha' || el.id === 'est-in-comentario' || el.id === 'est-in-dia' || el.id?.includes('comentario')) return false;
+        return el.type === 'number' || el.inputMode === 'numeric' || el.classList.contains('billete-input') || el.classList.contains('input-lote-monto') || el.id?.includes('monto') || el.id?.includes('real') || el.id?.includes('maxi') || el.id?.includes('cubiertos') || el.id?.includes('cash') || el.id?.includes('mp') || el.id?.includes('tc');
     }
 
     document.addEventListener('keydown', (e) => {

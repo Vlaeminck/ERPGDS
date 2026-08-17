@@ -1225,30 +1225,76 @@ body {
 }
 
 /* ==========================================
-   INLINE TABLE ROW FORMS
+   INLINE TABLE ROW FORMS & ESTACIONAMIENTO LAYOUT
    ========================================== */
+.estacionamiento-table-container {
+    overflow-x: hidden !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.estacionamiento-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    box-sizing: border-box !important;
+}
+
+.estacionamiento-table th {
+    padding: 0.5rem 0.25rem !important;
+    font-size: 0.7rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box !important;
+}
+
+.estacionamiento-table td {
+    padding: 0.4rem 0.25rem !important;
+    font-size: 0.78rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    box-sizing: border-box !important;
+}
+
 .tr-inline-add {
-    background: rgba(30, 41, 59, 0.95) !important;
-    border-top: 2px solid rgba(59, 130, 246, 0.45) !important;
-    border-bottom: 2px solid rgba(59, 130, 246, 0.45) !important;
+    background: oklch(97% 0.015 240) !important;
+    border-top: 2px solid #3b82f6 !important;
+    border-bottom: 2px solid #3b82f6 !important;
 }
 
 .tr-inline-add td {
-    padding: 0.75rem 0.5rem !important;
+    padding: 0.35rem 0.2rem !important;
     vertical-align: middle;
+    color: var(--text-primary) !important;
 }
 
 .form-input-inline {
     width: 100%;
-    padding: 0.45rem 0.6rem;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.5rem;
     border-radius: 7px;
     border: 1px solid #cbd5e1;
     background: #ffffff;
     color: #0f172a;
     font-family: inherit;
-    font-size: 0.83rem;
+    font-size: 0.8rem;
     font-weight: 600;
     transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.estacionamiento-table .form-input-inline {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 0.3rem 0.3rem !important;
+    font-size: 0.76rem !important;
 }
 
 .form-input-inline::placeholder {

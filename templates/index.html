@@ -1007,11 +1007,39 @@
                             <p class="stat-number" id="est-stat-neta">$0</p>
                         </div>
                     </div>
+                    <div class="glass-card stat-card" id="card-est-proyeccion" style="transition: opacity 0.3s;">
+                        <div class="stat-icon" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        </div>
+                        <div class="stat-details">
+                            <h3>Proyección Fin de Mes</h3>
+                            <p class="stat-number" id="est-stat-proyeccion-card" style="color: #f59e0b;">$0</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="glass-card" style="margin-top: 1.5rem; padding: 1.5rem;">
-                    <h3><i class="fa-solid fa-chart-simple"></i> Tendencia de Ingresos Estacionamiento</h3>
-                    <div style="height: 220px; margin-top: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+                        <div>
+                            <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="fa-solid fa-chart-line" style="color: #3b82f6;"></i> Tendencia y Proyección Estacionamiento
+                            </h3>
+                            <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--text-secondary);">
+                                Evolución diaria con tendencia lineal y proyección a fin de mes.
+                            </p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
+                            <div id="est-projection-stats" style="font-size: 0.82rem; font-weight: 600; color: var(--text-primary); background: rgba(59, 130, 246, 0.08); padding: 0.4rem 0.8rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2); display: flex; gap: 1rem;">
+                                <span>Prom. Diario: <strong id="est-stat-prom-diario" style="color: #3b82f6;">$0</strong></span>
+                                <span>Proyección Mes: <strong id="est-stat-proy-mes" style="color: #f59e0b;">$0</strong></span>
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--text-primary); user-select: none;">
+                                <input type="checkbox" id="chk-toggle-proyeccion-est" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: #3b82f6;">
+                                <span>Activar Proyección & Tendencia</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div style="height: 250px; margin-top: 0.5rem;">
                         <canvas id="chartEstacionamiento"></canvas>
                     </div>
                 </div>
@@ -1025,19 +1053,19 @@
                             <i class="fa-solid fa-plus"></i> Cargar Día
                         </button>
                     </div>
-                    <div class="table-container">
-                        <table class="data-table">
+                    <div class="table-container estacionamiento-table-container">
+                        <table class="data-table estacionamiento-table">
                             <thead>
                                 <tr>
-                                    <th>Fecha</th>
-                                    <th>Día</th>
-                                    <th>Caja TicketControl</th>
-                                    <th>Controlado Cash</th>
-                                    <th>Controlado MP</th>
-                                    <th>Total Cobrado</th>
-                                    <th>Diferencia</th>
-                                    <th>Comentario</th>
-                                    <th>Acción</th>
+                                    <th style="width: 12%;">Fecha</th>
+                                    <th style="width: 8%;">Día</th>
+                                    <th style="width: 11%;">TicketControl</th>
+                                    <th style="width: 11%;">Cash</th>
+                                    <th style="width: 11%;">MercadoPago</th>
+                                    <th style="width: 11%;">Total</th>
+                                    <th style="width: 9%;">Diferencia</th>
+                                    <th style="width: 20%;">Comentario / Observación</th>
+                                    <th style="width: 7%; text-align: center;">Acción</th>
                                 </tr>
                             </thead>
                             <tbody id="tbl-estacionamiento-body">
