@@ -286,6 +286,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     if (expBanner) expBanner.style.display = 'none';
                 }
+                if (force) {
+                    showToast('Licencia sincronizada y validada con éxito', 'success');
+                }
             } else {
                 isLicenseValid = false;
                 if (licenseStatusBadge) {
@@ -331,10 +334,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnSyncLicense) {
         btnSyncLicense.addEventListener('click', async () => {
             const icon = btnSyncLicense.querySelector('i');
-            icon.classList.add('fa-spin');
+            if (icon) icon.classList.add('fa-spin');
             await fetchLicenseStatus(true);
-            icon.classList.remove('fa-spin');
-            showToast('Licencia sincronizada con Firebase', 'success');
+            if (icon) icon.classList.remove('fa-spin');
         });
     }
 

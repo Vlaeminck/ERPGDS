@@ -76,6 +76,7 @@ def check_license_status(force_network=False):
             should_fetch = False
             data = cached_data
 
+    error_detail = None
     if should_fetch:
         # URL de consulta: https://pdfw-licencias-default-rtdb.firebaseio.com/licenses/HW-XXXX-YYYY.json
         url = f"{FIREBASE_DB_URL}/licenses/{hw_id}.json"
@@ -90,13 +91,21 @@ def check_license_status(force_network=False):
                     trial_expires = (datetime.date.today() + datetime.timedelta(days=15)).strftime("%Y-%m-%d")
                     trial_data = {"active": True, "expires": trial_expires, "type": "trial"}
                     try:
-                        requests.put(url, json=trial_data, timeout=5)
-                        data = trial_data
-                        save_cache(data)
+                        put_res = requests.put(url, json=trial_data, timeout=5)
+                        if put_res.status_code == 200:
+                            data = trial_data
+                            save_cache(data)
                     except requests.RequestException:
                         data = None
-        except requests.RequestException:
-            # Error de conexión, usamos el caché aunque sea viejo
+            elif response.status_code == 401:
+                error_detail = "Error 401 en Firebase: Permisos denegados (Permission Denied). Configura las reglas de lectura en Firebase Realtime Database."
+                print(f"[LICENCIA] {error_detail}", flush=True)
+                data = cached_data
+            else:
+                error_detail = f"Respuesta de Firebase HTTP {response.status_code}"
+                data = cached_data
+        except requests.RequestException as req_err:
+            error_detail = f"Error de conexión con Firebase: {req_err}"
             data = cached_data
     
     if data and isinstance(data, dict):
@@ -133,10 +142,11 @@ def check_license_status(force_network=False):
         _memory_cache = result
         return result
     else:
+        msg = error_detail if error_detail else "Licencia no encontrada o sin conexión a internet"
         result = {
             "valid": False,
             "hw_id": hw_id,
-            "message": "Licencia no encontrada o sin conexión a internet",
+            "message": msg,
             "details": None,
             "days_left": None
         }
