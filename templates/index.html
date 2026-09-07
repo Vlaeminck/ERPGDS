@@ -646,7 +646,18 @@
                                     Facturas emitidas por proveedores según el CSV de ARCA &mdash; Sincronizar ARCA para actualizar
                                 </p>
                             </div>
-                            <div style="display: flex; gap: 8px; align-items: center;">
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                <button class="btn btn-sm" id="btn-export-arca-excel" onclick="exportarArcaExcel()"
+                                    style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600; padding: 0.45rem 0.85rem;"
+                                    title="Exportar compras y estado de pagos a archivo Excel (.xlsx)">
+                                    <i class="fa-solid fa-file-excel"></i> Exportar Excel
+                                </button>
+                                <button class="btn btn-sm" id="btn-import-arca-excel" onclick="triggerImportArcaExcel()"
+                                    style="background: rgba(13, 148, 136, 0.1); color: #0f766e; border: 1px solid rgba(13, 148, 136, 0.3); font-weight: 600; padding: 0.45rem 0.85rem;"
+                                    title="Importar modificaciones trabajadas en hoja de Excel (.xlsx)">
+                                    <i class="fa-solid fa-file-arrow-up"></i> Importar Excel
+                                </button>
+                                <input type="file" id="input-import-arca-excel" accept=".xlsx, .xls" style="display: none;" onchange="handleImportArcaExcel(event)">
                                 <button class="btn btn-outline-primary btn-sm" id="btn-refrescar-csv" onclick="refrescarArcaCSV()"
                                     style="background: rgba(59, 130, 246, 0.08); color: var(--primary-color); border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600; padding: 0.45rem 0.85rem;"
                                     title="Re-leer los archivos CSV de la carpeta CSV ARCA y evaluar facturas retroactivas">

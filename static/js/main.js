@@ -3068,6 +3068,75 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    window.exportarArcaExcel = function () {
+        const localMonthFilter = document.getElementById('arca-month-filter');
+        let selectedMonth = currentSelectedMonth;
+        if (localMonthFilter && localMonthFilter.value !== 'all') {
+            selectedMonth = localMonthFilter.value;
+        } else if (localMonthFilter && localMonthFilter.value === 'all') {
+            selectedMonth = 'all';
+        }
+
+        const mesParam = selectedMonth ? '?mes=' + encodeURIComponent(selectedMonth) : '';
+        showToast('Generando archivo Excel...', 'info');
+        window.location.href = '/api/arca_compras/export_excel' + mesParam;
+    };
+
+    window.triggerImportArcaExcel = function () {
+        const input = document.getElementById('input-import-arca-excel');
+        if (input) {
+            input.value = '';
+            input.click();
+        }
+    };
+
+    window.handleImportArcaExcel = async function (event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        const btn = document.getElementById('btn-import-arca-excel');
+        let origHtml = '';
+        if (btn) {
+            origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Importando Excel...`;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch('/api/arca_compras/import_excel', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                showToast(data.message || 'Excel importado correctamente', 'success');
+                if (typeof fetchArcaComprasLocal === 'function') {
+                    fetchArcaComprasLocal();
+                } else {
+                    fetchArcaCompras();
+                }
+                if (typeof fetchCuentasPorPagar === 'function') {
+                    fetchCuentasPorPagar();
+                }
+            } else {
+                showToast('Error al importar Excel: ' + (data.message || 'Desconocido'), 'error');
+            }
+        } catch (e) {
+            console.error("Error al importar Excel:", e);
+            showToast('Error de conexión al subir el archivo Excel', 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+            if (event.target) event.target.value = '';
+        }
+    };
+
     async function fetchArcaCompras() {
         try {
             const localMonthFilter = document.getElementById('arca-month-filter');

@@ -4,7 +4,7 @@ import time
 import threading
 import importlib
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
 from werkzeug.utils import secure_filename
 from watcher import watcher_manager
 from update_suppliers import update_config_suppliers
@@ -1825,6 +1825,452 @@ def api_arca_sync_from_csv():
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/arca_compras/export_excel', methods=['GET'])
+def api_arca_export_excel():
+    """Genera y descarga un archivo Excel (.xlsx) con las compras ARCA y su estado actual."""
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    try:
+        mes = request.args.get('mes')
+        if mes and mes != 'all':
+            cursor.execute("SELECT * FROM arca_compras_csv WHERE mes = ? ORDER BY fecha_emision DESC", (mes,))
+            filename_part = mes
+        else:
+            cursor.execute("SELECT * FROM arca_compras_csv ORDER BY fecha_emision DESC")
+            filename_part = "todas"
+        
+        rows = [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Compras ARCA ({filename_part})"[:31]
+
+    # Estilos
+    header_font = Font(name='Segoe UI', size=11, bold=True, color='FFFFFF')
+    header_fill = PatternFill(start_color='1E293B', end_color='1E293B', fill_type='solid') # Navy slate
+    header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    data_font = Font(name='Segoe UI', size=10)
+    bold_font = Font(name='Segoe UI', size=10, bold=True)
+    
+    fill_pagado = PatternFill(start_color='DCFCE7', end_color='DCFCE7', fill_type='solid') # Light green
+    font_pagado = Font(name='Segoe UI', size=10, bold=True, color='166534')
+    fill_pendiente = PatternFill(start_color='FEF3C7', end_color='FEF3C7', fill_type='solid') # Light amber
+    font_pendiente = Font(name='Segoe UI', size=10, bold=True, color='92400E')
+
+    thin_border_side = Side(style='thin', color='CBD5E1')
+    cell_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+
+    headers = [
+        ("ID", 8),
+        ("Fecha Emisión", 14),
+        ("Denominación Emisor", 38),
+        ("CUIT Emisor", 16),
+        ("Punto Venta", 13),
+        ("Nro. Comprobante", 17),
+        ("Tipo Comprobante", 17),
+        ("CAE", 18),
+        ("Total IVA ($)", 15),
+        ("Imp. Total ($)", 16),
+        ("Factura Recibida", 16),
+        ("Estado", 14),
+        ("Método de Pago", 20),
+        ("Fecha Pago", 14)
+    ]
+
+    # Escribir cabecera
+    for col_idx, (h_name, width) in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h_name)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = cell_border
+        col_letter = get_column_letter(col_idx)
+        ws.column_dimensions[col_letter].width = width
+
+    ws.row_dimensions[1].height = 28
+
+    # Escribir filas
+    for row_idx, r in enumerate(rows, start=2):
+        ws.row_dimensions[row_idx].height = 20
+        estado_str = str(r.get('estado') or 'Pendiente').strip()
+        recibida_str = "Sí" if r.get('factura_recibida') else "No"
+
+        row_values = [
+            r.get('id'),
+            r.get('fecha_emision') or '',
+            r.get('denominacion_emisor') or '',
+            str(r.get('nro_doc_emisor') or ''),
+            str(r.get('punto_venta') or ''),
+            str(r.get('nro_comprobante') or ''),
+            r.get('tipo_comprobante') or '',
+            str(r.get('cae') or ''),
+            float(r.get('total_iva') or 0),
+            float(r.get('imp_total') or 0),
+            recibida_str,
+            estado_str,
+            r.get('metodo_pago') or '',
+            r.get('fecha_pago') or ''
+        ]
+
+        for col_idx, val in enumerate(row_values, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.font = data_font
+            cell.border = cell_border
+
+            # Formatos de alineación y número según columna
+            if col_idx == 1: # ID
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            elif col_idx == 2: # Fecha Emisión
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            elif col_idx == 3: # Denominación
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+                cell.font = bold_font
+            elif col_idx in (4, 5, 6, 7, 8): # CUIT, PV, Nro, Tipo, CAE
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            elif col_idx in (9, 10): # IVA, Total
+                cell.alignment = Alignment(horizontal='right', vertical='center')
+                cell.number_format = '$#,##0.00'
+                cell.font = bold_font
+            elif col_idx == 11: # Factura Recibida
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                if val == "Sí":
+                    cell.font = Font(name='Segoe UI', size=10, bold=True, color='047857')
+            elif col_idx == 12: # Estado
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                if estado_str == 'Pagado':
+                    cell.fill = fill_pagado
+                    cell.font = font_pagado
+                else:
+                    cell.fill = fill_pendiente
+                    cell.font = font_pendiente
+            elif col_idx in (13, 14): # Método Pago, Fecha Pago
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    ws.freeze_panes = 'A2'
+    if rows:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"Compras_ARCA_{filename_part}_{timestamp}.xlsx"
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename
+    )
+
+
+@app.route('/api/arca_compras/import_excel', methods=['POST'])
+def api_arca_import_excel():
+    """Importa o actualiza compras ARCA desde un archivo Excel (.xlsx o .xls)."""
+    import io
+    import re
+    import openpyxl
+
+    if 'file' not in request.files:
+        return jsonify({"success": False, "message": "No se seleccionó ningún archivo"}), 400
+        
+    file = request.files['file']
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "Archivo no válido"}), 400
+
+    filename_lower = file.filename.lower()
+    if not (filename_lower.endswith('.xlsx') or filename_lower.endswith('.xls')):
+        return jsonify({"success": False, "message": "El formato del archivo debe ser Excel (.xlsx)"}), 400
+
+    try:
+        wb = openpyxl.load_workbook(file, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error al abrir el archivo Excel: {str(e)}"}), 400
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows or len(rows) < 2:
+        return jsonify({"success": False, "message": "El archivo Excel está vacío o no contiene filas de datos."}), 400
+
+    # Analizar cabecera (Fila 1)
+    raw_header = [str(col or '').strip().lower() for col in rows[0]]
+
+    def find_col_idx(patterns):
+        for pat in patterns:
+            for idx, h in enumerate(raw_header):
+                if pat in h:
+                    return idx
+        return -1
+
+    idx_id = find_col_idx(['id', 'código', 'codigo'])
+    idx_fecha = find_col_idx(['fecha emisión', 'fecha emision', 'fecha_emision', 'fecha'])
+    idx_denom = find_col_idx(['denominación', 'denominacion', 'emisor', 'proveedor', 'razon social', 'razón social'])
+    idx_cuit = find_col_idx(['cuit', 'nro doc', 'nro_doc', 'documento'])
+    idx_pv = find_col_idx(['punto venta', 'punto_venta', 'pto venta', 'pto_venta', 'pv'])
+    idx_nro_comp = find_col_idx(['nro. comprobante', 'nro comprobante', 'nro_comprobante', 'comprobante', 'factura', 'numero'])
+    idx_tipo = find_col_idx(['tipo comprobante', 'tipo_comprobante', 'tipo'])
+    idx_cae = find_col_idx(['cae', 'cód. autorización', 'cod autorizacion'])
+    idx_iva = find_col_idx(['iva', 'total iva'])
+    idx_total = find_col_idx(['imp. total', 'imp total', 'importe total', 'total'])
+    idx_recibida = find_col_idx(['factura recibida', 'recibida', 'recibido'])
+    idx_estado = find_col_idx(['estado', 'estado pago', 'estado_pago'])
+    idx_metodo = find_col_idx(['método de pago', 'metodo de pago', 'metodo_pago', 'medio de pago', 'medio_pago', 'forma de pago'])
+    idx_fecha_pago = find_col_idx(['fecha pago', 'fecha_pago', 'fecha de pago'])
+
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    today_iso = datetime.now().strftime('%Y-%m-%d')
+
+    actualizados = 0
+    nuevos = 0
+    filas_ignoradas = 0
+
+    try:
+        # Pre-cargar cuentas por pagar para agilizar sincronización
+        cursor.execute("SELECT id, factura_numero, monto_total FROM proveedores_cuentas_pagar")
+        cp_rows = cursor.fetchall()
+        cp_map = []
+        for cp in cp_rows:
+            cp_fn = str(cp['factura_numero'])
+            match = re.search(r'(\d+)\s*-\s*(\d+)', cp_fn)
+            if match:
+                cp_map.append({
+                    'id': cp['id'],
+                    'pv': int(match.group(1)),
+                    'nro': int(match.group(2)),
+                    'monto': cp['monto_total']
+                })
+
+        for row in rows[1:]:
+            # Verificar si la fila no está completamente vacía
+            if not any(row):
+                continue
+
+            def get_cell(idx, default=''):
+                if idx < 0 or idx >= len(row) or row[idx] is None:
+                    return default
+                return row[idx]
+
+            # 1. Obtener ID si existe
+            raw_id = get_cell(idx_id)
+            row_id = None
+            if raw_id is not None:
+                try:
+                    row_id = int(raw_id)
+                except (ValueError, TypeError):
+                    row_id = None
+
+            # 2. Datos del comprobante
+            raw_fecha_em = get_cell(idx_fecha)
+            fecha_em_str = ''
+            if isinstance(raw_fecha_em, datetime):
+                fecha_em_str = raw_fecha_em.strftime('%Y-%m-%d')
+            elif hasattr(raw_fecha_em, 'strftime'):
+                fecha_em_str = raw_fecha_em.strftime('%Y-%m-%d')
+            elif raw_fecha_em:
+                raw_s = str(raw_fecha_em).strip()
+                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d'):
+                    try:
+                        d = datetime.strptime(raw_s, fmt)
+                        fecha_em_str = d.strftime('%Y-%m-%d')
+                        break
+                    except Exception:
+                        pass
+                if not fecha_em_str:
+                    fecha_em_str = raw_s
+
+            denom = str(get_cell(idx_denom, '')).strip()
+            cuit = str(get_cell(idx_cuit, '')).strip()
+            pv_val = str(get_cell(idx_pv, '')).strip()
+            nro_comp_val = str(get_cell(idx_nro_comp, '')).strip()
+            tipo_val = str(get_cell(idx_tipo, '')).strip()
+            cae_val = str(get_cell(idx_cae, '')).strip()
+
+            # IVA y Total
+            try:
+                raw_iva = get_cell(idx_iva, 0)
+                if isinstance(raw_iva, str):
+                    raw_iva = raw_iva.replace('$', '').replace('.', '').replace(',', '.').strip()
+                iva_val = float(raw_iva or 0)
+            except Exception:
+                iva_val = 0.0
+
+            try:
+                raw_tot = get_cell(idx_total, 0)
+                if isinstance(raw_tot, str):
+                    raw_tot = raw_tot.replace('$', '').replace('.', '').replace(',', '.').strip()
+                tot_val = float(raw_tot or 0)
+            except Exception:
+                tot_val = 0.0
+
+            # Estado
+            raw_estado = str(get_cell(idx_estado, '')).strip().lower()
+            if raw_estado in ('pagado', 'pagada', 'pago', 'si', 'sí', '1', 'true', 'ok', 's'):
+                estado_norm = 'Pagado'
+            elif raw_estado in ('pendiente', 'no', '0', 'false', 'debe', 'n', ''):
+                estado_norm = 'Pendiente'
+            else:
+                estado_norm = 'Pagado' if 'pag' in raw_estado else 'Pendiente'
+
+            # Método de Pago
+            raw_metodo = str(get_cell(idx_metodo, '')).strip()
+            metodo_norm = ''
+            if estado_norm == 'Pagado':
+                met_lower = raw_metodo.lower()
+                if any(x in met_lower for x in ('efect', 'caja', 'cash', 'm1')):
+                    metodo_norm = 'Efectivo'
+                elif any(x in met_lower for x in ('gali', 'banc', 'transf', 'cuenta')):
+                    metodo_norm = 'Galicia'
+                elif any(x in met_lower for x in ('mercado', 'mp', 'm2', 'digital')):
+                    metodo_norm = 'Mercado Pago'
+                elif any(x in met_lower for x in ('tarj', 'tc', 'cred', 'deb', 'visa', 'master')):
+                    metodo_norm = 'Tarjeta crédito'
+                elif raw_metodo:
+                    metodo_norm = raw_metodo
+                else:
+                    metodo_norm = 'Efectivo'
+
+            # Fecha de Pago
+            raw_fecha_pago = get_cell(idx_fecha_pago)
+            fecha_pago_norm = ''
+            if estado_norm == 'Pagado':
+                if isinstance(raw_fecha_pago, datetime):
+                    fecha_pago_norm = raw_fecha_pago.strftime('%Y-%m-%d')
+                elif hasattr(raw_fecha_pago, 'strftime'):
+                    fecha_pago_norm = raw_fecha_pago.strftime('%Y-%m-%d')
+                elif raw_fecha_pago:
+                    raw_p_s = str(raw_fecha_pago).strip()
+                    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d'):
+                        try:
+                            d = datetime.strptime(raw_p_s, fmt)
+                            fecha_pago_norm = d.strftime('%Y-%m-%d')
+                            break
+                        except Exception:
+                            pass
+                    if not fecha_pago_norm:
+                        fecha_pago_norm = raw_p_s
+                if not fecha_pago_norm:
+                    fecha_pago_norm = today_iso
+
+            # Factura Recibida
+            raw_recibida = str(get_cell(idx_recibida, '')).strip().lower()
+            if raw_recibida in ('sí', 'si', '1', 'true', 'recibida', 'recibido', 's', 'yes', 'y'):
+                recibida_norm = 1
+            elif raw_recibida in ('no', '0', 'false', 'pendiente', 'n', ''):
+                recibida_norm = 0
+            else:
+                recibida_norm = 1 if 'recib' in raw_recibida or 'si' in raw_recibida else 0
+
+            # Buscar comprobante en BD
+            existing_row = None
+            if row_id:
+                cursor.execute("SELECT * FROM arca_compras_csv WHERE id = ?", (row_id,))
+                existing_row = cursor.fetchone()
+
+            if not existing_row and cae_val:
+                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND cae != ''", (cae_val,))
+                existing_row = cursor.fetchone()
+
+            if not existing_row and cuit and pv_val and nro_comp_val:
+                cursor.execute(
+                    "SELECT * FROM arca_compras_csv WHERE nro_doc_emisor = ? AND punto_venta = ? AND nro_comprobante = ?",
+                    (cuit, pv_val, nro_comp_val)
+                )
+                existing_row = cursor.fetchone()
+
+            if not existing_row and fecha_em_str and denom and nro_comp_val:
+                cursor.execute(
+                    "SELECT * FROM arca_compras_csv WHERE fecha_emision = ? AND denominacion_emisor = ? AND nro_comprobante = ?",
+                    (fecha_em_str, denom, nro_comp_val)
+                )
+                existing_row = cursor.fetchone()
+
+            if existing_row:
+                target_id = existing_row['id']
+                cursor.execute('''
+                    UPDATE arca_compras_csv
+                    SET estado = ?, metodo_pago = ?, fecha_pago = ?, factura_recibida = ?, updated_at = ?, sync_status = 0
+                    WHERE id = ?
+                ''', (estado_norm, metodo_norm, fecha_pago_norm, recibida_norm, now_iso, target_id))
+                actualizados += 1
+
+                # Sincronizar con cuentas por pagar
+                pv_curr = str(existing_row['punto_venta'] or pv_val).strip()
+                nro_curr = str(existing_row['nro_comprobante'] or nro_comp_val).strip()
+                if pv_curr.isdigit() and nro_curr.isdigit():
+                    pv_i = int(pv_curr)
+                    nro_i = int(nro_curr)
+                    for cp in cp_map:
+                        if cp['pv'] == pv_i and cp['nro'] == nro_i:
+                            if estado_norm == 'Pagado':
+                                cp_m = 'Caja Chica'
+                                if 'Galicia' in metodo_norm or 'Banco' in metodo_norm:
+                                    cp_m = 'Banco'
+                                elif 'Mercado' in metodo_norm:
+                                    cp_m = 'MercadoPago'
+                                cursor.execute('''
+                                    UPDATE proveedores_cuentas_pagar
+                                    SET estado='Pagado', monto_pagado=monto_total, fecha_pago=?, medio_pago=?, updated_at=?, sync_status=0
+                                    WHERE id=?
+                                ''', (fecha_pago_norm, cp_m, now_iso, cp['id']))
+                            else:
+                                cursor.execute('''
+                                    UPDATE proveedores_cuentas_pagar
+                                    SET estado='Pendiente', monto_pagado=0, fecha_pago='', medio_pago='', updated_at=?, sync_status=0
+                                    WHERE id=?
+                                ''', (now_iso, cp['id']))
+            else:
+                # Si no existía y tiene datos mínimos válidos, insertarlo como nuevo registro
+                if fecha_em_str and (denom or cuit):
+                    mes_calc = fecha_em_str[:7] if len(fecha_em_str) >= 7 else ''
+                    cursor.execute('''
+                        INSERT INTO arca_compras_csv (
+                            fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor,
+                            total_iva, imp_total, mes, estado, factura_recibida,
+                            metodo_pago, fecha_pago, cae, nro_comprobante, tipo_comprobante,
+                            fecha_importacion
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        fecha_em_str, pv_val, cuit, denom,
+                        iva_val, tot_val, mes_calc, estado_norm, recibida_norm,
+                        metodo_norm, fecha_pago_norm, cae_val, nro_comp_val, tipo_val,
+                        now_iso
+                    ))
+                    nuevos += 1
+                else:
+                    filas_ignoradas += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    msg_parts = []
+    if actualizados > 0:
+        msg_parts.append(f"{actualizados} comprobantes actualizados")
+    if nuevos > 0:
+        msg_parts.append(f"{nuevos} comprobantes nuevos importados")
+    if not msg_parts:
+        msg_parts.append("No se registraron cambios")
+
+    return jsonify({
+        "success": True,
+        "actualizados": actualizados,
+        "nuevos": nuevos,
+        "filas_ignoradas": filas_ignoradas,
+        "message": ", ".join(msg_parts) + "."
+    })
+
 
 @app.route('/api/test/marcar_mes_pagado', methods=['POST'])
 def api_test_marcar_mes_pagado():

@@ -45,6 +45,7 @@ pyinstaller_cmd = [
     "--collect-all=selenium",
     "--collect-all=firebase_admin",
     "--collect-all=google",
+    "--collect-all=openpyxl",
     "--add-data=templates;templates",
     "--add-data=static;static",
     "--hidden-import=firebase_admin",
@@ -53,6 +54,9 @@ pyinstaller_cmd = [
     "--hidden-import=firebase_sync",
     "--hidden-import=db_manager",
     "--hidden-import=sqlite3",
+    "--hidden-import=openpyxl",
+    "--hidden-import=openpyxl.cell",
+    "--hidden-import=openpyxl.styles",
     "--hidden-import=selenium.webdriver.edge.webdriver",
     "--hidden-import=selenium.webdriver.chrome.webdriver",
     "app.py"
