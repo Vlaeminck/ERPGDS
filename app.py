@@ -94,22 +94,35 @@ def status():
 
 @app.route('/api/suppliers')
 def get_suppliers():
-    importlib.reload(config)
+    import json
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre, cuit, categoria, keywords, detalles FROM proveedores ORDER BY nombre ASC")
+    rows = cursor.fetchall()
+    conn.close()
+
     suppliers = []
-    for name, data in config.SUPPLIERS.items():
+    for r in rows:
+        kw = json.loads(r['keywords']) if r['keywords'] else []
+        det = json.loads(r['detalles']) if r['detalles'] else {}
         suppliers.append({
-            "name": name,
-            "keywords": data.get("keywords", []),
-            "regex": data.get("invoice_regex", "")
+            "name": r['nombre'],
+            "cuit": r['cuit'] or '',
+            "category": r['categoria'] or 'General',
+            "keywords": kw,
+            "regex": det.get("invoice_regex", r"(\d{4,5}\s*-\s*\d{8})")
         })
     return jsonify(suppliers)
 
 @app.route('/api/suppliers/stats')
 def supplier_stats():
-    importlib.reload(config)
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM proveedores")
+    total_suppliers = cursor.fetchone()[0] or 0
+    conn.close()
+
     current_year = str(datetime.now().year)
-    total_suppliers = len(config.SUPPLIERS)
-    
     supplier_counts = {}
     total_invoices_ytd = 0
     valid_exts = tuple(config.ALLOWED_EXTENSIONS) if hasattr(config, 'ALLOWED_EXTENSIONS') else ('.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp')
