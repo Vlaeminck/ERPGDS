@@ -557,20 +557,26 @@ def get_all_suppliers_dict():
 
 def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None):
     import json
+    import uuid as uuid_mod
+    import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     kw_str = json.dumps(keywords if keywords is not None else [])
     det_str = json.dumps(detalles if detalles is not None else {})
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    u_id = uuid_mod.uuid4().hex
     
     cursor.execute('''
-        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, uuid, updated_at, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         ON CONFLICT(nombre) DO UPDATE SET
             cuit = excluded.cuit,
             categoria = excluded.categoria,
             keywords = excluded.keywords,
-            detalles = excluded.detalles
-    ''', (nombre, cuit, categoria, kw_str, det_str))
+            detalles = excluded.detalles,
+            updated_at = excluded.updated_at,
+            sync_status = 0
+    ''', (nombre, cuit, categoria, kw_str, det_str, u_id, now_iso))
     conn.commit()
     conn.close()
 

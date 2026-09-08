@@ -1631,10 +1631,12 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
                 if fecha_em < max_mes_snapshot[mes]:
                     es_retro = 1
 
+            import uuid as uuid_mod
+            u_id = uuid_mod.uuid4().hex
             cursor.execute('''
-                INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante, tipo_comprobante, es_retroactiva, fecha_importacion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (fecha_em, pv, nro, nombre, iva, total, mes, cae, comp, tipo_comp, es_retro, now_str))
+                INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante, tipo_comprobante, es_retroactiva, fecha_importacion, uuid, updated_at, sync_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            ''', (fecha_em, pv, nro, nombre, iva, total, mes, cae, comp, tipo_comp, es_retro, now_str, u_id, now_str))
 
             total_nuevos += 1
             if es_retro:

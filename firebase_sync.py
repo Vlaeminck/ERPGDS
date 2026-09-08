@@ -143,11 +143,13 @@ def _setup_realtime_listener():
 def push_local_changes():
     """Sincroniza cambios locales (sync_status = 0) hacia Firebase Firestore en lotes rápidos (Batch Commits)."""
     if not _firestore_db:
-        return 0
+        if not init_firebase():
+            return 0
 
     total_pushed = 0
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+    now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     for table in SYNC_TABLES:
         try:
@@ -167,9 +169,11 @@ def push_local_changes():
                     record_uuid = r_dict.get('uuid')
                     if not record_uuid:
                         record_uuid = uuid.uuid4().hex
-                        now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        cursor.execute(f"UPDATE {table} SET uuid = ?, updated_at = ? WHERE id = ?", (record_uuid, now_iso, r_dict['id']))
+                        cursor.execute(f"UPDATE {table} SET uuid = ? WHERE id = ?", (record_uuid, r_dict['id']))
                         r_dict['uuid'] = record_uuid
+
+                    if not r_dict.get('updated_at'):
+                        cursor.execute(f"UPDATE {table} SET updated_at = ? WHERE id = ?", (now_iso, r_dict['id']))
                         r_dict['updated_at'] = now_iso
 
                     doc_data = {k: v for k, v in r_dict.items() if k != 'id'}
@@ -196,7 +200,6 @@ def push_local_changes():
 
     if total_pushed > 0:
         try:
-            now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             _firestore_db.collection('sync_metadata').document('global_state').set({'last_change': now_iso})
         except Exception:
             pass
@@ -204,34 +207,25 @@ def push_local_changes():
     conn.close()
     return total_pushed
 
-def get_max_local_updated_at():
+def get_table_max_updated_at(table):
     try:
         conn = db_manager.get_connection()
         cursor = conn.cursor()
-        max_ts = ''
-        for table in SYNC_TABLES:
-            try:
-                cursor.execute(f"SELECT MAX(updated_at) FROM {table}")
-                r = cursor.fetchone()
-                if r and r[0] and str(r[0]) > max_ts:
-                    max_ts = str(r[0])
-            except Exception:
-                pass
+        cursor.execute(f"SELECT MAX(updated_at) FROM {table}")
+        r = cursor.fetchone()
         conn.close()
-        return max_ts
+        return str(r[0]) if (r and r[0]) else ''
     except Exception:
         return ''
 
-_last_pull_timestamp = None
+_table_pull_timestamps = {}
 
-def pull_remote_changes():
-    """Descarga e integra deltas (solo registros nuevos o modificados recién) desde Firebase a SQLite local."""
-    global _last_pull_timestamp
+def pull_remote_changes(force_full=False):
+    """Descarga e integra deltas por tabla desde Firebase a SQLite local."""
+    global _table_pull_timestamps
     if not _firestore_db:
-        return 0
-
-    if not _last_pull_timestamp:
-        _last_pull_timestamp = get_max_local_updated_at()
+        if not init_firebase():
+            return 0
 
     total_pulled = 0
     conn = db_manager.get_connection()
@@ -241,31 +235,35 @@ def pull_remote_changes():
 
     for table in SYNC_TABLES:
         try:
+            last_ts = '' if force_full else _table_pull_timestamps.get(table)
+            if not last_ts and not force_full:
+                last_ts = get_table_max_updated_at(table)
+
             query = _firestore_db.collection(table)
-            # DELTA QUERY: Solo consultar registros modificados con posterioridad a _last_pull_timestamp
-            if _last_pull_timestamp:
+            # DELTA QUERY: Solo consultar registros modificados con posterioridad a last_ts
+            if last_ts:
                 try:
                     from google.cloud.firestore_v1.base_query import FieldFilter
-                    query = query.where(filter=FieldFilter('updated_at', '>', _last_pull_timestamp))
+                    query = query.where(filter=FieldFilter('updated_at', '>', last_ts))
                 except Exception:
-                    query = query.where('updated_at', '>', _last_pull_timestamp)
+                    query = query.where('updated_at', '>', last_ts)
 
-            docs = query.stream()
+            docs = list(query.stream())
             for doc in docs:
                 data = doc.to_dict()
                 rec_uuid = doc.id or data.get('uuid')
                 if not rec_uuid:
                     continue
 
-                remote_updated = data.get('updated_at', '')
+                remote_updated = str(data.get('updated_at', ''))
 
                 # Verificar si existe en SQLite por UUID
                 cursor.execute(f"SELECT id, updated_at FROM {table} WHERE uuid = ?", (rec_uuid,))
                 local_row = cursor.fetchone()
 
                 if local_row:
-                    local_updated = local_row['updated_at'] or ''
-                    if remote_updated > local_updated:
+                    local_updated = str(local_row['updated_at'] or '')
+                    if remote_updated >= local_updated:
                         # Actualizar en SQLite
                         set_clause = ", ".join([f"{k} = ?" for k in data.keys() if k not in ('id', 'uuid')])
                         values = [data[k] for k in data.keys() if k not in ('id', 'uuid')]
@@ -283,8 +281,32 @@ def pull_remote_changes():
                     try:
                         cursor.execute(f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders})", vals)
                         total_pulled += 1
-                    except Exception:
-                        pass
+                    except Exception as e_ins:
+                        if 'UNIQUE constraint failed' in str(e_ins):
+                            # Manejar colisión de clave única existente sin uuid
+                            if table == 'proveedores' and 'nombre' in data:
+                                cursor.execute(
+                                    "UPDATE proveedores SET cuit=?, categoria=?, keywords=?, detalles=?, uuid=?, updated_at=?, sync_status=1 WHERE nombre=?",
+                                    (data.get('cuit', ''), data.get('categoria', 'General'), data.get('keywords', '[]'), data.get('detalles', '{}'), rec_uuid, remote_updated, data['nombre'])
+                                )
+                                total_pulled += 1
+                            elif table == 'recaudacion_diaria' and 'fecha' in data:
+                                set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
+                                vals_u = [data[k] for k in keys if k != 'fecha'] + [data['fecha']]
+                                cursor.execute(f"UPDATE recaudacion_diaria SET {set_cols}, uuid=?, sync_status=1 WHERE fecha=?", vals_u + [rec_uuid])
+                                total_pulled += 1
+                            elif table == 'estacionamiento_diario' and 'fecha' in data:
+                                set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
+                                vals_u = [data[k] for k in keys if k != 'fecha'] + [data['fecha']]
+                                cursor.execute(f"UPDATE estacionamiento_diario SET {set_cols}, uuid=?, sync_status=1 WHERE fecha=?", vals_u + [rec_uuid])
+                                total_pulled += 1
+                            elif table == 'caja_chica_arqueo' and 'fecha' in data:
+                                set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
+                                vals_u = [data[k] for k in keys if k != 'fecha'] + [data['fecha']]
+                                cursor.execute(f"UPDATE caja_chica_arqueo SET {set_cols}, uuid=?, sync_status=1 WHERE fecha=?", vals_u + [rec_uuid])
+                                total_pulled += 1
+
+            _table_pull_timestamps[table] = current_pull_time
         except Exception as ex:
             err_str = str(ex)
             if 'Quota exceeded' in err_str or 'RESOURCE_EXHAUSTED' in err_str or '429' in err_str:
@@ -292,7 +314,6 @@ def pull_remote_changes():
                 SYNC_STATUS["message"] = "Cuota de Firebase en proceso de actualización / propágación"
             print(f"[FirebaseSync] Error pull tabla {table}: {ex}", flush=True)
 
-    _last_pull_timestamp = current_pull_time
     if total_pulled > 0:
         SYNC_STATUS["last_remote_update"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
         print(f"[FirebaseSync] Integrados {total_pulled} registros desde la nube a SQLite local.", flush=True)
