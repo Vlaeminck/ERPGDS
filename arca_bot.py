@@ -506,13 +506,12 @@ def run_arca_bot_sync(full_year=False):
 
         # Paso 5: Ajustar periodo de fechas
         today = datetime.date.today()
-        existing_csvs = [f for f in glob.glob(os.path.join(download_folder, "*")) if f.lower().endswith(('.csv', '.zip'))]
-        if full_year or not existing_csvs:
+        if full_year:
             date_start_str = today.replace(month=1, day=1).strftime("%d/%m/%Y")
-            log_arca_event("INFO", f"Sincronización inicial/año completo activa: descargando desde {date_start_str} hasta {today.strftime('%d/%m/%Y')}")
+            log_arca_event("INFO", f"Sincronización total (año completo) activa: descargando desde {date_start_str} hasta {today.strftime('%d/%m/%Y')}")
         else:
             date_start_str = today.replace(day=1).strftime("%d/%m/%Y")
-            log_arca_event("INFO", f"Sincronización mensual activa: descargando desde {date_start_str} hasta {today.strftime('%d/%m/%Y')}")
+            log_arca_event("INFO", f"Sincronización regular (mes actual) activa: descargando desde {date_start_str} hasta {today.strftime('%d/%m/%Y')}")
         date_end_str = today.strftime("%d/%m/%Y")
         date_range_val = f"{date_start_str} - {date_end_str}"
 
