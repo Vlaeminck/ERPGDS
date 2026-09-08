@@ -1,0 +1,12 @@
+# Lightweight Web Framework & Server (Cloud Deployment)
+flask>=3.0.0
+werkzeug>=3.0.0
+requests>=2.31.0
+gunicorn>=21.2.0
+python-dotenv>=1.0.0
+
+# Cloud Sync Relay (Firebase Firestore)
+firebase-admin>=6.0.0
+
+# Excel Processing (Export & Import)
+openpyxl>=3.1.2

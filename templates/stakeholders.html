@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Proveedores & Pagos — ERP GDS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        :root {
+            --primary-accent: #2563eb;
+            --success-accent: #059669;
+            --warning-accent: #d97706;
+            --danger-accent: #dc2626;
+        }
+
+        body {
+            background-color: #f8fafc;
+            color: #0f172a;
+            font-family: 'Albert Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .stakeholder-navbar {
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0.85rem 1.5rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 800;
+            font-size: 1.15rem;
+            color: #0f172a;
+        }
+
+        .brand-logo i {
+            color: var(--primary-accent);
+            font-size: 1.3rem;
+        }
+
+        .badge-cloud-sync {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: rgba(16, 185, 129, 0.12);
+            color: #059669;
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        .badge-cloud-sync.syncing {
+            background: rgba(59, 130, 246, 0.12);
+            color: #2563eb;
+            border-color: rgba(59, 130, 246, 0.25);
+        }
+
+        .nav-tabs-container {
+            display: flex;
+            gap: 8px;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0;
+        }
+
+        .nav-tab-btn {
+            background: none;
+            border: none;
+            padding: 0.65rem 1.25rem;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-tab-btn:hover {
+            color: var(--primary-accent);
+        }
+
+        .nav-tab-btn.active {
+            color: var(--primary-accent);
+            border-bottom-color: var(--primary-accent);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .kpi-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1.2rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .kpi-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+
+        .kpi-value {
+            font-size: 1.45rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .kpi-sub {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        .auth-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .auth-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 2.2rem;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            text-align: center;
+        }
+
+        .pin-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            font-size: 1.3rem;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: center;
+            letter-spacing: 6px;
+            border: 2px solid #cbd5e1;
+            border-radius: 10px;
+            margin: 1.2rem 0;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .pin-input:focus {
+            border-color: var(--primary-accent);
+        }
+
+        .btn-portal-primary {
+            background: var(--primary-accent);
+            color: #ffffff;
+            border: none;
+            padding: 0.75rem 1.2rem;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+
+        .btn-portal-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .data-table th {
+            background: #f1f5f9;
+            color: #334155;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            padding: 0.75rem 0.9rem;
+            border-bottom: 2px solid #cbd5e1;
+        }
+
+        .data-table td {
+            padding: 0.75rem 0.9rem;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 0.85rem;
+        }
+
+        .data-table tr:hover {
+            background-color: #f8fafc;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Auth Gate Modal -->
+    <div id="auth-modal" class="auth-overlay" style="display: none;">
+        <div class="auth-card">
+            <div style="width: 50px; height: 50px; background: rgba(37, 99, 235, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; color: var(--primary-accent); font-size: 1.3rem;">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2 style="font-size: 1.25rem; font-weight: 800; margin: 0 0 6px;">Acceso para Stakeholders</h2>
+            <p style="color: #64748b; font-size: 0.85rem; margin: 0;">Ingrese el PIN o Clave de acceso autorizada para gestionar pagos.</p>
+            <form id="form-login" onsubmit="handleLogin(event)">
+                <input type="password" id="input-pin" class="pin-input" placeholder="••••" maxlength="12" autofocus required autocomplete="current-password">
+                <button type="submit" class="btn-portal-primary" id="btn-submit-pin">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i> Ingresar al Portal
+                </button>
+            </form>
+            <div id="login-error" style="color: var(--danger-accent); font-size: 0.82rem; font-weight: 600; margin-top: 10px; display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Top Navigation Bar -->
+    <header class="stakeholder-navbar">
+        <div class="brand-logo">
+            <i class="fa-solid fa-wallet"></i>
+            <div>
+                <span style="color: #0f172a;">ERP GDS</span>
+                <span style="font-size: 0.78rem; font-weight: 600; color: #64748b; display: block; margin-top: -2px;">Portal Directivo & Pagos</span>
+            </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <!-- Selector de Período / Mes -->
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <label for="select-global-mes" style="font-size: 0.8rem; font-weight: 700; color: #64748b; margin: 0;">Mes:</label>
+                <select id="select-global-mes" class="form-control" style="font-weight: 700; font-size: 0.85rem; padding: 0.4rem 0.75rem; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff;" onchange="onMonthChange(this.value)">
+                    <option value="all">Todos los meses</option>
+                </select>
+            </div>
+
+            <!-- Badge de Sincronización en la Nube -->
+            <div id="cloud-sync-badge" class="badge-cloud-sync" title="Estado de sincronización en tiempo real con Firebase Relay">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <span id="cloud-sync-text">Cloud Sync Activo</span>
+            </div>
+
+            <button class="btn btn-sm" onclick="triggerManualSync()" title="Forzar sincronización inmediata" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155;">
+                <i class="fa-solid fa-arrows-rotate"></i>
+            </button>
+
+            <button class="btn btn-sm" onclick="handleLogout()" title="Cerrar sesión" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #dc2626;">
+                <i class="fa-solid fa-power-off"></i> Salir
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main style="max-width: 1400px; margin: 1.5rem auto; padding: 0 1.5rem;">
+        
+        <!-- Summary Cards (KPIs) -->
+        <section class="kpi-grid">
+            <div class="kpi-card" style="border-left: 4px solid #2563eb;">
+                <div class="kpi-title">Total Compras del Mes</div>
+                <div class="kpi-value" id="kpi-total-facturado">$ 0</div>
+                <div class="kpi-sub" id="kpi-count-facturas">0 comprobantes emitidos</div>
+            </div>
+
+            <div class="kpi-card" style="border-left: 4px solid #f59e0b;">
+                <div class="kpi-title">Pendiente de Pago</div>
+                <div class="kpi-value" id="kpi-total-pendiente" style="color: #d97706;">$ 0</div>
+                <div class="kpi-sub" id="kpi-count-pendientes">0 facturas por pagar</div>
+            </div>
+
+            <div class="kpi-card" style="border-left: 4px solid #10b981;">
+                <div class="kpi-title">Total Pagado</div>
+                <div class="kpi-value" id="kpi-total-pagado" style="color: #059669;">$ 0</div>
+                <div class="kpi-sub" id="kpi-count-pagados">0 facturas abonadas</div>
+            </div>
+
+            <div class="kpi-card" style="border-left: 4px solid #ef4444;">
+                <div class="kpi-title">Notas de Crédito & Retros</div>
+                <div class="kpi-value" id="kpi-count-nc-retro" style="color: #dc2626;">0 NC / 0 Retros</div>
+                <div class="kpi-sub">Comprobantes especiales</div>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs-container">
+            <button class="nav-tab-btn active" onclick="switchTab('tab-arca')" id="btn-tab-arca">
+                <i class="fa-solid fa-file-invoice-dollar"></i> Compras del Mes (ARCA)
+            </button>
+            <button class="nav-tab-btn" onclick="switchTab('tab-cuentas')" id="btn-tab-cuentas">
+                <i class="fa-solid fa-building-columns"></i> Cuentas por Pagar (Saldos)
+            </button>
+            <button class="nav-tab-btn" onclick="switchTab('tab-metodos')" id="btn-tab-metodos">
+                <i class="fa-solid fa-chart-pie"></i> Desglose por Método de Pago
+            </button>
+        </nav>
+
+        <!-- TAB 1: COMPRAS ARCA -->
+        <section id="tab-arca" class="tab-content">
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <!-- Header Actions & Filters -->
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <label style="font-size: 0.85rem; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #0f172a; font-weight: 700;" title="Pagar todas las compras pendientes del mes seleccionado con Galicia">
+                            <input type="checkbox" id="cbx-cloud-pagar-mes" onchange="handleMarcarMesPagadoCloud(this)"> Pagar Mes Completo
+                        </label>
+
+                        <select id="arca-cloud-filter" class="form-control" style="width: 170px; font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1;" onchange="renderArcaCloudTable()">
+                            <option value="all">Todas las compras</option>
+                            <option value="pendiente">Pendientes de Pago</option>
+                            <option value="pagado">Pagadas</option>
+                            <option value="nc">Notas de Crédito 🔴</option>
+                            <option value="retroactiva">Retroactivas 🟠</option>
+                            <option value="recibida">Recibidas Físicas</option>
+                            <option value="no_recibida">Faltantes Físicas</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <button class="btn btn-sm" onclick="exportarArcaExcelCloud()" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700; padding: 0.45rem 0.85rem; border-radius: 8px;">
+                            <i class="fa-solid fa-file-excel"></i> Exportar Excel
+                        </button>
+                        <button class="btn btn-sm" onclick="triggerImportArcaExcelCloud()" style="background: rgba(13, 148, 136, 0.1); color: #0f766e; border: 1px solid rgba(13, 148, 136, 0.3); font-weight: 700; padding: 0.45rem 0.85rem; border-radius: 8px;">
+                            <i class="fa-solid fa-file-arrow-up"></i> Importar Excel
+                        </button>
+                        <input type="file" id="input-import-excel-cloud" accept=".xlsx, .xls" style="display: none;" onchange="handleImportArcaExcelCloud(event)">
+                    </div>
+                </div>
+
+                <!-- Data Table -->
+                <div style="max-height: 520px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
+                            <tr>
+                                <th style="cursor: pointer;" onclick="sortArcaCloud('fecha_emision')">Fecha <i class="fa-solid fa-sort"></i></th>
+                                <th style="cursor: pointer;" onclick="sortArcaCloud('denominacion_emisor')">Proveedor <i class="fa-solid fa-sort"></i></th>
+                                <th style="text-align: right;">Total IVA</th>
+                                <th style="text-align: right; cursor: pointer;" onclick="sortArcaCloud('imp_total')">Imp. Total <i class="fa-solid fa-sort"></i></th>
+                                <th style="text-align: center;">Factura Recibida</th>
+                                <th style="text-align: center;">Estado</th>
+                                <th style="text-align: center; min-width: 190px;">Método de Pago</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-arca-cloud-body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando compras...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: CUENTAS POR PAGAR -->
+        <section id="tab-cuentas" class="tab-content" style="display: none;">
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Cuentas por Pagar a Proveedores</h3>
+                <div style="max-height: 480px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Proveedor</th>
+                                <th>Comprobante</th>
+                                <th style="text-align: right;">Monto Total</th>
+                                <th style="text-align: center;">Estado</th>
+                                <th style="text-align: center;">Acción / Pago</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-cuentas-cloud-body">
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">
+                                    Cargando cuentas por pagar...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: DESGLOSE POR MÉTODO DE PAGO -->
+        <section id="tab-metodos" class="tab-content" style="display: none;">
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Distribución de Pagos Realizados este Mes</h3>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem;">
+                    <!-- Galicia -->
+                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #ea580c; font-size: 0.95rem;">🟧 Banco Galicia</span>
+                            <i class="fa-solid fa-building-columns" style="color: #ea580c; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #c2410c;" id="metodo-val-galicia">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #9a3412; font-weight: 600; margin-top: 4px;">Transferencias y pagos bancarios</div>
+                    </div>
+
+                    <!-- Mercado Pago -->
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #2563eb; font-size: 0.95rem;">🟦 Mercado Pago</span>
+                            <i class="fa-solid fa-mobile-screen" style="color: #2563eb; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #1d4ed8;" id="metodo-val-mp">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #1e40af; font-weight: 600; margin-top: 4px;">Billeteras y fondos digitales</div>
+                    </div>
+
+                    <!-- Efectivo -->
+                    <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #059669; font-size: 0.95rem;">🟩 Efectivo</span>
+                            <i class="fa-solid fa-money-bill-wave" style="color: #059669; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #047857;" id="metodo-val-efectivo">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #065f46; font-weight: 600; margin-top: 4px;">Caja Chica y fondos en mano</div>
+                    </div>
+
+                    <!-- Tarjetas de Crédito -->
+                    <div style="background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #7c3aed; font-size: 0.95rem;">🟪 Tarjeta de Crédito</span>
+                            <i class="fa-solid fa-credit-card" style="color: #7c3aed; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #6d28d9;" id="metodo-val-tarjeta">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #581c87; font-weight: 600; margin-top: 4px;">Pagos con tarjetas corporativas</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal para Registrar Pago en Cuentas por Pagar -->
+    <div id="modal-pagar-cuenta" class="auth-overlay" style="display: none;">
+        <div class="auth-card" style="max-width: 420px; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800;">Registrar Pago a Proveedor</h3>
+                <button onclick="closeModalPagarCuenta()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
+            </div>
+            <p id="modal-cuenta-prov" style="font-weight: 700; color: #0f172a; margin-bottom: 4px;"></p>
+            <p id="modal-cuenta-monto" style="font-size: 1.1rem; font-weight: 800; color: var(--primary-accent); margin-bottom: 1rem;"></p>
+
+            <form id="form-pagar-cuenta" onsubmit="handleConfirmarPagoCuenta(event)">
+                <input type="hidden" id="modal-cuenta-id">
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.8rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Método de Pago:</label>
+                    <select id="modal-cuenta-metodo" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required>
+                        <option value="Galicia">🟧 Banco Galicia</option>
+                        <option value="Mercado Pago">🟦 Mercado Pago</option>
+                        <option value="Efectivo">🟩 Efectivo / Caja Chica</option>
+                        <option value="Tarjeta crédito">🟪 Tarjeta de Crédito</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 1.2rem;">
+                    <label style="font-size: 0.8rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Fecha de Pago:</label>
+                    <input type="date" id="modal-cuenta-fecha" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required>
+                </div>
+                <button type="submit" class="btn-portal-primary" style="width: 100%;">
+                    <i class="fa-solid fa-check"></i> Confirmar Pago
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/stakeholders.js"></script>
+</body>
+
+</html>

@@ -64,12 +64,34 @@ def find_credentials_file():
 
 def init_firebase():
     global _firestore_db, SYNC_STATUS
-    creds_path = find_credentials_file()
-    
-    if not creds_path or not os.path.exists(creds_path):
+    import base64
+    import json
+
+    env_creds = os.environ.get('FIREBASE_CREDENTIALS_JSON', '').strip()
+    creds_path = None
+    cred = None
+
+    if env_creds:
+        try:
+            if env_creds.startswith('{'):
+                creds_dict = json.loads(env_creds)
+            else:
+                decoded = base64.b64decode(env_creds).decode('utf-8')
+                creds_dict = json.loads(decoded)
+            
+            import firebase_admin
+            from firebase_admin import credentials, firestore
+            cred = credentials.Certificate(creds_dict)
+        except Exception as e:
+            print(f"[FirebaseSync] Error procesando FIREBASE_CREDENTIALS_JSON: {e}", flush=True)
+
+    if not cred:
+        creds_path = find_credentials_file()
+
+    if not cred and (not creds_path or not os.path.exists(creds_path)):
         SYNC_STATUS["enabled"] = False
         SYNC_STATUS["mode"] = "OFFLINE_LOCAL"
-        SYNC_STATUS["message"] = "Coloque firebase_credentials.json para activar Cloud Sync"
+        SYNC_STATUS["message"] = "Coloque firebase_credentials.json o configure FIREBASE_CREDENTIALS_JSON"
         print("[FirebaseSync] Modo Local Activo (Sin credenciales de Firebase aún).", flush=True)
         return False
 
@@ -78,14 +100,16 @@ def init_firebase():
         from firebase_admin import credentials, firestore
 
         if not firebase_admin._apps:
-            cred = credentials.Certificate(creds_path)
+            if not cred:
+                cred = credentials.Certificate(creds_path)
             firebase_admin.initialize_app(cred)
 
         _firestore_db = firestore.client()
         SYNC_STATUS["enabled"] = True
         SYNC_STATUS["mode"] = "ONLINE_SYNC"
         SYNC_STATUS["message"] = "Conectado a Firebase Cloud Sync Relay"
-        print(f"[FirebaseSync] Conectado exitosamente usando {os.path.basename(creds_path)}!", flush=True)
+        source_name = "variable de entorno FIREBASE_CREDENTIALS_JSON" if env_creds else os.path.basename(creds_path)
+        print(f"[FirebaseSync] Conectado exitosamente usando {source_name}!", flush=True)
         _setup_realtime_listener()
         return True
     except Exception as e:
