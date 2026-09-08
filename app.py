@@ -1437,7 +1437,8 @@ def api_meses_disponibles():
         "SELECT DISTINCT strftime('%Y-%m', fecha) FROM recaudacion_diaria WHERE fecha IS NOT NULL AND fecha != ''",
         "SELECT DISTINCT strftime('%Y-%m', fecha) FROM estacionamiento_diario WHERE fecha IS NOT NULL AND fecha != ''",
         "SELECT DISTINCT strftime('%Y-%m', fecha) FROM caja_chica_movimientos WHERE fecha IS NOT NULL AND fecha != ''",
-        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM proveedores_cuentas_pagar WHERE fecha IS NOT NULL AND fecha != ''"
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM proveedores_cuentas_pagar WHERE fecha IS NOT NULL AND fecha != ''",
+        "SELECT DISTINCT strftime('%Y-%m', fecha_emision) FROM arca_compras_csv WHERE fecha_emision IS NOT NULL AND fecha_emision != ''"
     ]
     
     meses_set = set()
