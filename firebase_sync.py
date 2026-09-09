@@ -234,17 +234,14 @@ def reconcile_with_firestore(table=None):
             cursor.execute(f"PRAGMA table_info({tbl})")
             valid_cols = {col['name'] for col in cursor.fetchall()}
 
-            # 1. Eliminar de SQLite los registros que fueron borrados en Firestore
+            # 1. Eliminar de SQLite los registros que fueron borrados en Firestore o no existen en la nube
             for r in local_rows:
                 loc_id = r['id']
                 loc_uuid = r['uuid']
-                loc_sync = r['sync_status']
-                if loc_uuid:
-                    local_uuids.add(loc_uuid)
-                    if loc_sync == 1 and loc_uuid not in remote_uuids:
-                        cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
-                        total_reconciled += 1
-                        print(f"[FirebaseSync] Reconciliación: Eliminado registro huérfano local en {tbl} (UUID: {loc_uuid})", flush=True)
+                if not loc_uuid or loc_uuid not in remote_uuids:
+                    cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
+                    total_reconciled += 1
+                    print(f"[FirebaseSync] Reconciliación: Eliminado registro huérfano local en {tbl} (ID: {loc_id}, UUID: {loc_uuid})", flush=True)
 
             # 2. Insertar o actualizar documentos que están en Firestore
             for r_uuid, r_data in remote_docs_map.items():
