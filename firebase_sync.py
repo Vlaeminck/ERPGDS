@@ -220,6 +220,80 @@ def get_table_max_updated_at(table):
 
 _table_pull_timestamps = {}
 
+def reconcile_with_firestore(table=None):
+    """
+    Compara los UUIDs existentes en Firestore con los de SQLite:
+    1. Si un registro estaba sincronizado (sync_status = 1) en SQLite pero ya NO existe en Firestore (fue eliminado), se elimina de SQLite.
+    2. Si un documento existe en Firestore pero NO en SQLite, se descarga e inserta en SQLite.
+    """
+    if not _firestore_db:
+        if not init_firebase():
+            return 0
+    
+    tables_to_check = [table] if table else SYNC_TABLES
+    total_reconciled = 0
+
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+
+    for tbl in tables_to_check:
+        try:
+            # Obtener todos los documentos remotos de Firestore para esta colección
+            docs = list(_firestore_db.collection(tbl).stream())
+            remote_docs_map = {doc.id: doc.to_dict() for doc in docs}
+            remote_uuids = set(remote_docs_map.keys())
+
+            # Obtener todos los registros locales de SQLite
+            cursor.execute(f"SELECT id, uuid, updated_at, sync_status FROM {tbl}")
+            local_rows = cursor.fetchall()
+            local_uuids = set()
+
+            # 1. Eliminar de SQLite los registros que fueron borrados en Firestore
+            for r in local_rows:
+                loc_id = r['id']
+                loc_uuid = r['uuid']
+                loc_sync = r['sync_status']
+                if loc_uuid:
+                    local_uuids.add(loc_uuid)
+                    # Si ya estaba sincronizado y ya no está en Firestore, borrarlo localmente
+                    if loc_sync == 1 and loc_uuid not in remote_uuids:
+                        cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
+                        total_reconciled += 1
+                        print(f"[FirebaseSync] Reconciliación: Eliminado registro huérfano local en {tbl} (UUID: {loc_uuid})", flush=True)
+
+            # 2. Insertar o actualizar documentos que están en Firestore
+            for r_uuid, r_data in remote_docs_map.items():
+                if r_uuid not in local_uuids:
+                    r_data['uuid'] = r_uuid
+                    r_data['sync_status'] = 1
+                    keys = [k for k in r_data.keys() if k != 'id']
+                    cols_str = ", ".join(keys)
+                    placeholders = ", ".join(["?"] * len(keys))
+                    vals = [r_data[k] for k in keys]
+                    try:
+                        cursor.execute(f"INSERT INTO {tbl} ({cols_str}) VALUES ({placeholders})", vals)
+                        total_reconciled += 1
+                    except Exception as ins_err:
+                        if 'UNIQUE' in str(ins_err) and tbl == 'arca_compras_csv':
+                            try:
+                                set_cols = [k for k in r_data.keys() if k not in ('id', 'uuid')]
+                                set_clause = ", ".join([f"{k} = ?" for k in set_cols])
+                                values = [r_data[k] for k in set_cols]
+                                values.extend([r_uuid, 1, r_data.get('cuit_emisor'), r_data.get('punto_de_venta'), r_data.get('numero_desde')])
+                                cursor.execute(f"UPDATE {tbl} SET {set_clause}, uuid = ?, sync_status = ? WHERE cuit_emisor = ? AND punto_de_venta = ? AND numero_desde = ?", values)
+                                total_reconciled += 1
+                            except Exception:
+                                pass
+
+            conn.commit()
+        except Exception as e:
+            print(f"[FirebaseSync] Error en reconciliación de {tbl}: {e}", flush=True)
+
+    conn.close()
+    if total_reconciled > 0:
+        SYNC_STATUS["last_remote_update"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+    return total_reconciled
+
 def pull_remote_changes(force_full=False):
     """Descarga e integra deltas por tabla desde Firebase a SQLite local."""
     global _table_pull_timestamps
@@ -236,8 +310,6 @@ def pull_remote_changes(force_full=False):
     for table in SYNC_TABLES:
         try:
             last_ts = '' if force_full else _table_pull_timestamps.get(table)
-            if not last_ts and not force_full:
-                last_ts = get_table_max_updated_at(table)
 
             query = _firestore_db.collection(table)
             # DELTA QUERY: Solo consultar registros modificados con posterioridad a last_ts
@@ -263,7 +335,7 @@ def pull_remote_changes(force_full=False):
 
                 if local_row:
                     local_updated = str(local_row['updated_at'] or '')
-                    if remote_updated >= local_updated:
+                    if remote_updated >= local_updated or force_full:
                         # Actualizar en SQLite
                         set_clause = ", ".join([f"{k} = ?" for k in data.keys() if k not in ('id', 'uuid')])
                         values = [data[k] for k in data.keys() if k not in ('id', 'uuid')]
@@ -274,7 +346,7 @@ def pull_remote_changes(force_full=False):
                     # Insertar nuevo registro en SQLite
                     data['uuid'] = rec_uuid
                     data['sync_status'] = 1
-                    keys = list(data.keys())
+                    keys = [k for k in data.keys() if k != 'id']
                     cols_str = ", ".join(keys)
                     placeholders = ", ".join(["?"] * len(keys))
                     vals = [data[k] for k in keys]
@@ -289,6 +361,13 @@ def pull_remote_changes(force_full=False):
                                     "UPDATE proveedores SET cuit=?, categoria=?, keywords=?, detalles=?, uuid=?, updated_at=?, sync_status=1 WHERE nombre=?",
                                     (data.get('cuit', ''), data.get('categoria', 'General'), data.get('keywords', '[]'), data.get('detalles', '{}'), rec_uuid, remote_updated, data['nombre'])
                                 )
+                                total_pulled += 1
+                            elif table == 'arca_compras_csv':
+                                set_cols = [k for k in data.keys() if k not in ('id', 'uuid')]
+                                set_clause = ", ".join([f"{k} = ?" for k in set_cols])
+                                values = [data[k] for k in set_cols]
+                                values.extend([rec_uuid, 1, data.get('cuit_emisor'), data.get('punto_de_venta'), data.get('numero_desde')])
+                                cursor.execute(f"UPDATE {table} SET {set_clause}, uuid = ?, sync_status = ? WHERE cuit_emisor = ? AND punto_de_venta = ? AND numero_desde = ?", values)
                                 total_pulled += 1
                             elif table == 'recaudacion_diaria' and 'fecha' in data:
                                 set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
@@ -311,7 +390,7 @@ def pull_remote_changes(force_full=False):
             err_str = str(ex)
             if 'Quota exceeded' in err_str or 'RESOURCE_EXHAUSTED' in err_str or '429' in err_str:
                 SYNC_STATUS["mode"] = "ERROR"
-                SYNC_STATUS["message"] = "Cuota de Firebase en proceso de actualización / propágación"
+                SYNC_STATUS["message"] = "Cuota de Firebase en proceso de actualización / propagación"
             print(f"[FirebaseSync] Error pull tabla {table}: {ex}", flush=True)
 
     if total_pulled > 0:
@@ -331,7 +410,6 @@ def sync_cycle():
         pushed = push_local_changes()
         pulled = pull_remote_changes()
         SYNC_STATUS["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        # Si el ciclo se ejecutó sin excepciones fatales de cuota, restablecer estado ONLINE_SYNC
         if SYNC_STATUS["mode"] == "ERROR" and "Cuota" in str(SYNC_STATUS.get("message", "")):
             SYNC_STATUS["mode"] = "ONLINE_SYNC"
             SYNC_STATUS["message"] = "Conectado a Firebase Cloud Sync Relay"
@@ -340,11 +418,20 @@ def sync_cycle():
 
 def _sync_worker_loop(interval=10):
     print(f"[FirebaseSync] Hilo de sincronización iniciado (Intervalo: {interval}s).", flush=True)
+    cycle_count = 0
     while not _stop_event.is_set():
         if not _firestore_db:
             init_firebase()
         if _firestore_db:
             sync_cycle()
+            cycle_count += 1
+            # Cada 30 ciclos (~5 min), ejecutar reconciliación de borrados/huérfanos
+            if cycle_count >= 30:
+                cycle_count = 0
+                try:
+                    reconcile_with_firestore()
+                except Exception:
+                    pass
         time.sleep(interval)
 
 def start_sync_engine(interval=10):

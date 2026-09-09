@@ -85,8 +85,17 @@ def api_firebase_status():
 
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
+    firebase_sync.reconcile_with_firestore()
     firebase_sync.sync_cycle()
     return jsonify(firebase_sync.get_sync_status())
+
+
+@app.route('/api/firebase/full_resync', methods=['POST', 'GET'])
+def api_firebase_full_resync():
+    reconciled = firebase_sync.reconcile_with_firestore()
+    firebase_sync.pull_remote_changes(force_full=True)
+    firebase_sync.push_local_changes()
+    return jsonify({"success": True, "reconciled": reconciled, "status": firebase_sync.get_sync_status()})
 
 
 @app.route('/api/meses_disponibles', methods=['GET'])
