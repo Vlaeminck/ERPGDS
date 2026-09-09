@@ -96,6 +96,7 @@ def init_firebase():
         print(f"[FirebaseSync] Error inicializando Firebase: {e}", flush=True)
         return False
 
+CLIENT_INSTANCE_ID = uuid.uuid4().hex
 _listener_registered = False
 
 def _setup_realtime_listener():
@@ -106,7 +107,11 @@ def _setup_realtime_listener():
         def on_global_state_change(doc_snapshot, changes, read_time):
             for change in changes:
                 if change.type.name in ('ADDED', 'MODIFIED'):
-                    print("[FirebaseSync] Novedad remota detectada en tiempo real. Ejecutando Pull...", flush=True)
+                    doc_dict = change.document.to_dict() or {}
+                    # Ignorar si el cambio fue emitido por esta misma instancia
+                    if doc_dict.get('sender_id') == CLIENT_INSTANCE_ID:
+                        return
+                    print("[FirebaseSync] Novedad remota detectada en tiempo real desde otra instancia. Ejecutando Pull...", flush=True)
                     pull_remote_changes()
 
         doc_ref = _firestore_db.collection('sync_metadata').document('global_state')
@@ -173,7 +178,10 @@ def push_local_changes():
     if total_pushed > 0:
         try:
             now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            _firestore_db.collection('sync_metadata').document('global_state').set({'last_change': now_iso})
+            _firestore_db.collection('sync_metadata').document('global_state').set({
+                'last_change': now_iso,
+                'sender_id': CLIENT_INSTANCE_ID
+            })
         except Exception:
             pass
 
@@ -305,7 +313,7 @@ def pull_remote_changes(force_full=False):
 
                 if local_row:
                     local_updated = local_row['updated_at'] or ''
-                    if remote_updated >= local_updated or force_full:
+                    if (remote_updated and remote_updated > local_updated) or force_full:
                         # Actualizar en SQLite
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid')]
                         if set_cols:
