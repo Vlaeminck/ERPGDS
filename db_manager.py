@@ -249,11 +249,21 @@ def init_db(seed_samples=False):
         categoria TEXT DEFAULT 'General',
         keywords TEXT DEFAULT '[]',
         detalles TEXT DEFAULT '{}',
-        alias TEXT DEFAULT ''
+        alias TEXT DEFAULT '',
+        subcategoria TEXT DEFAULT '',
+        is_deleted INTEGER DEFAULT 0
     )
     ''')
     try:
         cursor.execute("ALTER TABLE proveedores ADD COLUMN alias TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE proveedores ADD COLUMN subcategoria TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE proveedores ADD COLUMN is_deleted INTEGER DEFAULT 0")
     except Exception:
         pass
 
@@ -607,6 +617,67 @@ def update_supplier_alias(nombre, alias):
     conn.commit()
     conn.close()
     return True
+
+def get_all_unique_suppliers():
+    """
+    Retorna todos los proveedores registrados sin repetir.
+    Si hay emisores en arca_compras_csv o cuentas por pagar que no están en la tabla proveedores,
+    los incorpora automáticamente a la tabla proveedores para unificar la fuente de datos.
+    """
+    import uuid as uuid_mod
+    import datetime as dt_mod
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # 1. Incorporar emisores de Compras ARCA que aún no figuren en proveedores
+    try:
+        cursor.execute('''
+            SELECT DISTINCT denominacion_emisor, nro_doc_emisor 
+            FROM arca_compras_csv 
+            WHERE denominacion_emisor IS NOT NULL AND TRIM(denominacion_emisor) != ''
+        ''')
+        arca_emitters = cursor.fetchall()
+        for em in arca_emitters:
+            nom = em['denominacion_emisor'].strip()
+            cuit_val = str(em['nro_doc_emisor'] or '').strip()
+            # Validar que no sea una línea cruda de CSV rota
+            if nom and nom.count(',') <= 2 and not (len(nom) > 8 and nom[2] == '-' and nom[5] == '-'):
+                cursor.execute("SELECT id FROM proveedores WHERE nombre = ?", (nom,))
+                if not cursor.fetchone():
+                    cursor.execute('''
+                        INSERT INTO proveedores (nombre, cuit, categoria, alias, sync_status, updated_at, uuid)
+                        VALUES (?, ?, 'General', '', 0, ?, ?)
+                    ''', (nom, cuit_val, now_iso, uuid_mod.uuid4().hex))
+        conn.commit()
+    except Exception as e:
+        print(f"[db_manager] Aviso al consolidar emisores ARCA: {e}")
+
+    # 2. Incorporar proveedores de Cuentas por Pagar que aún no figuren
+    try:
+        cursor.execute('''
+            SELECT DISTINCT proveedor_nombre 
+            FROM proveedores_cuentas_pagar 
+            WHERE proveedor_nombre IS NOT NULL AND TRIM(proveedor_nombre) != ''
+        ''')
+        cuentas_provs = cursor.fetchall()
+        for cp in cuentas_provs:
+            nom = cp['proveedor_nombre'].strip()
+            if nom and nom.count(',') <= 2 and not (len(nom) > 8 and nom[2] == '-' and nom[5] == '-'):
+                cursor.execute("SELECT id FROM proveedores WHERE nombre = ?", (nom,))
+                if not cursor.fetchone():
+                    cursor.execute('''
+                        INSERT INTO proveedores (nombre, cuit, categoria, alias, sync_status, updated_at, uuid)
+                        VALUES (?, '', 'General', '', 0, ?, ?)
+                    ''', (nom, now_iso, uuid_mod.uuid4().hex))
+        conn.commit()
+    except Exception as e:
+        print(f"[db_manager] Aviso al consolidar proveedores cuentas a pagar: {e}")
+
+    cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores WHERE (nombre NOT LIKE '%,%,%,%') ORDER BY nombre ASC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
 
 def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None, alias=''):
     import json

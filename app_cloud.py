@@ -872,11 +872,7 @@ def api_registrar_pago_proveedor():
 
 @app.route('/api/suppliers', methods=['GET'])
 def api_suppliers():
-    conn = db_manager.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores ORDER BY nombre ASC")
-    rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
+    rows = db_manager.get_all_unique_suppliers()
     return jsonify({"suppliers": rows})
 
 
@@ -894,11 +890,7 @@ def api_proveedores_alias():
         firebase_sync.sync_cycle()
         return jsonify({"success": True, "message": f"Alias guardado correctamente para {nombre}"})
     else:
-        conn = db_manager.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores ORDER BY nombre ASC")
-        rows = [dict(r) for r in cursor.fetchall()]
-        conn.close()
+        rows = db_manager.get_all_unique_suppliers()
         return jsonify({"proveedores": rows})
 
 

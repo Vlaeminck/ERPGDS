@@ -230,6 +230,10 @@ def reconcile_with_firestore(table=None):
             local_rows = cursor.fetchall()
             local_uuids = set()
 
+            # Obtener columnas válidas de la tabla en SQLite
+            cursor.execute(f"PRAGMA table_info({tbl})")
+            valid_cols = {col['name'] for col in cursor.fetchall()}
+
             # 1. Eliminar de SQLite los registros que fueron borrados en Firestore
             for r in local_rows:
                 loc_id = r['id']
@@ -247,7 +251,7 @@ def reconcile_with_firestore(table=None):
                 if r_uuid not in local_uuids:
                     r_data['uuid'] = r_uuid
                     r_data['sync_status'] = 1
-                    keys = [k for k in r_data.keys() if k != 'id']
+                    keys = [k for k in r_data.keys() if k != 'id' and k in valid_cols]
                     cols_str = ", ".join(keys)
                     placeholders = ", ".join(["?"] * len(keys))
                     vals = [r_data[k] for k in keys]
@@ -257,7 +261,7 @@ def reconcile_with_firestore(table=None):
                     except Exception as ins_err:
                         if 'UNIQUE' in str(ins_err) and tbl == 'arca_compras_csv':
                             try:
-                                set_cols = [k for k in r_data.keys() if k not in ('id', 'uuid')]
+                                set_cols = [k for k in r_data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                                 set_clause = ", ".join([f"{k} = ?" for k in set_cols])
                                 values = [r_data[k] for k in set_cols]
                                 values.extend([r_uuid, 1, r_data.get('cuit_emisor'), r_data.get('punto_de_venta'), r_data.get('numero_desde')])
@@ -290,6 +294,9 @@ def pull_remote_changes(force_full=False):
 
     for table in SYNC_TABLES:
         try:
+            cursor.execute(f"PRAGMA table_info({table})")
+            valid_cols = {col['name'] for col in cursor.fetchall()}
+
             last_ts = '' if force_full else _table_pull_timestamps.get(table)
 
             query = _firestore_db.collection(table)
@@ -315,7 +322,7 @@ def pull_remote_changes(force_full=False):
                 if local_row:
                     local_updated = str(local_row['updated_at'] or '')
                     if remote_updated >= local_updated or force_full:
-                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid')]
+                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
                             set_clause = ", ".join([f"{k} = ?" for k in set_cols])
                             values = [data[k] for k in set_cols]
@@ -325,7 +332,7 @@ def pull_remote_changes(force_full=False):
                 else:
                     data['uuid'] = rec_uuid
                     data['sync_status'] = 1
-                    keys = [k for k in data.keys() if k != 'id']
+                    keys = [k for k in data.keys() if k != 'id' and k in valid_cols]
                     cols_str = ", ".join(keys)
                     placeholders = ", ".join(["?"] * len(keys))
                     vals = [data[k] for k in keys]
@@ -341,7 +348,7 @@ def pull_remote_changes(force_full=False):
                                 )
                                 total_pulled += 1
                             elif table == 'arca_compras_csv':
-                                set_cols = [k for k in data.keys() if k not in ('id', 'uuid')]
+                                set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                                 set_clause = ", ".join([f"{k} = ?" for k in set_cols])
                                 values = [data[k] for k in set_cols]
                                 values.extend([rec_uuid, 1, data.get('cuit_emisor'), data.get('punto_de_venta'), data.get('numero_desde')])

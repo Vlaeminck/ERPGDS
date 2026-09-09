@@ -841,6 +841,8 @@ async function loadProveedoresAlias() {
         allProveedoresList.forEach(p => {
             if (p.alias) aliasMap[p.nombre] = p.alias;
         });
+        const badge = document.getElementById('alias-count-badge');
+        if (badge) badge.textContent = `${allProveedoresList.length} proveedores`;
         renderAliasTable(allProveedoresList);
     } catch (e) {
         console.error("Error cargando alias de proveedores:", e);
@@ -850,6 +852,8 @@ async function loadProveedoresAlias() {
 function filterAliasTable(search) {
     const term = (search || '').toLowerCase().trim();
     if (!term) {
+        const badge = document.getElementById('alias-count-badge');
+        if (badge) badge.textContent = `${allProveedoresList.length} proveedores`;
         renderAliasTable(allProveedoresList);
         return;
     }
@@ -859,6 +863,8 @@ function filterAliasTable(search) {
         (p.cuit || '').toLowerCase().includes(term) ||
         (p.categoria || '').toLowerCase().includes(term)
     );
+    const badge = document.getElementById('alias-count-badge');
+    if (badge) badge.textContent = `${filtered.length} coincidentes de ${allProveedoresList.length}`;
     renderAliasTable(filtered);
 }
 
