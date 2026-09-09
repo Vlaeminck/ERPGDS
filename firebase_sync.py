@@ -319,16 +319,9 @@ def pull_remote_changes(force_full=False):
                 local_row = cursor.fetchone()
 
                 if local_row:
-<<<<<<< HEAD
                     local_updated = str(local_row['updated_at'] or '')
-                    if remote_updated >= local_updated or force_full:
-                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
-=======
-                    local_updated = local_row['updated_at'] or ''
                     if (remote_updated and remote_updated > local_updated) or force_full:
-                        # Actualizar en SQLite
-                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid')]
->>>>>>> main
+                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
                             set_clause = ", ".join([f"{k} = ?" for k in set_cols])
                             values = [data[k] for k in set_cols]
