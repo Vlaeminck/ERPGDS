@@ -199,6 +199,31 @@ def init_db(seed_samples=False):
     except Exception:
         pass
 
+    # Deduplicación automática de comprobantes ARCA
+    try:
+        cursor.execute('''
+            DELETE FROM arca_compras_csv 
+            WHERE id NOT IN (
+                SELECT MIN(id) 
+                FROM arca_compras_csv 
+                WHERE uuid IS NOT NULL AND uuid != ''
+                GROUP BY uuid
+            ) AND (uuid IS NOT NULL AND uuid != '')
+        ''')
+    except Exception:
+        pass
+    try:
+        cursor.execute('''
+            DELETE FROM arca_compras_csv 
+            WHERE id NOT IN (
+                SELECT MIN(id) 
+                FROM arca_compras_csv 
+                GROUP BY nro_doc_emisor, punto_venta, nro_comprobante, tipo_comprobante
+            )
+        ''')
+    except Exception:
+        pass
+
     # Tabla 8.1: Snapshots de Compras ARCA (previos a cargas/actualizaciones)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS arca_compras_snapshots (

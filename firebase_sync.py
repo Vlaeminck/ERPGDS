@@ -234,14 +234,15 @@ def reconcile_with_firestore(table=None):
             cursor.execute(f"PRAGMA table_info({tbl})")
             valid_cols = {col['name'] for col in cursor.fetchall()}
 
-            # 1. Eliminar de SQLite los registros que fueron borrados en Firestore o no existen en la nube
+            # 1. Eliminar de SQLite los registros que fueron borrados en Firestore, sin UUID o duplicados locales
             for r in local_rows:
                 loc_id = r['id']
                 loc_uuid = r['uuid']
-                if not loc_uuid or loc_uuid not in remote_uuids:
+                if not loc_uuid or loc_uuid not in remote_uuids or loc_uuid in local_uuids:
                     cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
                     total_reconciled += 1
-                    print(f"[FirebaseSync] Reconciliación: Eliminado registro huérfano local en {tbl} (ID: {loc_id}, UUID: {loc_uuid})", flush=True)
+                else:
+                    local_uuids.add(loc_uuid)
 
             # 2. Insertar o actualizar documentos que están en Firestore
             for r_uuid, r_data in remote_docs_map.items():
@@ -255,17 +256,9 @@ def reconcile_with_firestore(table=None):
                     try:
                         cursor.execute(f"INSERT INTO {tbl} ({cols_str}) VALUES ({placeholders})", vals)
                         total_reconciled += 1
+                        local_uuids.add(r_uuid)
                     except Exception as ins_err:
-                        if 'UNIQUE' in str(ins_err) and tbl == 'arca_compras_csv':
-                            try:
-                                set_cols = [k for k in r_data.keys() if k not in ('id', 'uuid') and k in valid_cols]
-                                set_clause = ", ".join([f"{k} = ?" for k in set_cols])
-                                values = [r_data[k] for k in set_cols]
-                                values.extend([r_uuid, 1, r_data.get('cuit_emisor'), r_data.get('punto_de_venta'), r_data.get('numero_desde')])
-                                cursor.execute(f"UPDATE {tbl} SET {set_clause}, uuid = ?, sync_status = ? WHERE cuit_emisor = ? AND punto_de_venta = ? AND numero_desde = ?", values)
-                                total_reconciled += 1
-                            except Exception:
-                                pass
+                        pass
 
             conn.commit()
         except Exception as e:
@@ -327,45 +320,34 @@ def pull_remote_changes(force_full=False):
                             cursor.execute(f"UPDATE {table} SET {set_clause}, sync_status = ? WHERE uuid = ?", values)
                             total_pulled += 1
                 else:
-                    data['uuid'] = rec_uuid
-                    data['sync_status'] = 1
-                    keys = [k for k in data.keys() if k != 'id' and k in valid_cols]
-                    cols_str = ", ".join(keys)
-                    placeholders = ", ".join(["?"] * len(keys))
-                    vals = [data[k] for k in keys]
-                    try:
-                        cursor.execute(f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders})", vals)
-                        total_pulled += 1
-                    except Exception as e_ins:
-                        if 'UNIQUE constraint failed' in str(e_ins):
-                            if table == 'proveedores' and 'nombre' in data:
-                                cursor.execute(
-                                    "UPDATE proveedores SET cuit=?, categoria=?, keywords=?, detalles=?, uuid=?, updated_at=?, sync_status=1 WHERE nombre=?",
-                                    (data.get('cuit', ''), data.get('categoria', 'General'), data.get('keywords', '[]'), data.get('detalles', '{}'), rec_uuid, remote_updated, data['nombre'])
-                                )
-                                total_pulled += 1
-                            elif table == 'arca_compras_csv':
-                                set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
-                                set_clause = ", ".join([f"{k} = ?" for k in set_cols])
-                                values = [data[k] for k in set_cols]
-                                values.extend([rec_uuid, 1, data.get('cuit_emisor'), data.get('punto_de_venta'), data.get('numero_desde')])
-                                cursor.execute(f"UPDATE {table} SET {set_clause}, uuid = ?, sync_status = ? WHERE cuit_emisor = ? AND punto_de_venta = ? AND numero_desde = ?", values)
-                                total_pulled += 1
-                            elif table == 'recaudacion_diaria' and 'fecha' in data:
-                                set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
-                                vals_u = [data[k] for k in keys if k != 'fecha'] + [data['fecha']]
-                                cursor.execute(f"UPDATE recaudacion_diaria SET {set_cols}, uuid=?, sync_status=1 WHERE fecha=?", vals_u + [rec_uuid])
-                                total_pulled += 1
-                            elif table == 'estacionamiento_diario' and 'fecha' in data:
-                                set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
-                                vals_u = [data[k] for k in keys if k != 'fecha'] + [data['fecha']]
-                                cursor.execute(f"UPDATE estacionamiento_diario SET {set_cols}, uuid=?, sync_status=1 WHERE fecha=?", vals_u + [rec_uuid])
-                                total_pulled += 1
-                            elif table == 'caja_chica_arqueo' and 'fecha' in data:
-                                set_cols = ", ".join([f"{k}=?" for k in keys if k != 'fecha'])
-                                vals_u = [data[k] for k in keys if k != 'fecha'] + [data['fecha']]
-                                cursor.execute(f"UPDATE caja_chica_arqueo SET {set_cols}, uuid=?, sync_status=1 WHERE fecha=?", vals_u + [rec_uuid])
-                                total_pulled += 1
+                    existing_match = None
+                    if table == 'arca_compras_csv' and data.get('nro_doc_emisor') and data.get('punto_venta') and data.get('nro_comprobante'):
+                        cursor.execute(
+                            "SELECT id FROM arca_compras_csv WHERE nro_doc_emisor = ? AND punto_venta = ? AND nro_comprobante = ?",
+                            (str(data['nro_doc_emisor']), str(data['punto_venta']), str(data['nro_comprobante']))
+                        )
+                        existing_match = cursor.fetchone()
+
+                    if existing_match:
+                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
+                        if set_cols:
+                            set_clause = ", ".join([f"{k} = ?" for k in set_cols])
+                            values = [data[k] for k in set_cols]
+                            values.extend([rec_uuid, 1, existing_match['id']])
+                            cursor.execute(f"UPDATE {table} SET {set_clause}, uuid = ?, sync_status = ? WHERE id = ?", values)
+                            total_pulled += 1
+                    else:
+                        data['uuid'] = rec_uuid
+                        data['sync_status'] = 1
+                        keys = [k for k in data.keys() if k != 'id' and k in valid_cols]
+                        cols_str = ", ".join(keys)
+                        placeholders = ", ".join(["?"] * len(keys))
+                        vals = [data[k] for k in keys]
+                        try:
+                            cursor.execute(f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders})", vals)
+                            total_pulled += 1
+                        except Exception as e_ins:
+                            pass
 
             _table_pull_timestamps[table] = current_pull_time
         except Exception as ex:
