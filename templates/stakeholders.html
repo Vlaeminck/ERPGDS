@@ -10,12 +10,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --primary-accent: #2563eb;
             --success-accent: #059669;
             --warning-accent: #d97706;
             --danger-accent: #dc2626;
+            --purple-accent: #7c3aed;
         }
 
         body {
@@ -78,6 +80,7 @@
             border-bottom: 2px solid #e2e8f0;
             margin-bottom: 1.5rem;
             padding-bottom: 0;
+            overflow-x: auto;
         }
 
         .nav-tab-btn {
@@ -94,6 +97,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            white-space: nowrap;
         }
 
         .nav-tab-btn:hover {
@@ -221,6 +225,53 @@
         .data-table tr:hover {
             background-color: #f8fafc;
         }
+
+        .supplier-name-cell {
+            max-width: 230px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: help;
+        }
+
+        .badge-cat {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 7px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.72rem;
+        }
+        .badge-cat-pinamar { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+        .badge-cat-leloir { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .badge-cat-socios { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1.4rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            min-height: 320px;
+        }
+
+        .chart-card-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
     </style>
 </head>
 
@@ -268,11 +319,11 @@
                 <span id="cloud-sync-text">Cloud Sync Activo</span>
             </div>
 
-            <button class="btn btn-sm" onclick="triggerManualSync()" title="Forzar sincronización inmediata" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155;">
+            <button class="btn btn-sm" onclick="triggerManualSync()" title="Forzar sincronización inmediata y reconciliación" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer;">
                 <i class="fa-solid fa-arrows-rotate"></i>
             </button>
 
-            <button class="btn btn-sm" onclick="handleLogout()" title="Cerrar sesión" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #dc2626;">
+            <button class="btn btn-sm" onclick="handleLogout()" title="Cerrar sesión" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #dc2626; cursor: pointer;">
                 <i class="fa-solid fa-power-off"></i> Salir
             </button>
         </div>
@@ -317,7 +368,13 @@
                 <i class="fa-solid fa-building-columns"></i> Cuentas por Pagar (Saldos)
             </button>
             <button class="nav-tab-btn" onclick="switchTab('tab-metodos')" id="btn-tab-metodos">
-                <i class="fa-solid fa-chart-pie"></i> Desglose por Método de Pago
+                <i class="fa-solid fa-chart-pie"></i> Desglose por Método & Categoría
+            </button>
+            <button class="nav-tab-btn" onclick="switchTab('tab-dashboard')" id="btn-tab-dashboard">
+                <i class="fa-solid fa-chart-line"></i> 📊 Dashboard de Gastos
+            </button>
+            <button class="nav-tab-btn" onclick="switchTab('tab-alias')" id="btn-tab-alias">
+                <i class="fa-solid fa-tags"></i> ⚙️ Proveedores & Alias
             </button>
         </nav>
 
@@ -327,9 +384,9 @@
                 <!-- Header Actions & Filters -->
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
                     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                        <label style="font-size: 0.85rem; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #0f172a; font-weight: 700;" title="Pagar todas las compras pendientes del mes seleccionado con Galicia">
-                            <input type="checkbox" id="cbx-cloud-pagar-mes" onchange="handleMarcarMesPagadoCloud(this)"> Pagar Mes Completo
-                        </label>
+                        <button class="btn btn-sm" onclick="openModalPagarMes()" style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.3); font-weight: 700; padding: 0.45rem 0.85rem; border-radius: 8px; cursor: pointer;">
+                            <i class="fa-solid fa-check-double"></i> Pagar Mes Completo
+                        </button>
 
                         <select id="arca-cloud-filter" class="form-control" style="width: 170px; font-size: 0.85rem; font-weight: 600; padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1;" onchange="renderArcaCloudTable()">
                             <option value="all">Todas las compras</option>
@@ -359,17 +416,18 @@
                         <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
                             <tr>
                                 <th style="cursor: pointer;" onclick="sortArcaCloud('fecha_emision')">Fecha <i class="fa-solid fa-sort"></i></th>
-                                <th style="cursor: pointer;" onclick="sortArcaCloud('denominacion_emisor')">Proveedor <i class="fa-solid fa-sort"></i></th>
+                                <th style="cursor: pointer;" onclick="sortArcaCloud('denominacion_emisor')">Proveedor (Fantasía) <i class="fa-solid fa-sort"></i></th>
                                 <th style="text-align: right;">Total IVA</th>
                                 <th style="text-align: right; cursor: pointer;" onclick="sortArcaCloud('imp_total')">Imp. Total <i class="fa-solid fa-sort"></i></th>
+                                <th style="text-align: center;">Categoría</th>
                                 <th style="text-align: center;">Factura Recibida</th>
                                 <th style="text-align: center;">Estado</th>
-                                <th style="text-align: center; min-width: 190px;">Método de Pago</th>
+                                <th style="text-align: center; min-width: 170px;">Acción / Pago</th>
                             </tr>
                         </thead>
                         <tbody id="tbl-arca-cloud-body">
                             <tr>
-                                <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">
+                                <td colspan="8" style="text-align: center; padding: 2rem; color: #64748b;">
                                     <i class="fa-solid fa-spinner fa-spin"></i> Cargando compras...
                                 </td>
                             </tr>
@@ -391,13 +449,14 @@
                                 <th>Proveedor</th>
                                 <th>Comprobante</th>
                                 <th style="text-align: right;">Monto Total</th>
+                                <th style="text-align: center;">Categoría</th>
                                 <th style="text-align: center;">Estado</th>
                                 <th style="text-align: center;">Acción / Pago</th>
                             </tr>
                         </thead>
                         <tbody id="tbl-cuentas-cloud-body">
                             <tr>
-                                <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">
+                                <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">
                                     Cargando cuentas por pagar...
                                 </td>
                             </tr>
@@ -407,12 +466,11 @@
             </div>
         </section>
 
-        <!-- TAB 3: DESGLOSE POR MÉTODO DE PAGO -->
+        <!-- TAB 3: DESGLOSE POR MÉTODO & CATEGORÍA -->
         <section id="tab-metodos" class="tab-content" style="display: none;">
             <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
-                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Distribución de Pagos Realizados este Mes</h3>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem;">
+                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Distribución de Pagos por Método</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem; margin-bottom: 2rem;">
                     <!-- Galicia -->
                     <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 1.2rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -420,7 +478,7 @@
                             <i class="fa-solid fa-building-columns" style="color: #ea580c; font-size: 1.2rem;"></i>
                         </div>
                         <div style="font-size: 1.45rem; font-weight: 800; color: #c2410c;" id="metodo-val-galicia">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #9a3412; font-weight: 600; margin-top: 4px;">Transferencias y pagos bancarios</div>
+                        <div style="font-size: 0.78rem; color: #9a3412; font-weight: 600; margin-top: 4px;">Transferencias bancarias</div>
                     </div>
 
                     <!-- Mercado Pago -->
@@ -450,40 +508,183 @@
                             <i class="fa-solid fa-credit-card" style="color: #7c3aed; font-size: 1.2rem;"></i>
                         </div>
                         <div style="font-size: 1.45rem; font-weight: 800; color: #6d28d9;" id="metodo-val-tarjeta">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #581c87; font-weight: 600; margin-top: 4px;">Pagos con tarjetas corporativas</div>
+                        <div style="font-size: 0.78rem; color: #581c87; font-weight: 600; margin-top: 4px;">Tarjetas corporativas</div>
                     </div>
+                </div>
+
+                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Distribución de Gastos por Categoría</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem;">
+                    <!-- Pinamar -->
+                    <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #0369a1; font-size: 0.95rem;">🏖️ Pinamar</span>
+                            <i class="fa-solid fa-umbrella-beach" style="color: #0369a1; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #0284c7;" id="cat-val-pinamar">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #075985; font-weight: 600; margin-top: 4px;">Gastos de la sucursal Pinamar</div>
+                    </div>
+
+                    <!-- Leloir -->
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #15803d; font-size: 0.95rem;">🌳 Leloir</span>
+                            <i class="fa-solid fa-tree" style="color: #15803d; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #16a34a;" id="cat-val-leloir">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #166534; font-weight: 600; margin-top: 4px;">Gastos de la sede Leloir</div>
+                    </div>
+
+                    <!-- Socios -->
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 1.2rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; color: #b45309; font-size: 0.95rem;">🤝 Socios</span>
+                            <i class="fa-solid fa-handshake" style="color: #b45309; font-size: 1.2rem;"></i>
+                        </div>
+                        <div style="font-size: 1.45rem; font-weight: 800; color: #d97706;" id="cat-val-socios">$ 0</div>
+                        <div style="font-size: 0.78rem; color: #92400e; font-weight: 600; margin-top: 4px;">Retiros y gastos societarios</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: DASHBOARD DE GRÁFICOS -->
+        <section id="tab-dashboard" class="tab-content" style="display: none;">
+            <div class="dashboard-grid">
+                <!-- Gráfico 1: Evolución Mensual -->
+                <div class="chart-card">
+                    <div class="chart-card-title">
+                        <span><i class="fa-solid fa-chart-simple" style="color: var(--primary-accent);"></i> Evolución Mensual de Gastos</span>
+                        <small style="color: #64748b; font-weight: 600;">Histórico de Compras vs Pagos</small>
+                    </div>
+                    <div style="height: 280px; position: relative;">
+                        <canvas id="chart-evolucion"></canvas>
+                    </div>
+                </div>
+
+                <!-- Gráfico 2: Desglose por Categoría -->
+                <div class="chart-card">
+                    <div class="chart-card-title">
+                        <span><i class="fa-solid fa-chart-pie" style="color: var(--warning-accent);"></i> Gastos por Categoría</span>
+                        <small style="color: #64748b; font-weight: 600;">Pinamar vs Leloir vs Socios</small>
+                    </div>
+                    <div style="height: 280px; position: relative;">
+                        <canvas id="chart-categoria"></canvas>
+                    </div>
+                </div>
+
+                <!-- Gráfico 3: Desglose por Método de Pago -->
+                <div class="chart-card">
+                    <div class="chart-card-title">
+                        <span><i class="fa-solid fa-wallet" style="color: var(--success-accent);"></i> Distribución por Método de Pago</span>
+                        <small style="color: #64748b; font-weight: 600;">Galicia, MP, Efectivo, Tarjeta</small>
+                    </div>
+                    <div style="height: 280px; position: relative;">
+                        <canvas id="chart-metodo"></canvas>
+                    </div>
+                </div>
+
+                <!-- Gráfico 4: Top 10 Proveedores -->
+                <div class="chart-card">
+                    <div class="chart-card-title">
+                        <span><i class="fa-solid fa-ranking-star" style="color: var(--purple-accent);"></i> Top Proveedores</span>
+                        <small style="color: #64748b; font-weight: 600;">Mayores importes facturados</small>
+                    </div>
+                    <div style="height: 280px; position: relative;">
+                        <canvas id="chart-top-proveedores"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: CONFIGURACIÓN DE PROVEEDORES & ALIAS -->
+        <section id="tab-alias" class="tab-content" style="display: none;">
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div>
+                        <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0 0 4px;">Nombres de Fantasía (Alias) de Proveedores</h3>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 0;">Asigne nombres amigables (ej: "PEPE CONGELADOS") para reemplazar la razón social en tablas y reportes.</p>
+                    </div>
+
+                    <div style="width: 320px; max-width: 100%;">
+                        <input type="text" id="input-search-alias" class="form-control" placeholder="🔍 Buscar por razón social o alias..." oninput="filterAliasTable(this.value)" style="width: 100%; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.88rem;">
+                    </div>
+                </div>
+
+                <div style="max-height: 520px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
+                            <tr>
+                                <th>Razón Social Oficial</th>
+                                <th>CUIT</th>
+                                <th>Categoría</th>
+                                <th style="min-width: 250px;">Nombre de Fantasía (Alias)</th>
+                                <th style="text-align: center; width: 120px;">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-alias-body">
+                            <tr>
+                                <td colspan="5" style="text-align: center; padding: 2rem; color: #64748b;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando proveedores...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </section>
     </main>
 
-    <!-- Modal para Registrar Pago en Cuentas por Pagar -->
-    <div id="modal-pagar-cuenta" class="auth-overlay" style="display: none;">
-        <div class="auth-card" style="max-width: 420px; text-align: left;">
+    <!-- Modal Universal de Pago con Categoría Obligatoria -->
+    <div id="modal-pago-general" class="auth-overlay" style="display: none;">
+        <div class="auth-card" style="max-width: 440px; text-align: left;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800;">Registrar Pago a Proveedor</h3>
-                <button onclick="closeModalPagarCuenta()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800;" id="modal-pago-title">Registrar Pago</h3>
+                <button onclick="closeModalPagoGeneral()" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; color: #64748b;">&times;</button>
             </div>
-            <p id="modal-cuenta-prov" style="font-weight: 700; color: #0f172a; margin-bottom: 4px;"></p>
-            <p id="modal-cuenta-monto" style="font-size: 1.1rem; font-weight: 800; color: var(--primary-accent); margin-bottom: 1rem;"></p>
+            
+            <p id="modal-pago-desc" style="font-weight: 700; color: #0f172a; margin-bottom: 4px; font-size: 0.95rem;"></p>
+            <p id="modal-pago-monto" style="font-size: 1.25rem; font-weight: 800; color: var(--primary-accent); margin-bottom: 1.2rem;"></p>
 
-            <form id="form-pagar-cuenta" onsubmit="handleConfirmarPagoCuenta(event)">
-                <input type="hidden" id="modal-cuenta-id">
+            <form id="form-pago-general" onsubmit="handleConfirmarPagoGeneral(event)">
+                <input type="hidden" id="modal-pago-type" value="arca"> <!-- 'arca' | 'arca_mes' | 'cuenta' -->
+                <input type="hidden" id="modal-pago-id" value="">
+
+                <!-- 1. Categoría de Pago (OBLIGATORIA) -->
                 <div style="margin-bottom: 1rem;">
-                    <label style="font-size: 0.8rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Método de Pago:</label>
-                    <select id="modal-cuenta-metodo" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required>
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-tag" style="color: var(--primary-accent);"></i> Categoría para Pago <span style="color: var(--danger-accent);">* (Obligatorio)</span>:
+                    </label>
+                    <select id="modal-pago-categoria" class="form-control" style="width: 100%; padding: 0.6rem; border-radius: 8px; border: 2px solid #93c5fd; font-weight: 700; font-size: 0.92rem; background: #eff6ff;" required>
+                        <option value="" disabled selected>Seleccione la categoría...</option>
+                        <option value="Pinamar">🏖️ Pinamar</option>
+                        <option value="Leloir">🌳 Leloir</option>
+                        <option value="Socios">🤝 Socios</option>
+                    </select>
+                </div>
+
+                <!-- 2. Método de Pago -->
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-wallet" style="color: var(--success-accent);"></i> Método de Pago <span style="color: var(--danger-accent);">*</span>:
+                    </label>
+                    <select id="modal-pago-metodo" class="form-control" style="width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 700; font-size: 0.92rem;" required>
                         <option value="Galicia">🟧 Banco Galicia</option>
                         <option value="Mercado Pago">🟦 Mercado Pago</option>
                         <option value="Efectivo">🟩 Efectivo / Caja Chica</option>
                         <option value="Tarjeta crédito">🟪 Tarjeta de Crédito</option>
                     </select>
                 </div>
-                <div style="margin-bottom: 1.2rem;">
-                    <label style="font-size: 0.8rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Fecha de Pago:</label>
-                    <input type="date" id="modal-cuenta-fecha" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required>
+
+                <!-- 3. Fecha de Pago -->
+                <div style="margin-bottom: 1.3rem;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-calendar" style="color: #64748b;"></i> Fecha de Pago:
+                    </label>
+                    <input type="date" id="modal-pago-fecha" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required>
                 </div>
-                <button type="submit" class="btn-portal-primary" style="width: 100%;">
-                    <i class="fa-solid fa-check"></i> Confirmar Pago
+
+                <button type="submit" class="btn-portal-primary" id="btn-confirmar-pago-gen" style="width: 100%; padding: 0.8rem; font-size: 1rem;">
+                    <i class="fa-solid fa-check"></i> Confirmar y Registrar Pago
                 </button>
             </form>
         </div>
@@ -494,3 +695,4 @@
 </body>
 
 </html>
+

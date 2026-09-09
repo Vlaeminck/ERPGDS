@@ -5,7 +5,8 @@ import config
 DB_PATH = os.path.join(config.REGISTROS_FOLDER, "control_interno.db")
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -169,7 +170,8 @@ def init_db(seed_samples=False):
         nro_comprobante TEXT DEFAULT '',
         tipo_comprobante TEXT DEFAULT '',
         es_retroactiva INTEGER DEFAULT 0,
-        fecha_importacion TEXT DEFAULT ''
+        fecha_importacion TEXT DEFAULT '',
+        categoria_pago TEXT DEFAULT ''
     )
     ''')
     try:
@@ -190,6 +192,10 @@ def init_db(seed_samples=False):
         pass
     try:
         cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN fecha_importacion TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE arca_compras_csv ADD COLUMN categoria_pago TEXT DEFAULT ''")
     except Exception:
         pass
 
@@ -216,9 +222,14 @@ def init_db(seed_samples=False):
         estado TEXT DEFAULT 'Pendiente',
         monto_pagado REAL DEFAULT 0,
         fecha_pago TEXT DEFAULT '',
-        medio_pago TEXT DEFAULT ''
+        medio_pago TEXT DEFAULT '',
+        categoria_pago TEXT DEFAULT ''
     )
     ''')
+    try:
+        cursor.execute("ALTER TABLE proveedores_cuentas_pagar ADD COLUMN categoria_pago TEXT DEFAULT ''")
+    except Exception:
+        pass
 
     
     # Tabla 9: Configuraciones del Sistema (Clave - Valor)
@@ -237,9 +248,14 @@ def init_db(seed_samples=False):
         cuit TEXT DEFAULT '',
         categoria TEXT DEFAULT 'General',
         keywords TEXT DEFAULT '[]',
-        detalles TEXT DEFAULT '{}'
+        detalles TEXT DEFAULT '{}',
+        alias TEXT DEFAULT ''
     )
     ''')
+    try:
+        cursor.execute("ALTER TABLE proveedores ADD COLUMN alias TEXT DEFAULT ''")
+    except Exception:
+        pass
 
     # Tabla 11: Facturas Procesadas
     cursor.execute('''
@@ -555,7 +571,44 @@ def get_all_suppliers_dict():
         result[r['nombre']] = det
     return result
 
-def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None):
+def get_suppliers_alias_map():
+    """Retorna un diccionario {nombre_proveedor: alias} con los alias configurados."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    alias_map = {}
+    try:
+        cursor.execute("SELECT nombre, alias FROM proveedores WHERE alias IS NOT NULL AND alias != ''")
+        for r in cursor.fetchall():
+            alias_map[r['nombre']] = r['alias']
+    except Exception:
+        pass
+    conn.close()
+    return alias_map
+
+def update_supplier_alias(nombre, alias):
+    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor."""
+    import datetime as dt_mod
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    cursor.execute('''
+        UPDATE proveedores
+        SET alias = ?, updated_at = ?, sync_status = 0
+        WHERE nombre = ?
+    ''', (alias.strip(), now_iso, nombre.strip()))
+    if cursor.rowcount == 0:
+        # Si no existía en la tabla proveedores, insertarlo
+        import uuid as uuid_mod
+        u_id = uuid_mod.uuid4().hex
+        cursor.execute('''
+            INSERT INTO proveedores (nombre, alias, updated_at, sync_status, uuid)
+            VALUES (?, ?, ?, 0, ?)
+        ''', (nombre.strip(), alias.strip(), now_iso, u_id))
+    conn.commit()
+    conn.close()
+    return True
+
+def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None, alias=''):
     import json
     import uuid as uuid_mod
     import datetime as dt_mod
@@ -567,16 +620,17 @@ def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=
     u_id = uuid_mod.uuid4().hex
     
     cursor.execute('''
-        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, uuid, updated_at, sync_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, alias, uuid, updated_at, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
         ON CONFLICT(nombre) DO UPDATE SET
             cuit = excluded.cuit,
             categoria = excluded.categoria,
             keywords = excluded.keywords,
             detalles = excluded.detalles,
+            alias = CASE WHEN excluded.alias != '' THEN excluded.alias ELSE proveedores.alias END,
             updated_at = excluded.updated_at,
             sync_status = 0
-    ''', (nombre, cuit, categoria, kw_str, det_str, u_id, now_iso))
+    ''', (nombre, cuit, categoria, kw_str, det_str, alias, u_id, now_iso))
     conn.commit()
     conn.close()
 

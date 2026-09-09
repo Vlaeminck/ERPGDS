@@ -179,9 +179,20 @@ def api_arca_compras():
         "Tarjeta crédito": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and 'Tarjeta' in str(r.get('metodo_pago', '')))
     }
 
+    # Métricas por categoría de pago
+    pagos_por_categoria = {
+        "Pinamar": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Pinamar'),
+        "Leloir": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Leloir'),
+        "Socios": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Socios'),
+        "Sin Categorizar": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and not r.get('categoria_pago'))
+    }
+
+    alias_map = db_manager.get_suppliers_alias_map()
     conn.close()
+
     return jsonify({
         "compras": rows,
+        "alias_map": alias_map,
         "resumen": {
             "total_compras": len(rows),
             "total_importe": tot_imp,
@@ -191,7 +202,8 @@ def api_arca_compras():
             "pagados_total": pagados_total,
             "retroactivas": retroactivas_count,
             "notas_credito": nc_count,
-            "pagos_por_metodo": pagos_por_metodo
+            "pagos_por_metodo": pagos_por_metodo,
+            "pagos_por_categoria": pagos_por_categoria
         }
     })
 
@@ -201,16 +213,25 @@ def api_arca_marcar_pago(item_id):
     conn = db_manager.get_connection()
     cursor = conn.cursor()
     data = request.json or {}
-    metodo = data.get('metodo_pago', '')
+    metodo = str(data.get('metodo_pago', '')).strip()
+    categoria_pago = str(data.get('categoria_pago', '')).strip()
     fecha_pago = data.get('fecha_pago', datetime.now().strftime('%Y-%m-%d'))
     now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    if not categoria_pago or categoria_pago not in ['Pinamar', 'Leloir', 'Socios']:
+        conn.close()
+        return jsonify({"success": False, "message": "Debe seleccionar una Categoría de Pago obligatoria (Pinamar, Leloir o Socios)."}), 400
+
+    if not metodo:
+        conn.close()
+        return jsonify({"success": False, "message": "Debe seleccionar un Método de Pago válido."}), 400
     
     cursor.execute("SELECT * FROM arca_compras_csv WHERE id=?", (item_id,))
     arca_row = cursor.fetchone()
     
     cursor.execute(
-        "UPDATE arca_compras_csv SET estado='Pagado', metodo_pago=?, fecha_pago=?, updated_at=?, sync_status=0 WHERE id=?",
-        (metodo, fecha_pago, now_iso, item_id)
+        "UPDATE arca_compras_csv SET estado='Pagado', metodo_pago=?, categoria_pago=?, fecha_pago=?, updated_at=?, sync_status=0 WHERE id=?",
+        (metodo, categoria_pago, fecha_pago, now_iso, item_id)
     )
     
     if arca_row:
@@ -222,6 +243,7 @@ def api_arca_marcar_pago(item_id):
             cp_metodo = 'Caja Chica'
             if 'Banco' in metodo or 'Galicia' in metodo: cp_metodo = 'Banco'
             if 'Mercado' in metodo: cp_metodo = 'MercadoPago'
+            if 'Tarjeta' in metodo: cp_metodo = 'Tarjeta'
             
             cursor.execute("SELECT id, factura_numero FROM proveedores_cuentas_pagar")
             for cp_row in cursor.fetchall():
@@ -230,9 +252,9 @@ def api_arca_marcar_pago(item_id):
                 if match and int(match.group(1)) == pv and int(match.group(2)) == nro:
                     cursor.execute('''
                         UPDATE proveedores_cuentas_pagar
-                        SET estado='Pagado', monto_pagado=monto_total, fecha_pago=?, medio_pago=?, updated_at=?, sync_status=0
+                        SET estado='Pagado', monto_pagado=monto_total, fecha_pago=?, medio_pago=?, categoria_pago=?, updated_at=?, sync_status=0
                         WHERE id=?
-                    ''', (fecha_pago, cp_metodo, now_iso, cp_row['id']))
+                    ''', (fecha_pago, cp_metodo, categoria_pago, now_iso, cp_row['id']))
     conn.commit()
     conn.close()
     
@@ -296,17 +318,23 @@ def api_arca_marcar_recibida(item_id):
 def api_test_marcar_mes_pagado():
     data = request.json or {}
     mes = data.get('mes')
+    categoria_pago = str(data.get('categoria_pago', '')).strip()
+    metodo_pago = str(data.get('metodo_pago', 'Galicia')).strip() or 'Galicia'
+    
     if not mes:
         return jsonify({"success": False, "message": "Mes no proporcionado"}), 400
+    
+    if not categoria_pago or categoria_pago not in ['Pinamar', 'Leloir', 'Socios']:
+        return jsonify({"success": False, "message": "Debe seleccionar una Categoría de Pago obligatoria (Pinamar, Leloir o Socios)."}), 400
         
     conn = db_manager.get_connection()
     cursor = conn.cursor()
     now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute('''
         UPDATE arca_compras_csv 
-        SET estado = 'Pagado', metodo_pago = 'Galicia', fecha_pago = date('now'), updated_at=?, sync_status=0
+        SET estado = 'Pagado', metodo_pago = ?, categoria_pago = ?, fecha_pago = date('now'), updated_at=?, sync_status=0
         WHERE mes = ? AND estado != 'Pagado'
-    ''', (now_iso, mes))
+    ''', (metodo_pago, categoria_pago, now_iso, mes))
     
     actualizados = cursor.rowcount
     conn.commit()
@@ -315,7 +343,7 @@ def api_test_marcar_mes_pagado():
     return jsonify({
         "success": True, 
         "actualizados": actualizados,
-        "message": f"Se marcaron como pagadas {actualizados} compras de {mes} con Galicia."
+        "message": f"Se marcaron como pagadas {actualizados} compras de {mes} ({categoria_pago}) con {metodo_pago}."
     })
 
 
@@ -793,25 +821,32 @@ def api_registrar_pago_proveedor():
     cursor = conn.cursor()
     data = request.json or {}
     cuenta_id = data.get('id')
-    medio_pago = data.get('medio_pago', 'Banco')
+    medio_pago = str(data.get('medio_pago', 'Galicia')).strip() or 'Galicia'
+    categoria_pago = str(data.get('categoria_pago', '')).strip()
     fecha_pago = data.get('fecha_pago', datetime.now().strftime('%Y-%m-%d'))
     now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if not cuenta_id:
+        conn.close()
         return jsonify({"error": "Datos inválidos"}), 400
+
+    if not categoria_pago or categoria_pago not in ['Pinamar', 'Leloir', 'Socios']:
+        conn.close()
+        return jsonify({"error": "Debe seleccionar una Categoría de Pago obligatoria (Pinamar, Leloir o Socios)."}), 400
         
     cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE id = ?", (cuenta_id,))
     row = cursor.fetchone()
     if not row:
+        conn.close()
         return jsonify({"error": "Cuenta no encontrada"}), 404
         
     monto_pago = row['monto_total']
     
     cursor.execute('''
         UPDATE proveedores_cuentas_pagar
-        SET monto_pagado = ?, estado = 'Pagado', fecha_pago = ?, medio_pago = ?, updated_at = ?, sync_status = 0
+        SET monto_pagado = ?, estado = 'Pagado', fecha_pago = ?, medio_pago = ?, categoria_pago = ?, updated_at = ?, sync_status = 0
         WHERE id = ?
-    ''', (monto_pago, fecha_pago, medio_pago, now_iso, cuenta_id))
+    ''', (monto_pago, fecha_pago, medio_pago, categoria_pago, now_iso, cuenta_id))
     
     # Sincronizar pago con ARCA
     match = re.search(r'(\d+)\s*-\s*(\d+)', str(row['factura_numero']))
@@ -825,9 +860,9 @@ def api_registrar_pago_proveedor():
 
         cursor.execute('''
             UPDATE arca_compras_csv 
-            SET estado='Pagado', metodo_pago=?, fecha_pago=?, updated_at=?, sync_status=0
+            SET estado='Pagado', metodo_pago=?, categoria_pago=?, fecha_pago=?, updated_at=?, sync_status=0
             WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
-        ''', (arca_metodo, fecha_pago, now_iso, pv, nro))
+        ''', (arca_metodo, categoria_pago, fecha_pago, now_iso, pv, nro))
 
     conn.commit()
     conn.close()
@@ -839,12 +874,119 @@ def api_registrar_pago_proveedor():
 def api_suppliers():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM proveedores ORDER BY nombre ASC")
+    cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores ORDER BY nombre ASC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return jsonify({"suppliers": rows})
 
 
+@app.route('/api/proveedores/alias', methods=['GET', 'POST'])
+def api_proveedores_alias():
+    if request.method == 'POST':
+        data = request.json or {}
+        nombre = str(data.get('nombre', '')).strip()
+        alias = str(data.get('alias', '')).strip()
+        
+        if not nombre:
+            return jsonify({"success": False, "message": "El nombre del proveedor es obligatorio"}), 400
+            
+        db_manager.update_supplier_alias(nombre, alias)
+        firebase_sync.sync_cycle()
+        return jsonify({"success": True, "message": f"Alias guardado correctamente para {nombre}"})
+    else:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores ORDER BY nombre ASC")
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({"proveedores": rows})
+
+
+@app.route('/api/dashboard/stats', methods=['GET'])
+def api_dashboard_stats():
+    mes = request.args.get('mes')
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+
+    # 1. Evolución mensual (Todos los meses con compras)
+    cursor.execute('''
+        SELECT mes, 
+               SUM(imp_total) as total_facturado,
+               SUM(CASE WHEN estado = 'Pagado' THEN imp_total ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN estado != 'Pagado' THEN imp_total ELSE 0 END) as total_pendiente
+        FROM arca_compras_csv
+        WHERE mes IS NOT NULL AND mes != ''
+        GROUP BY mes
+        ORDER BY mes ASC
+    ''')
+    evolucion_rows = cursor.fetchall()
+    evolucion_mensual = {
+        "meses": [r['mes'] for r in evolucion_rows],
+        "facturado": [round(float(r['total_facturado'] or 0), 2) for r in evolucion_rows],
+        "pagado": [round(float(r['total_pagado'] or 0), 2) for r in evolucion_rows],
+        "pendiente": [round(float(r['total_pendiente'] or 0), 2) for r in evolucion_rows]
+    }
+
+    # Filtro base para las siguientes consultas
+    where_mes = "WHERE mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
+    params_mes = (mes,) if (mes and mes != 'all') else ()
+
+    # 2. Desglose por Categoría de Pago
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(categoria_pago, ''), 'Sin Categorizar') as cat,
+               SUM(imp_total) as total
+        FROM arca_compras_csv
+        {where_mes} AND estado = 'Pagado'
+        GROUP BY cat
+    ''', params_mes)
+    cat_rows = cursor.fetchall()
+    gastos_categoria = {r['cat']: round(float(r['total'] or 0), 2) for r in cat_rows}
+
+    # 3. Desglose por Método de Pago
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(metodo_pago, ''), 'Sin Definir') as metodo,
+               SUM(imp_total) as total
+        FROM arca_compras_csv
+        {where_mes} AND estado = 'Pagado'
+        GROUP BY metodo
+    ''', params_mes)
+    metodo_rows = cursor.fetchall()
+    gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
+
+    # 4. Top 10 Proveedores con Mayor Gasto
+    cursor.execute(f'''
+        SELECT denominacion_emisor, SUM(imp_total) as total
+        FROM arca_compras_csv
+        {where_mes}
+        GROUP BY denominacion_emisor
+        ORDER BY total DESC
+        LIMIT 10
+    ''', params_mes)
+    top_rows = cursor.fetchall()
+
+    alias_map = db_manager.get_suppliers_alias_map()
+    top_proveedores = []
+    for r in top_rows:
+        razon = r['denominacion_emisor'] or 'Desconocido'
+        alias = alias_map.get(razon, '')
+        top_proveedores.append({
+            "razon_social": razon,
+            "display_name": alias if alias else (razon[:30] + '...' if len(razon) > 30 else razon),
+            "total": round(float(r['total'] or 0), 2)
+        })
+
+    conn.close()
+
+    return jsonify({
+        "evolucion_mensual": evolucion_mensual,
+        "gastos_categoria": gastos_categoria,
+        "gastos_metodo": gastos_metodo,
+        "top_proveedores": top_proveedores,
+        "mes_seleccionado": mes or 'all'
+    })
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
