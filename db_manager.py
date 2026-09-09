@@ -582,21 +582,37 @@ def get_all_suppliers_dict():
     return result
 
 def get_suppliers_alias_map():
-    """Retorna un diccionario {nombre_proveedor: alias} con los alias configurados."""
+    """Retorna un diccionario {clave_coincidencia: alias} con los alias configurados."""
+    import json
     conn = get_connection()
     cursor = conn.cursor()
     alias_map = {}
     try:
-        cursor.execute("SELECT nombre, alias FROM proveedores WHERE alias IS NOT NULL AND alias != ''")
+        cursor.execute("SELECT nombre, alias, cuit, keywords FROM proveedores WHERE alias IS NOT NULL AND TRIM(alias) != ''")
         for r in cursor.fetchall():
-            alias_map[r['nombre']] = r['alias']
+            al = r['alias'].strip()
+            nom = r['nombre'].strip()
+            alias_map[nom] = al
+            alias_map[nom.upper()] = al
+            alias_map[nom.lower()] = al
+            if r['cuit']:
+                alias_map[r['cuit'].strip()] = al
+            if r['keywords']:
+                try:
+                    kws = json.loads(r['keywords'])
+                    for kw in kws:
+                        if kw:
+                            alias_map[str(kw).strip().upper()] = al
+                            alias_map[str(kw).strip().lower()] = al
+                except Exception:
+                    pass
     except Exception:
         pass
     conn.close()
     return alias_map
 
 def update_supplier_alias(nombre, alias):
-    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor."""
+    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor (coincidencia insensible a mayúsculas/minúsculas)."""
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
@@ -604,77 +620,19 @@ def update_supplier_alias(nombre, alias):
     cursor.execute('''
         UPDATE proveedores
         SET alias = ?, updated_at = ?, sync_status = 0
-        WHERE nombre = ?
+        WHERE nombre = ? COLLATE NOCASE
     ''', (alias.strip(), now_iso, nombre.strip()))
-    if cursor.rowcount == 0:
-        # Si no existía en la tabla proveedores, insertarlo
-        import uuid as uuid_mod
-        u_id = uuid_mod.uuid4().hex
-        cursor.execute('''
-            INSERT INTO proveedores (nombre, alias, updated_at, sync_status, uuid)
-            VALUES (?, ?, ?, 0, ?)
-        ''', (nombre.strip(), alias.strip(), now_iso, u_id))
     conn.commit()
     conn.close()
     return True
 
 def get_all_unique_suppliers():
     """
-    Retorna todos los proveedores registrados sin repetir.
-    Si hay emisores en arca_compras_csv o cuentas por pagar que no están en la tabla proveedores,
-    los incorpora automáticamente a la tabla proveedores para unificar la fuente de datos.
+    Retorna los 405 proveedores oficiales configurados sin duplicados de mayúsculas/minúsculas.
     """
-    import uuid as uuid_mod
-    import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
-    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    # 1. Incorporar emisores de Compras ARCA que aún no figuren en proveedores
-    try:
-        cursor.execute('''
-            SELECT DISTINCT denominacion_emisor, nro_doc_emisor 
-            FROM arca_compras_csv 
-            WHERE denominacion_emisor IS NOT NULL AND TRIM(denominacion_emisor) != ''
-        ''')
-        arca_emitters = cursor.fetchall()
-        for em in arca_emitters:
-            nom = em['denominacion_emisor'].strip()
-            cuit_val = str(em['nro_doc_emisor'] or '').strip()
-            # Validar que no sea una línea cruda de CSV rota
-            if nom and nom.count(',') <= 2 and not (len(nom) > 8 and nom[2] == '-' and nom[5] == '-'):
-                cursor.execute("SELECT id FROM proveedores WHERE nombre = ?", (nom,))
-                if not cursor.fetchone():
-                    cursor.execute('''
-                        INSERT INTO proveedores (nombre, cuit, categoria, alias, sync_status, updated_at, uuid)
-                        VALUES (?, ?, 'General', '', 0, ?, ?)
-                    ''', (nom, cuit_val, now_iso, uuid_mod.uuid4().hex))
-        conn.commit()
-    except Exception as e:
-        print(f"[db_manager] Aviso al consolidar emisores ARCA: {e}")
-
-    # 2. Incorporar proveedores de Cuentas por Pagar que aún no figuren
-    try:
-        cursor.execute('''
-            SELECT DISTINCT proveedor_nombre 
-            FROM proveedores_cuentas_pagar 
-            WHERE proveedor_nombre IS NOT NULL AND TRIM(proveedor_nombre) != ''
-        ''')
-        cuentas_provs = cursor.fetchall()
-        for cp in cuentas_provs:
-            nom = cp['proveedor_nombre'].strip()
-            if nom and nom.count(',') <= 2 and not (len(nom) > 8 and nom[2] == '-' and nom[5] == '-'):
-                cursor.execute("SELECT id FROM proveedores WHERE nombre = ?", (nom,))
-                if not cursor.fetchone():
-                    cursor.execute('''
-                        INSERT INTO proveedores (nombre, cuit, categoria, alias, sync_status, updated_at, uuid)
-                        VALUES (?, '', 'General', '', 0, ?, ?)
-                    ''', (nom, now_iso, uuid_mod.uuid4().hex))
-        conn.commit()
-    except Exception as e:
-        print(f"[db_manager] Aviso al consolidar proveedores cuentas a pagar: {e}")
-
-    cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores WHERE (nombre NOT LIKE '%,%,%,%') ORDER BY nombre ASC")
+    cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores ORDER BY nombre COLLATE NOCASE ASC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return rows

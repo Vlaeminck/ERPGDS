@@ -43,7 +43,7 @@ function truncateText(str, maxLen = 30) {
 
 function formatSupplierCell(razonSocial) {
     const raw = String(razonSocial || '-').trim();
-    const alias = aliasMap[raw] ? String(aliasMap[raw]).trim() : '';
+    const alias = aliasMap[raw] || aliasMap[raw.toUpperCase()] || aliasMap[raw.toLowerCase()] || '';
 
     if (alias) {
         const truncAlias = truncateText(alias, 30);
