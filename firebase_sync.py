@@ -337,6 +337,18 @@ def pull_remote_changes(force_full=False):
                             (str(data['nro_doc_emisor']), str(data['punto_venta']), str(data['nro_comprobante']))
                         )
                         existing_match = cursor.fetchone()
+                    elif table == 'proveedores' and data.get('nombre'):
+                        cursor.execute(
+                            "SELECT id FROM proveedores WHERE LOWER(TRIM(nombre)) = ?",
+                            (str(data['nombre']).strip().lower(),)
+                        )
+                        existing_match = cursor.fetchone()
+                    elif table == 'categorias_gastos' and data.get('nombre'):
+                        cursor.execute(
+                            "SELECT id FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ?",
+                            (str(data['nombre']).strip().lower(),)
+                        )
+                        existing_match = cursor.fetchone()
 
                     if existing_match:
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]

@@ -339,7 +339,7 @@ def init_db(seed_samples=False):
     try:
         cursor.execute("SELECT COUNT(*) FROM categorias_gastos")
         if cursor.fetchone()[0] == 0:
-            import uuid as uuid_mod
+            import hashlib
             import datetime as dt_mod
             now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             default_cats = [
@@ -355,10 +355,11 @@ def init_db(seed_samples=False):
                 ("General", None, "fa-tags", "#94a3b8")
             ]
             for cat_nom, p_id, icon, clr in default_cats:
+                det_uuid = hashlib.md5(f"{cat_nom.strip().lower()}:{p_id or ''}".encode()).hexdigest()
                 cursor.execute('''
-                    INSERT INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
+                    INSERT OR IGNORE INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
                     VALUES (?, ?, ?, ?, ?, ?, 0)
-                ''', (cat_nom, p_id, icon, clr, uuid_mod.uuid4().hex, now_iso))
+                ''', (cat_nom, p_id, icon, clr, det_uuid, now_iso))
     except Exception as e:
         print(f"[db_manager] Error inicializando categorias_gastos: {e}")
 
@@ -696,21 +697,39 @@ def get_all_unique_suppliers():
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, nombre, cuit, categoria, subcategoria, alias FROM proveedores ORDER BY nombre COLLATE NOCASE ASC")
+    cursor.execute("""
+        SELECT id, nombre, cuit, categoria, subcategoria, alias 
+        FROM proveedores 
+        WHERE is_deleted = 0
+        GROUP BY LOWER(TRIM(nombre))
+        ORDER BY nombre COLLATE NOCASE ASC
+    """)
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return rows
 
 def get_categories_tree():
-    """Retorna las categorías principales con sus subcategorías anidadas."""
+    """Retorna las categorías principales con sus subcategorías anidadas sin duplicados."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM categorias_gastos ORDER BY nombre COLLATE NOCASE ASC")
-    rows = [dict(r) for r in cursor.fetchall()]
+    all_rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
-    main_cats = [r for r in rows if not r.get('padre_id')]
-    sub_cats = [r for r in rows if r.get('padre_id')]
+    # Deduplicar por nombre y padre_id en memoria por seguridad
+    seen_main = set()
+    main_cats = []
+    sub_cats = []
+    
+    for r in all_rows:
+        p_id = r.get('padre_id')
+        nom = (r.get('nombre') or '').strip()
+        if not p_id:
+            if nom.lower() not in seen_main:
+                seen_main.add(nom.lower())
+                main_cats.append(r)
+        else:
+            sub_cats.append(r)
 
     tree = []
     for m in main_cats:
@@ -720,32 +739,52 @@ def get_categories_tree():
     return tree
 
 def get_categories_flat():
-    """Retorna lista plana de todas las categorías y subcategorías."""
+    """Retorna lista plana de todas las categorías y subcategorías sin duplicados."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM categorias_gastos ORDER BY nombre COLLATE NOCASE ASC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
-    return rows
+    
+    seen = set()
+    unique_rows = []
+    for r in rows:
+        key = ((r.get('nombre') or '').strip().lower(), r.get('padre_id'))
+        if key not in seen:
+            seen.add(key)
+            unique_rows.append(r)
+    return unique_rows
 
 def save_category(nombre, padre_id=None, icono='fa-tag', color='#3b82f6'):
-    """Crea una nueva categoría o subcategoría."""
-    import uuid as uuid_mod
+    """Crea una nueva categoría o subcategoría evitando duplicados."""
+    import hashlib
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    u_id = uuid_mod.uuid4().hex
     p_id = int(padre_id) if padre_id and str(padre_id).isdigit() and int(padre_id) > 0 else None
+    
+    # Verificar si ya existe exactamente esa categoría/subcategoría
+    if p_id is None:
+        cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND padre_id IS NULL", (nombre.strip().lower(),))
+    else:
+        cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND padre_id = ?", (nombre.strip().lower(), p_id))
+    existing = cursor.fetchone()
+    if existing:
+        res = dict(existing)
+        conn.close()
+        return res
+
+    det_uuid = hashlib.md5(f"{nombre.strip().lower()}:{p_id or ''}".encode()).hexdigest()
 
     cursor.execute('''
         INSERT INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
         VALUES (?, ?, ?, ?, ?, ?, 0)
-    ''', (nombre.strip(), p_id, icono.strip() or 'fa-tag', color.strip() or '#3b82f6', u_id, now_iso))
+    ''', (nombre.strip(), p_id, icono.strip() or 'fa-tag', color.strip() or '#3b82f6', det_uuid, now_iso))
     new_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    return {"id": new_id, "nombre": nombre.strip(), "padre_id": p_id, "uuid": u_id, "icono": icono, "color": color}
+    return {"id": new_id, "nombre": nombre.strip(), "padre_id": p_id, "uuid": det_uuid, "icono": icono, "color": color}
 
 def delete_category(category_id):
     """Elimina una categoría y sus subcategorías."""

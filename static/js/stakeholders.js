@@ -1094,26 +1094,36 @@ function renderAliasTable(list) {
         const currentCat = p.categoria || '';
         const currentSubcat = p.subcategoria || '';
 
-        // Opciones de categoría principal
+        // Opciones de categoría principal únicas
         let catOptions = `<option value="">-- Sin Rubro --</option>`;
+        const seenCatNames = new Set();
         categoriesTree.forEach(c => {
-            const isSel = (c.nombre.toLowerCase() === currentCat.toLowerCase()) ? 'selected' : '';
-            catOptions += `<option value="${escapeHtml(c.nombre)}" ${isSel}>${escapeHtml(c.nombre)}</option>`;
+            const catLower = (c.nombre || '').toLowerCase().trim();
+            if (!seenCatNames.has(catLower)) {
+                seenCatNames.add(catLower);
+                const isSel = (catLower === currentCat.toLowerCase().trim()) ? 'selected' : '';
+                catOptions += `<option value="${escapeHtml(c.nombre)}" ${isSel}>${escapeHtml(c.nombre)}</option>`;
+            }
         });
-        if (currentCat && !categoriesTree.some(c => c.nombre.toLowerCase() === currentCat.toLowerCase())) {
+        if (currentCat && !seenCatNames.has(currentCat.toLowerCase().trim())) {
             catOptions += `<option value="${escapeHtml(currentCat)}" selected>${escapeHtml(currentCat)}</option>`;
         }
 
         // Opciones de subcategoría según la categoría actual
         let subcatOptions = `<option value="">-- Ninguna --</option>`;
-        const matchedCat = categoriesTree.find(c => c.nombre.toLowerCase() === currentCat.toLowerCase());
+        const seenSubcatNames = new Set();
+        const matchedCat = categoriesTree.find(c => (c.nombre || '').toLowerCase().trim() === currentCat.toLowerCase().trim());
         if (matchedCat && matchedCat.subcategorias) {
             matchedCat.subcategorias.forEach(s => {
-                const isSelSub = (s.nombre.toLowerCase() === currentSubcat.toLowerCase()) ? 'selected' : '';
-                subcatOptions += `<option value="${escapeHtml(s.nombre)}" ${isSelSub}>${escapeHtml(s.nombre)}</option>`;
+                const subLower = (s.nombre || '').toLowerCase().trim();
+                if (!seenSubcatNames.has(subLower)) {
+                    seenSubcatNames.add(subLower);
+                    const isSelSub = (subLower === currentSubcat.toLowerCase().trim()) ? 'selected' : '';
+                    subcatOptions += `<option value="${escapeHtml(s.nombre)}" ${isSelSub}>${escapeHtml(s.nombre)}</option>`;
+                }
             });
         }
-        if (currentSubcat && (!matchedCat || !matchedCat.subcategorias.some(s => s.nombre.toLowerCase() === currentSubcat.toLowerCase()))) {
+        if (currentSubcat && !seenSubcatNames.has(currentSubcat.toLowerCase().trim())) {
             subcatOptions += `<option value="${escapeHtml(currentSubcat)}" selected>${escapeHtml(currentSubcat)}</option>`;
         }
 
