@@ -34,7 +34,8 @@ SYNC_TABLES = [
     'arca_compras_csv',
     'proveedores',
     'facturas_procesadas',
-    'retiros_recaudacion'
+    'retiros_recaudacion',
+    'categorias_gastos'
 ]
 
 def find_credentials_file():

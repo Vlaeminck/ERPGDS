@@ -593,40 +593,87 @@
                         <canvas id="chart-top-proveedores"></canvas>
                     </div>
                 </div>
+
+                <!-- Gráfico 5: Desglose por Rubro / Categoría de Proveedor -->
+                <div class="chart-card" style="grid-column: 1 / -1;">
+                    <div class="chart-card-title">
+                        <span><i class="fa-solid fa-tags" style="color: #06b6d4;"></i> Gastos por Rubro / Categoría de Proveedor</span>
+                        <small style="color: #64748b; font-weight: 600;">Carnes, Verdulería, Limpieza, Papelería, Bebidas, etc.</small>
+                    </div>
+                    <div style="height: 300px; position: relative;">
+                        <canvas id="chart-rubro"></canvas>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <!-- TAB 5: CONFIGURACIÓN DE PROVEEDORES & ALIAS -->
+        <!-- TAB 5: CONFIGURACIÓN DE PROVEEDORES & ALIAS & CATEGORÍAS -->
         <section id="tab-alias" class="tab-content" style="display: none;">
+            <!-- Panel Gestor de Categorías y Subcategorías -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleCategoryManager()">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="background: #e0f2fe; color: #0284c7; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;">
+                            <i class="fa-solid fa-layer-group"></i>
+                        </div>
+                        <div>
+                            <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #0f172a;">Gestor de Categorías & Subcategorías (Rubros)</h4>
+                            <p style="margin: 2px 0 0; color: #64748b; font-size: 0.8rem;">Cree y elimine rubros (ej: Carnes, Limpieza) y sus subcategorías (ej: Vacuno, Químicos) sincronizados con Firebase.</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; color: #334155; padding: 6px 12px; border-radius: 8px;">
+                        <span id="cat-mgr-toggle-text"><i class="fa-solid fa-chevron-down"></i> Mostrar Panel</span>
+                    </button>
+                </div>
+
+                <!-- Contenido colapsable del gestor -->
+                <div id="category-manager-body" style="display: none; margin-top: 1.2rem; border-top: 1px solid #f1f5f9; padding-top: 1.2rem;">
+                    <!-- Formulario para agregar Categoría Principal -->
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.2rem;">
+                        <input type="text" id="new-cat-name" class="form-control" placeholder="Nueva Categoría (ej: Panadería, Descartables...)" style="flex: 1; min-width: 240px; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.88rem; font-weight: 600;" onkeydown="if(event.key==='Enter') createNewCategory()">
+                        <button class="btn" style="background: var(--primary-accent); color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0.5rem 1rem; border: none; cursor: pointer;" onclick="createNewCategory()">
+                            <i class="fa-solid fa-plus"></i> Crear Categoría
+                        </button>
+                    </div>
+
+                    <!-- Listado de Categorías con sus Subcategorías -->
+                    <div id="categories-tree-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px;">
+                        <div style="color: #64748b; font-size: 0.85rem; padding: 1rem; text-align: center;">Cargando categorías...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Proveedores, Alias y Asignación de Rubro -->
             <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
                     <div>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;">Nombres de Fantasía (Alias) de Proveedores</h3>
+                            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;">Asignación de Alias & Categorías de Proveedores</h3>
                             <span id="alias-count-badge" class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.8rem; padding: 3px 8px; border-radius: 999px;">Cargando...</span>
                         </div>
-                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;">Asigne nombres amigables (ej: "PEPE CONGELADOS") para reemplazar la razón social en tablas y reportes.</p>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;">Asigne nombres amigables (ej: "PEPE CONGELADOS") y asigne su rubro/categoría para análisis de gastos.</p>
                     </div>
 
                     <div style="width: 320px; max-width: 100%;">
-                        <input type="text" id="input-search-alias" class="form-control" placeholder="🔍 Buscar por razón social o alias..." oninput="filterAliasTable(this.value)" style="width: 100%; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.88rem;">
+                        <input type="text" id="input-search-alias" class="form-control" placeholder="🔍 Buscar por razón social, alias o categoría..." oninput="filterAliasTable(this.value)" style="width: 100%; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.88rem;">
                     </div>
                 </div>
 
-                <div style="max-height: 520px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <div style="max-height: 540px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
                     <table class="data-table" style="width: 100%; border-collapse: collapse;">
                         <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
                             <tr>
                                 <th>Razón Social Oficial</th>
                                 <th>CUIT</th>
-                                <th>Categoría</th>
-                                <th style="min-width: 250px;">Nombre de Fantasía (Alias)</th>
-                                <th style="text-align: center; width: 120px;">Acción</th>
+                                <th style="min-width: 220px;">Categoría (Rubro)</th>
+                                <th style="min-width: 180px;">Subcategoría</th>
+                                <th style="min-width: 220px;">Nombre de Fantasía (Alias)</th>
+                                <th style="text-align: center; width: 110px;">Acción</th>
                             </tr>
                         </thead>
                         <tbody id="tbl-alias-body">
                             <tr>
-                                <td colspan="5" style="text-align: center; padding: 2rem; color: #64748b;">
+                                <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">
                                     <i class="fa-solid fa-spinner fa-spin"></i> Cargando proveedores...
                                 </td>
                             </tr>

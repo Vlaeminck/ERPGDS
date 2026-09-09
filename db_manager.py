@@ -323,6 +323,45 @@ def init_db(seed_samples=False):
     )
     ''')
 
+    # Tabla 13: Categorías y Subcategorías de Gastos (Rubros)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS categorias_gastos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL,
+        padre_id INTEGER DEFAULT NULL,
+        icono TEXT DEFAULT 'fa-tag',
+        color TEXT DEFAULT '#3b82f6',
+        uuid TEXT UNIQUE,
+        updated_at TEXT,
+        sync_status INTEGER DEFAULT 0
+    )
+    ''')
+    try:
+        cursor.execute("SELECT COUNT(*) FROM categorias_gastos")
+        if cursor.fetchone()[0] == 0:
+            import uuid as uuid_mod
+            import datetime as dt_mod
+            now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            default_cats = [
+                ("Carnes", None, "fa-drumstick-bite", "#ef4444"),
+                ("Verdulería", None, "fa-carrot", "#10b981"),
+                ("Limpieza", None, "fa-pump-soap", "#06b6d4"),
+                ("Papelería & Descartables", None, "fa-box-open", "#8b5cf6"),
+                ("Bebidas", None, "fa-wine-bottle", "#ec4899"),
+                ("Lácteos & Quesos", None, "fa-cheese", "#f59e0b"),
+                ("Panadería & Harinas", None, "fa-bread-slice", "#d97706"),
+                ("Servicios & Mantenimiento", None, "fa-wrench", "#6366f1"),
+                ("Impuestos & Tasas", None, "fa-landmark", "#64748b"),
+                ("General", None, "fa-tags", "#94a3b8")
+            ]
+            for cat_nom, p_id, icon, clr in default_cats:
+                cursor.execute('''
+                    INSERT INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
+                    VALUES (?, ?, ?, ?, ?, ?, 0)
+                ''', (cat_nom, p_id, icon, clr, uuid_mod.uuid4().hex, now_iso))
+    except Exception as e:
+        print(f"[db_manager] Error inicializando categorias_gastos: {e}")
+
     # Migración de columna origen si no existe
     cursor.execute("PRAGMA table_info(retiros_recaudacion)")
     cols = [r[1] for r in cursor.fetchall()]
@@ -657,10 +696,88 @@ def get_all_unique_suppliers():
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, nombre, cuit, categoria, alias FROM proveedores ORDER BY nombre COLLATE NOCASE ASC")
+    cursor.execute("SELECT id, nombre, cuit, categoria, subcategoria, alias FROM proveedores ORDER BY nombre COLLATE NOCASE ASC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return rows
+
+def get_categories_tree():
+    """Retorna las categorías principales con sus subcategorías anidadas."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM categorias_gastos ORDER BY nombre COLLATE NOCASE ASC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    main_cats = [r for r in rows if not r.get('padre_id')]
+    sub_cats = [r for r in rows if r.get('padre_id')]
+
+    tree = []
+    for m in main_cats:
+        m_copy = dict(m)
+        m_copy['subcategorias'] = [s for s in sub_cats if s.get('padre_id') == m['id']]
+        tree.append(m_copy)
+    return tree
+
+def get_categories_flat():
+    """Retorna lista plana de todas las categorías y subcategorías."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM categorias_gastos ORDER BY nombre COLLATE NOCASE ASC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+def save_category(nombre, padre_id=None, icono='fa-tag', color='#3b82f6'):
+    """Crea una nueva categoría o subcategoría."""
+    import uuid as uuid_mod
+    import datetime as dt_mod
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    u_id = uuid_mod.uuid4().hex
+    p_id = int(padre_id) if padre_id and str(padre_id).isdigit() and int(padre_id) > 0 else None
+
+    cursor.execute('''
+        INSERT INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, 0)
+    ''', (nombre.strip(), p_id, icono.strip() or 'fa-tag', color.strip() or '#3b82f6', u_id, now_iso))
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": new_id, "nombre": nombre.strip(), "padre_id": p_id, "uuid": u_id, "icono": icono, "color": color}
+
+def delete_category(category_id):
+    """Elimina una categoría y sus subcategorías."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM categorias_gastos WHERE padre_id = ?", (category_id,))
+    cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (category_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+def update_supplier_category(nombre_or_id, categoria, subcategoria=''):
+    """Actualiza la categoría y subcategoría de un proveedor."""
+    import datetime as dt_mod
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if str(nombre_or_id).isdigit():
+        cursor.execute('''
+            UPDATE proveedores 
+            SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
+            WHERE id = ?
+        ''', (categoria.strip(), subcategoria.strip(), now_iso, int(nombre_or_id)))
+    else:
+        cursor.execute('''
+            UPDATE proveedores 
+            SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
+            WHERE nombre = ? COLLATE NOCASE
+        ''', (categoria.strip(), subcategoria.strip(), now_iso, str(nombre_or_id).strip()))
+    conn.commit()
+    conn.close()
+    return True
 
 def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None, alias=''):
     import json

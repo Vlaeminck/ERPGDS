@@ -876,19 +876,63 @@ def api_suppliers():
     return jsonify({"suppliers": rows})
 
 
+@app.route('/api/categorias', methods=['GET', 'POST'])
+def api_categorias():
+    if request.method == 'POST':
+        data = request.json or {}
+        nombre = str(data.get('nombre', '')).strip()
+        padre_id = data.get('padre_id')
+        icono = str(data.get('icono', 'fa-tag')).strip()
+        color = str(data.get('color', '#3b82f6')).strip()
+
+        if not nombre:
+            return jsonify({"success": False, "message": "El nombre de la categoría es obligatorio"}), 400
+
+        res = db_manager.save_category(nombre, padre_id, icono, color)
+        firebase_sync.sync_cycle()
+        return jsonify({"success": True, "categoria": res, "message": f"Categoría '{nombre}' creada exitosamente"})
+    else:
+        tree = db_manager.get_categories_tree()
+        flat = db_manager.get_categories_flat()
+        return jsonify({"tree": tree, "flat": flat, "categorias": tree})
+
+
+@app.route('/api/categorias/<int:cat_id>', methods=['DELETE'])
+def api_delete_categoria(cat_id):
+    db_manager.delete_category(cat_id)
+    firebase_sync.sync_cycle()
+    return jsonify({"success": True, "message": "Categoría eliminada exitosamente"})
+
+
+@app.route('/api/proveedores/<int:prov_id>/categoria', methods=['POST'])
+def api_update_proveedor_categoria(prov_id):
+    data = request.json or {}
+    categoria = str(data.get('categoria', 'General')).strip()
+    subcategoria = str(data.get('subcategoria', '')).strip()
+
+    db_manager.update_supplier_category(prov_id, categoria, subcategoria)
+    firebase_sync.sync_cycle()
+    return jsonify({"success": True, "message": "Categoría de proveedor actualizada exitosamente"})
+
+
 @app.route('/api/proveedores/alias', methods=['GET', 'POST'])
 def api_proveedores_alias():
     if request.method == 'POST':
         data = request.json or {}
         nombre = str(data.get('nombre', '')).strip()
         alias = str(data.get('alias', '')).strip()
+        categoria = data.get('categoria')
+        subcategoria = data.get('subcategoria')
         
         if not nombre:
             return jsonify({"success": False, "message": "El nombre del proveedor es obligatorio"}), 400
             
         db_manager.update_supplier_alias(nombre, alias)
+        if categoria is not None:
+            db_manager.update_supplier_category(nombre, str(categoria).strip(), str(subcategoria or '').strip())
+            
         firebase_sync.sync_cycle()
-        return jsonify({"success": True, "message": f"Alias guardado correctamente para {nombre}"})
+        return jsonify({"success": True, "message": f"Datos guardados correctamente para {nombre}"})
     else:
         rows = db_manager.get_all_unique_suppliers()
         return jsonify({"proveedores": rows})
@@ -920,15 +964,16 @@ def api_dashboard_stats():
     }
 
     # Filtro base para las siguientes consultas
-    where_mes = "WHERE mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
+    where_mes = "WHERE c.mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
+    where_mes_c = "WHERE mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
     params_mes = (mes,) if (mes and mes != 'all') else ()
 
-    # 2. Desglose por Categoría de Pago
+    # 2. Desglose por Categoría de Pago (Pinamar / Leloir / Socios)
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(categoria_pago, ''), 'Sin Categorizar') as cat,
                SUM(imp_total) as total
         FROM arca_compras_csv
-        {where_mes} AND estado = 'Pagado'
+        {where_mes_c} AND estado = 'Pagado'
         GROUP BY cat
     ''', params_mes)
     cat_rows = cursor.fetchall()
@@ -939,17 +984,30 @@ def api_dashboard_stats():
         SELECT COALESCE(NULLIF(metodo_pago, ''), 'Sin Definir') as metodo,
                SUM(imp_total) as total
         FROM arca_compras_csv
-        {where_mes} AND estado = 'Pagado'
+        {where_mes_c} AND estado = 'Pagado'
         GROUP BY metodo
     ''', params_mes)
     metodo_rows = cursor.fetchall()
     gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
 
-    # 4. Top 10 Proveedores con Mayor Gasto
+    # 4. Desglose por Rubro / Categoría de Proveedor (Carnes, Limpieza, etc.)
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(p.categoria, ''), 'General') as rubro,
+               SUM(c.imp_total) as total
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (c.denominacion_emisor = p.nombre COLLATE NOCASE)
+        {where_mes}
+        GROUP BY rubro
+        ORDER BY total DESC
+    ''', params_mes)
+    rubro_rows = cursor.fetchall()
+    gastos_rubro = {r['rubro']: round(float(r['total'] or 0), 2) for r in rubro_rows}
+
+    # 5. Top 10 Proveedores con Mayor Gasto
     cursor.execute(f'''
         SELECT denominacion_emisor, SUM(imp_total) as total
         FROM arca_compras_csv
-        {where_mes}
+        {where_mes_c}
         GROUP BY denominacion_emisor
         ORDER BY total DESC
         LIMIT 10
@@ -973,6 +1031,7 @@ def api_dashboard_stats():
         "evolucion_mensual": evolucion_mensual,
         "gastos_categoria": gastos_categoria,
         "gastos_metodo": gastos_metodo,
+        "gastos_rubro": gastos_rubro,
         "top_proveedores": top_proveedores,
         "mes_seleccionado": mes or 'all'
     })

@@ -12,6 +12,11 @@ let chartEvolucion = null;
 let chartCategoria = null;
 let chartMetodo = null;
 let chartTop = null;
+let chartRubro = null;
+
+// Categorías y Subcategorías
+let categoriesTree = [];
+let categoriesFlat = [];
 
 const METODOS_PAGO = [
     { key: 'Efectivo', label: '🟩 Efectivo', bg: '#ecfdf5', color: '#047857', border: '#a7f3d0' },
@@ -181,6 +186,7 @@ async function handleLogout() {
 
 async function initPortal() {
     await loadMonths();
+    await loadCategories();
     await fetchAllData();
     await loadProveedoresAlias();
     pollSyncStatus();
@@ -827,10 +833,209 @@ function renderDashboardCharts(data) {
             }
         });
     }
+
+    // 5. Gráfico por Rubro / Categoría de Proveedor (Carnes, Verdulería, Limpieza, etc.)
+    const ctxRubro = document.getElementById('chart-rubro');
+    if (ctxRubro) {
+        if (chartRubro) chartRubro.destroy();
+        const rubroObj = data.gastos_rubro || {};
+        const rubroLabels = Object.keys(rubroObj);
+        const rubroValues = Object.values(rubroObj);
+
+        chartRubro = new Chart(ctxRubro, {
+            type: 'doughnut',
+            data: {
+                labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
+                datasets: [{
+                    data: rubroValues.length ? rubroValues : [0],
+                    backgroundColor: [
+                        '#e11d48', '#059669', '#2563eb', '#d97706',
+                        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
+                        '#84cc16', '#ec4899', '#6366f1', '#14b8a6'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { weight: 'bold', family: 'Albert Sans' } } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.label + ': ' + formatCurrency(context.raw);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 // ==========================================
-// TAB 5: GESTIÓN DE ALIAS DE PROVEEDORES
+// GESTOR DE CATEGORÍAS Y SUBCATEGORÍAS
+// ==========================================
+
+function toggleCategoryManager() {
+    const body = document.getElementById('category-manager-body');
+    const chevron = document.getElementById('cat-mgr-chevron');
+    if (!body) return;
+    if (body.style.display === 'none' || !body.style.display) {
+        body.style.display = 'block';
+        if (chevron) chevron.className = 'fa-solid fa-chevron-up';
+    } else {
+        body.style.display = 'none';
+        if (chevron) chevron.className = 'fa-solid fa-chevron-down';
+    }
+}
+
+async function loadCategories() {
+    try {
+        const res = await fetch('/api/categorias');
+        const data = await res.json();
+        categoriesTree = data.tree || [];
+        categoriesFlat = data.flat || [];
+        renderCategoriesTree();
+        populateParentCategorySelect();
+    } catch (e) {
+        console.error("Error cargando categorías:", e);
+    }
+}
+
+function populateParentCategorySelect() {
+    const select = document.getElementById('cat-padre-select');
+    if (!select) return;
+    select.innerHTML = '<option value="">-- Ninguna (Categoría Principal) --</option>';
+    categoriesTree.forEach(cat => {
+        select.innerHTML += `<option value="${cat.id}">${escapeHtml(cat.nombre)}</option>`;
+    });
+}
+
+function renderCategoriesTree() {
+    const container = document.getElementById('categories-tree-container');
+    if (!container) return;
+
+    if (!categoriesTree || categoriesTree.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color: #64748b; padding: 1.5rem; font-size: 0.85rem;">No hay categorías creadas. Agrega una arriba.</div>`;
+        return;
+    }
+
+    container.innerHTML = categoriesTree.map(cat => {
+        const subList = cat.subcategorias || [];
+        return `
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: 700; color: #0f172a; font-size: 0.92rem; display: flex; align-items: center; gap: 8px;">
+                        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${escapeHtml(cat.color || '#3b82f6')};"></span>
+                        ${escapeHtml(cat.nombre)}
+                        <span style="font-size: 0.72rem; background: #f1f5f9; color: #64748b; padding: 1px 6px; border-radius: 10px; font-weight: 600;">${subList.length} sub</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-sm" style="padding: 2px 8px; font-size: 0.75rem; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 4px; font-weight: 600; cursor: pointer;" onclick="promptAddSubcategory(${cat.id}, '${escapeHtml(cat.nombre)}')">
+                            <i class="fa-solid fa-plus"></i> Sub
+                        </button>
+                        <button class="btn btn-sm" style="padding: 2px 8px; font-size: 0.75rem; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 4px; font-weight: 600; cursor: pointer;" onclick="deleteCategory(${cat.id}, '${escapeHtml(cat.nombre)}')">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                ${subList.length > 0 ? `
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.5rem; padding-left: 1rem; border-left: 2px solid #e2e8f0;">
+                        ${subList.map(sub => `
+                            <span style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px 8px; font-size: 0.8rem; font-weight: 600; color: #334155;">
+                                ${escapeHtml(sub.nombre)}
+                                <i class="fa-solid fa-xmark" style="cursor: pointer; color: #94a3b8; font-size: 0.75rem;" title="Eliminar subcategoría" onclick="deleteCategory(${sub.id}, '${escapeHtml(sub.nombre)}')"></i>
+                            </span>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+async function createNewCategory() {
+    const input = document.getElementById('cat-nuevo-nombre');
+    const selectPadre = document.getElementById('cat-padre-select');
+    if (!input) return;
+
+    const nombre = input.value.trim();
+    if (!nombre) {
+        showToast('Ingresa un nombre para la categoría', 'error');
+        return;
+    }
+
+    const padreId = selectPadre && selectPadre.value ? parseInt(selectPadre.value) : null;
+
+    try {
+        const res = await fetch('/api/categorias', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre: nombre, padre_id: padreId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Categoría '${nombre}' guardada con éxito`, 'success');
+            input.value = '';
+            if (selectPadre) selectPadre.value = '';
+            await loadCategories();
+            renderAliasTable(allProveedoresList);
+        } else {
+            showToast(data.message || 'Error al crear categoría', 'error');
+        }
+    } catch (e) {
+        showToast('Error de conexión al crear categoría', 'error');
+    }
+}
+
+async function promptAddSubcategory(padreId, padreNombre) {
+    const subNombre = prompt(`Ingresa el nombre de la subcategoría para "${padreNombre}":`);
+    if (!subNombre || !subNombre.trim()) return;
+
+    try {
+        const res = await fetch('/api/categorias', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre: subNombre.trim(), padre_id: padreId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Subcategoría '${subNombre}' agregada a ${padreNombre}`, 'success');
+            await loadCategories();
+            renderAliasTable(allProveedoresList);
+        } else {
+            showToast(data.message || 'Error al agregar subcategoría', 'error');
+        }
+    } catch (e) {
+        showToast('Error de conexión al crear subcategoría', 'error');
+    }
+}
+
+async function deleteCategory(id, name) {
+    if (!confirm(`¿Estás seguro de eliminar la categoría o subcategoría "${name}"?`)) return;
+
+    try {
+        const res = await fetch(`/api/categorias/${id}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Categoría eliminada`, 'success');
+            await loadCategories();
+            renderAliasTable(allProveedoresList);
+        } else {
+            showToast(data.message || 'Error al eliminar', 'error');
+        }
+    } catch (e) {
+        showToast('Error de conexión al eliminar categoría', 'error');
+    }
+}
+
+// ==========================================
+// TAB 5: GESTIÓN DE ALIAS Y CATEGORÍAS DE PROVEEDORES
 // ==========================================
 
 async function loadProveedoresAlias() {
@@ -861,7 +1066,8 @@ function filterAliasTable(search) {
         (p.nombre || '').toLowerCase().includes(term) ||
         (p.alias || '').toLowerCase().includes(term) ||
         (p.cuit || '').toLowerCase().includes(term) ||
-        (p.categoria || '').toLowerCase().includes(term)
+        (p.categoria || '').toLowerCase().includes(term) ||
+        (p.subcategoria || '').toLowerCase().includes(term)
     );
     const badge = document.getElementById('alias-count-badge');
     if (badge) badge.textContent = `${filtered.length} coincidentes de ${allProveedoresList.length}`;
@@ -873,26 +1079,63 @@ function renderAliasTable(list) {
     if (!tbody) return;
 
     if (!list || list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: #64748b; padding: 2rem;">No se encontraron proveedores coincidentes.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: #64748b; padding: 2rem;">No se encontraron proveedores coincidentes.</td></tr>`;
         return;
     }
 
     tbody.innerHTML = list.map((p, idx) => {
-        const inputId = `alias-input-${p.id || idx}`;
-        const btnId = `alias-btn-${p.id || idx}`;
+        const pId = p.id || idx;
+        const inputId = `alias-input-${pId}`;
+        const btnId = `alias-btn-${pId}`;
+        const catSelectId = `cat-select-${pId}`;
+        const subcatSelectId = `subcat-select-${pId}`;
         const safeNombre = escapeHtml(p.nombre || '');
         const currentAlias = escapeHtml(p.alias || '');
+        const currentCat = p.categoria || '';
+        const currentSubcat = p.subcategoria || '';
+
+        // Opciones de categoría principal
+        let catOptions = `<option value="">-- Sin Rubro --</option>`;
+        categoriesTree.forEach(c => {
+            const isSel = (c.nombre.toLowerCase() === currentCat.toLowerCase()) ? 'selected' : '';
+            catOptions += `<option value="${escapeHtml(c.nombre)}" ${isSel}>${escapeHtml(c.nombre)}</option>`;
+        });
+        if (currentCat && !categoriesTree.some(c => c.nombre.toLowerCase() === currentCat.toLowerCase())) {
+            catOptions += `<option value="${escapeHtml(currentCat)}" selected>${escapeHtml(currentCat)}</option>`;
+        }
+
+        // Opciones de subcategoría según la categoría actual
+        let subcatOptions = `<option value="">-- Ninguna --</option>`;
+        const matchedCat = categoriesTree.find(c => c.nombre.toLowerCase() === currentCat.toLowerCase());
+        if (matchedCat && matchedCat.subcategorias) {
+            matchedCat.subcategorias.forEach(s => {
+                const isSelSub = (s.nombre.toLowerCase() === currentSubcat.toLowerCase()) ? 'selected' : '';
+                subcatOptions += `<option value="${escapeHtml(s.nombre)}" ${isSelSub}>${escapeHtml(s.nombre)}</option>`;
+            });
+        }
+        if (currentSubcat && (!matchedCat || !matchedCat.subcategorias.some(s => s.nombre.toLowerCase() === currentSubcat.toLowerCase()))) {
+            subcatOptions += `<option value="${escapeHtml(currentSubcat)}" selected>${escapeHtml(currentSubcat)}</option>`;
+        }
 
         return `
             <tr>
                 <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">${truncateText(safeNombre, 35)}</td>
                 <td style="font-family: monospace; color: #64748b; font-size: 0.82rem;">${escapeHtml(p.cuit || '-')}</td>
-                <td><span class="badge" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.75rem; padding: 2px 7px;">${escapeHtml(p.categoria || 'General')}</span></td>
                 <td>
-                    <input type="text" id="${inputId}" class="form-control" placeholder="Ej: PEPE CONGELADOS" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}')">
+                    <select id="${catSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 130px;" onchange="onCategorySelectChange('${catSelectId}', '${subcatSelectId}')">
+                        ${catOptions}
+                    </select>
+                </td>
+                <td>
+                    <select id="${subcatSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 120px;">
+                        ${subcatOptions}
+                    </select>
+                </td>
+                <td>
+                    <input type="text" id="${inputId}" class="form-control" placeholder="Ej: PEPE CONGELADOS" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                 </td>
                 <td style="text-align: center;">
-                    <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 4px 10px; cursor: pointer;" onclick="saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}')">
+                    <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 5px 12px; cursor: pointer;" onclick="saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                         <i class="fa-solid fa-floppy-disk"></i> Guardar
                     </button>
                 </td>
@@ -901,12 +1144,33 @@ function renderAliasTable(list) {
     }).join('');
 }
 
-async function saveProveedorAlias(nombre, inputId, btnId) {
+function onCategorySelectChange(catSelectId, subcatSelectId) {
+    const catSelect = document.getElementById(catSelectId);
+    const subcatSelect = document.getElementById(subcatSelectId);
+    if (!catSelect || !subcatSelect) return;
+
+    const selectedCatName = catSelect.value.trim().toLowerCase();
+    subcatSelect.innerHTML = '<option value="">-- Ninguna --</option>';
+
+    const matchedCat = categoriesTree.find(c => c.nombre.toLowerCase() === selectedCatName);
+    if (matchedCat && matchedCat.subcategorias) {
+        matchedCat.subcategorias.forEach(s => {
+            subcatSelect.innerHTML += `<option value="${escapeHtml(s.nombre)}">${escapeHtml(s.nombre)}</option>`;
+        });
+    }
+}
+
+async function saveProveedorAlias(nombre, inputId, btnId, catSelectId, subcatSelectId) {
     const input = document.getElementById(inputId);
     const btn = document.getElementById(btnId);
+    const catSelect = document.getElementById(catSelectId);
+    const subcatSelect = document.getElementById(subcatSelectId);
     if (!input) return;
 
     const newAlias = input.value.trim();
+    const categoria = catSelect ? catSelect.value.trim() : '';
+    const subcategoria = subcatSelect ? subcatSelect.value.trim() : '';
+
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i>`;
@@ -916,22 +1180,31 @@ async function saveProveedorAlias(nombre, inputId, btnId) {
         const res = await fetch('/api/proveedores/alias', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nombre: nombre, alias: newAlias })
+            body: JSON.stringify({
+                nombre: nombre,
+                alias: newAlias,
+                categoria: categoria,
+                subcategoria: subcategoria
+            })
         });
         const data = await res.json();
         if (data.success) {
-            showToast(`Alias guardado para ${nombre}`, 'success');
+            showToast(`Datos actualizados para ${nombre}`, 'success');
             aliasMap[nombre] = newAlias;
             const provObj = allProveedoresList.find(p => p.nombre === nombre);
-            if (provObj) provObj.alias = newAlias;
+            if (provObj) {
+                provObj.alias = newAlias;
+                provObj.categoria = categoria;
+                provObj.subcategoria = subcategoria;
+            }
             renderArcaCloudTable();
             fetchCuentasPagarCloud();
             fetchDashboardStats();
         } else {
-            showToast(data.message || 'Error al guardar alias', 'error');
+            showToast(data.message || 'Error al guardar datos', 'error');
         }
     } catch (e) {
-        showToast('Error de conexión al guardar alias', 'error');
+        showToast('Error de conexión al guardar datos', 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
