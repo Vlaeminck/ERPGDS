@@ -1,9 +1,11 @@
 import os
+import sys
 import time
 import json
 import uuid
 import datetime
 import threading
+import base64
 import db_manager
 import config
 
@@ -35,8 +37,6 @@ SYNC_TABLES = [
     'retiros_recaudacion'
 ]
 
-import sys
-
 def find_credentials_file():
     candidates = [
         getattr(config, 'FIREBASE_CREDENTIALS_PATH', None),
@@ -48,7 +48,6 @@ def find_credentials_file():
         if candidate and os.path.isfile(candidate):
             return candidate
 
-    # Buscar en el directorio de ejecución cualquier archivo .json con credenciales
     search_dirs = [os.getcwd()]
     if getattr(sys, 'frozen', False):
         search_dirs.append(os.path.dirname(sys.executable))
@@ -64,8 +63,6 @@ def find_credentials_file():
 
 def init_firebase():
     global _firestore_db, SYNC_STATUS
-    import base64
-    import json
 
     env_creds = os.environ.get('FIREBASE_CREDENTIALS_JSON', '').strip()
     creds_path = None
@@ -138,17 +135,17 @@ def _setup_realtime_listener():
         _listener_registered = True
         print("[FirebaseSync] Escuchador de eventos remotos en tiempo real (on_snapshot) activo.", flush=True)
     except Exception as e:
-        print(f"[FirebaseSync] Escuchador tiempo real: {e}", flush=True)
+        print(f"[FirebaseSync] Aviso: Listener realtime no pudo iniciarse (se usará polling): {e}", flush=True)
 
 def push_local_changes():
-    """Sincroniza cambios locales (sync_status = 0) hacia Firebase Firestore en lotes rápidos (Batch Commits)."""
+    """Sube registros nuevos o actualizados (sync_status = 0) desde SQLite a Firebase."""
     if not _firestore_db:
-        if not init_firebase():
-            return 0
+        return 0
 
     total_pushed = 0
     conn = db_manager.get_connection()
     cursor = conn.cursor()
+
     now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     for table in SYNC_TABLES:
@@ -158,14 +155,14 @@ def push_local_changes():
             if not rows:
                 continue
 
-            chunk_size = 400
-            for i in range(0, len(rows), chunk_size):
-                chunk = rows[i:i + chunk_size]
+            batch_size = 400
+            for i in range(0, len(rows), batch_size):
+                chunk = rows[i:i + batch_size]
                 batch = _firestore_db.batch()
                 updated_ids = []
 
-                for r in chunk:
-                    r_dict = dict(r)
+                for row in chunk:
+                    r_dict = dict(row)
                     record_uuid = r_dict.get('uuid')
                     if not record_uuid:
                         record_uuid = uuid.uuid4().hex
@@ -183,10 +180,8 @@ def push_local_changes():
                     batch.set(doc_ref, doc_data, merge=True)
                     updated_ids.append(r_dict['id'])
 
-                # Ejecutar lote acelerado de escrituras en Firestore
                 batch.commit()
 
-                # Marcar registros como sincronizados en SQLite
                 placeholders = ",".join(["?"] * len(updated_ids))
                 cursor.execute(f"UPDATE {table} SET sync_status = 1 WHERE id IN ({placeholders})", updated_ids)
                 conn.commit()
@@ -206,17 +201,6 @@ def push_local_changes():
 
     conn.close()
     return total_pushed
-
-def get_table_max_updated_at(table):
-    try:
-        conn = db_manager.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT MAX(updated_at) FROM {table}")
-        r = cursor.fetchone()
-        conn.close()
-        return str(r[0]) if (r and r[0]) else ''
-    except Exception:
-        return ''
 
 _table_pull_timestamps = {}
 
@@ -238,12 +222,10 @@ def reconcile_with_firestore(table=None):
 
     for tbl in tables_to_check:
         try:
-            # Obtener todos los documentos remotos de Firestore para esta colección
             docs = list(_firestore_db.collection(tbl).stream())
             remote_docs_map = {doc.id: doc.to_dict() for doc in docs}
             remote_uuids = set(remote_docs_map.keys())
 
-            # Obtener todos los registros locales de SQLite
             cursor.execute(f"SELECT id, uuid, updated_at, sync_status FROM {tbl}")
             local_rows = cursor.fetchall()
             local_uuids = set()
@@ -255,7 +237,6 @@ def reconcile_with_firestore(table=None):
                 loc_sync = r['sync_status']
                 if loc_uuid:
                     local_uuids.add(loc_uuid)
-                    # Si ya estaba sincronizado y ya no está en Firestore, borrarlo localmente
                     if loc_sync == 1 and loc_uuid not in remote_uuids:
                         cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
                         total_reconciled += 1
@@ -312,7 +293,6 @@ def pull_remote_changes(force_full=False):
             last_ts = '' if force_full else _table_pull_timestamps.get(table)
 
             query = _firestore_db.collection(table)
-            # DELTA QUERY: Solo consultar registros modificados con posterioridad a last_ts
             if last_ts:
                 try:
                     from google.cloud.firestore_v1.base_query import FieldFilter
@@ -329,21 +309,20 @@ def pull_remote_changes(force_full=False):
 
                 remote_updated = str(data.get('updated_at', ''))
 
-                # Verificar si existe en SQLite por UUID
                 cursor.execute(f"SELECT id, updated_at FROM {table} WHERE uuid = ?", (rec_uuid,))
                 local_row = cursor.fetchone()
 
                 if local_row:
                     local_updated = str(local_row['updated_at'] or '')
                     if remote_updated >= local_updated or force_full:
-                        # Actualizar en SQLite
-                        set_clause = ", ".join([f"{k} = ?" for k in data.keys() if k not in ('id', 'uuid')])
-                        values = [data[k] for k in data.keys() if k not in ('id', 'uuid')]
-                        values.extend([1, rec_uuid])
-                        cursor.execute(f"UPDATE {table} SET {set_clause}, sync_status = ? WHERE uuid = ?", values)
-                        total_pulled += 1
+                        set_cols = [k for k in data.keys() if k not in ('id', 'uuid')]
+                        if set_cols:
+                            set_clause = ", ".join([f"{k} = ?" for k in set_cols])
+                            values = [data[k] for k in set_cols]
+                            values.extend([1, rec_uuid])
+                            cursor.execute(f"UPDATE {table} SET {set_clause}, sync_status = ? WHERE uuid = ?", values)
+                            total_pulled += 1
                 else:
-                    # Insertar nuevo registro en SQLite
                     data['uuid'] = rec_uuid
                     data['sync_status'] = 1
                     keys = [k for k in data.keys() if k != 'id']
@@ -355,7 +334,6 @@ def pull_remote_changes(force_full=False):
                         total_pulled += 1
                     except Exception as e_ins:
                         if 'UNIQUE constraint failed' in str(e_ins):
-                            # Manejar colisión de clave única existente sin uuid
                             if table == 'proveedores' and 'nombre' in data:
                                 cursor.execute(
                                     "UPDATE proveedores SET cuit=?, categoria=?, keywords=?, detalles=?, uuid=?, updated_at=?, sync_status=1 WHERE nombre=?",
@@ -425,7 +403,6 @@ def _sync_worker_loop(interval=10):
         if _firestore_db:
             sync_cycle()
             cycle_count += 1
-            # Cada 30 ciclos (~5 min), ejecutar reconciliación de borrados/huérfanos
             if cycle_count >= 30:
                 cycle_count = 0
                 try:

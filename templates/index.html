@@ -1703,10 +1703,24 @@
                             <i class="fa-solid fa-save"></i> Guardar Credenciales
                         </button>
                     </div>
-                    <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
-                        <button id="btn-view-arca-logs" class="btn btn-secondary" style="font-size: 0.85rem;">
-                            <i class="fa-solid fa-terminal"></i> Ver Logs de Depuración (`registros/arca_error_log.txt`)
-                        </button>
+
+                    <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap;">
+                        <div style="max-width: 620px;">
+                            <h4 style="margin: 0 0 0.35rem 0; font-size: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-cloud-arrow-down" style="color: #9b59b6;"></i> Sincronización Total ARCA (Año Completo)
+                            </h4>
+                            <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">
+                                Descarga y procesa automáticamente todos los comprobantes emitidos desde el <strong>1 de enero del año actual hasta hoy</strong>, sincronizando compras históricas y el catálogo de proveedores.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap;">
+                            <button id="btn-sync-arca-total" class="btn btn-primary" style="background: linear-gradient(135deg, #9b59b6, #8e44ad); border-color: #8e44ad; font-weight: 600; padding: 0.75rem 1.4rem;">
+                                <i class="fa-solid fa-arrows-rotate"></i> SYNC ARCA Total (01/01 a la fecha)
+                            </button>
+                            <button id="btn-view-arca-logs" class="btn btn-secondary" style="font-size: 0.85rem;">
+                                <i class="fa-solid fa-terminal"></i> Ver Logs
+                            </button>
+                        </div>
                     </div>
                 </div>
             </section>

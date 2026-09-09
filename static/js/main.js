@@ -1404,6 +1404,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const arcaStatusText = document.getElementById('arca-status-text');
     const btnSyncArca = document.getElementById('btn-sync-arca');
     const btnSyncArcaUpload = document.getElementById('btn-sync-arca-upload');
+    const btnSyncArcaTotal = document.getElementById('btn-sync-arca-total');
     const arcaSyncStatusMsg = document.getElementById('arca-sync-status-msg');
 
     // Modal elements
@@ -1605,6 +1606,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(data.message, "success");
             if (btnSyncArca) btnSyncArca.disabled = true;
             if (btnSyncArcaUpload) btnSyncArcaUpload.disabled = true;
+            if (btnSyncArcaTotal) btnSyncArcaTotal.disabled = true;
             const bCompras = document.getElementById('btn-sync-arca-compras');
             if (bCompras) bCompras.disabled = true;
             const bCP = document.getElementById('btn-sync-arca-cp');
@@ -1669,6 +1671,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 arcaPollInterval = null;
                 if (btnSyncArca) btnSyncArca.disabled = false;
                 if (btnSyncArcaUpload) btnSyncArcaUpload.disabled = false;
+                if (btnSyncArcaTotal) btnSyncArcaTotal.disabled = false;
                 const bCompras = document.getElementById('btn-sync-arca-compras');
                 if (bCompras) bCompras.disabled = false;
                 const bCP = document.getElementById('btn-sync-arca-cp');
@@ -1698,6 +1701,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnSyncArcaUpload) btnSyncArcaUpload.addEventListener('click', () => startArcaSync(false));
     if (btnSyncArcaCompras) btnSyncArcaCompras.addEventListener('click', () => startArcaSync(false));
     if (btnSyncArcaCP) btnSyncArcaCP.addEventListener('click', () => startArcaSync(false));
+    if (btnSyncArcaTotal) btnSyncArcaTotal.addEventListener('click', () => startArcaSync(true));
 
     window.addEventListener('click', (e) => {
         if (e.target == arcaCredsModal) {
