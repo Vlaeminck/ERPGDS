@@ -1,6 +1,6 @@
-# 🧾 ERP GDS (GDSERP) - Sistema de Gestión Comercial, Organizacional e Integrador Inteligente con ARCA
+# 🧾 ERP GDS (GDSERP) - Sistema de Gestión Comercial, Organizacional e Integrador Inteligente con ARCA (Rama Web)
 
-**ERP GDS** es una plataforma de gestión empresarial e integrador inteligente para Windows y entornos Cloud. Administra el control financiero, conciliaciones de recaudación diaria, estacionamiento, caja chica, gastos fijos, cuentas a pagar y la organización automatizada de facturas PDF e imágenes (PNG, JPG, BMP, TIFF), sincronizándose automáticamente con el portal de **ARCA (ex AFIP)**.
+**ERP GDS** es una plataforma de gestión empresarial e integrador inteligente para Windows y entornos Cloud. Administra el control financiero, conciliaciones de recaudación diaria, estacionamiento, caja chica, gastos fijos, cuentas a pagar y la organización automatizada de facturas PDF e imágenes (PNG, JPG, BMP, TIFF), sincronizándose automáticamente con el portal de **ARCA (ex AFIP)** y en tiempo real con **Firebase Cloud Firestore**.
 
 Los archivos procesados se organizan de forma jerárquica en el sistema de archivos bajo la estructura:
 ```
@@ -9,16 +9,37 @@ Los archivos procesados se organizan de forma jerárquica en el sistema de archi
 
 ---
 
-## 🎨 Diseño & Estética (Impeccable Light Theme)
-- **Interfaz Minimalista y Premium:** Tema claro (*White Mode*) de alto contraste, tipografía moderna, micro-animaciones fluidas y tarjetas elegantes.
-- **Navegación Colapsable:** Menú lateral inteligente con soporte para grupos desplegables/colapsables ("Facturas").
-- **Componentes Modales:** Ventanas emergentes nativas en HTML/CSS para registro de movimientos de Caja Chica y configuración de credenciales, eliminando los diálogos `prompt()` / `alert()` nativos.
+## 🌐 Módulo Web & Portal para Stakeholders (`app_cloud.py`)
+
+La **Rama Web** incorpora una solución integral para socios, directivos y auditores externos:
+1. **Acceso Seguro por PIN:** Autenticación protegida para stakeholders con interfaz optimizada para dispositivos móviles, tablets y navegadores de escritorio.
+2. **Tablero de Control de Compras & Comprobantes ARCA:**
+   - Visualización de comprobantes recibidos, detalle de montos totales e IVA.
+   - Estado de pago (*Pagado / Pendiente*) y asignación rápida de método de pago (*Efectivo, Galicia, Mercado Pago, Tarjeta de Crédito*).
+   - Detección y badge para compras con asignaciones retroactivas.
+3. **Gestor Jerárquico de Categorías & Subcategorías (Rubros):**
+   - Árbol de categorías principales (ej: *Carnes, Limpieza, Bebidas, Lácteos*) y subcategorías (ej: *Vacuno, Químicos*).
+   - Creación, edición y eliminación sincronizadas en tiempo real con Firebase Firestore.
+4. **Asignación de Nombres de Fantasía (Alias de Proveedores):**
+   - Mapeo de razones sociales formales de ARCA a nombres comerciales amigables (ej: `"PEPE CONGELADOS"`).
+   - Asignación rápida de rubro y subcategoría para clasificar automáticamente las compras de cada proveedor.
+5. **Dashboard Analítico de Gastos & Compras:**
+   - Evolución mensual de facturación.
+   - Métricas por método de pago.
+   - Top proveedores y distribución de compras por rubro.
 
 ---
 
-## 🗄️ Arquitectura Unificada en SQLite (`control_interno.db`)
+## 🎨 Diseño & Estética (Impeccable Light Theme)
+- **Interfaz Minimalista y Premium:** Tema claro (*White Mode*) de alto contraste, tipografía moderna, micro-animaciones fluidas y tarjetas elegantes tipo glassmorphism.
+- **Navegación Colapsable:** Menú lateral inteligente con soporte para grupos desplegables y gestión de pestañas.
+- **Componentes Modales:** Ventanas emergentes nativas en HTML/CSS para registro de movimientos de Caja Chica, autenticación PIN y configuración de credenciales.
 
-Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** como la **Única Fuente de Verdad** (*Single Source of Truth*), garantizando la portabilidad y la persistencia de datos tanto en servidores locales como en la nube (VPS / Render con disco persistente).
+---
+
+## 🗄️ Arquitectura Unificada en SQLite (`control_interno.db`) & Firebase Relay
+
+Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** como la **Única Fuente de Verdad** (*Single Source of Truth*), respaldada y replicada de forma continua mediante **Firebase Firestore**.
 
 ### Tablas de la Base de Datos:
 1. `recaudacion_diaria`: Conciliación diaria entre Maxirest, Nave, MercadoPago, Banco y efectivo.
@@ -28,10 +49,13 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
 5. `caja_chica_arqueo`: Arqueo físico de billetes y desglose de efectivo en caja.
 6. `gastos_fijos`: Dashboard mensual de gastos estructurales y cálculo de ganancia neta.
 7. `arca_compras_csv`: Reportes y estado de comprobantes de "Mis Comprobantes Recibidos" de ARCA.
-8. `proveedores_cuentas_pagar`: Seguimiento de deudas y pagos a proveedores.
-9. `proveedores`: Catálogo central de proveedores, CUITs, categorías y huellas digitales de coincidencia OCR.
-10. `facturas_procesadas`: Registro de facturas digitalizadas y comprobantes reconocidos.
-11. `configuraciones`: Configuración del sistema (API Keys, CUIT empresa, credenciales ARCA, tours de usuario y preferencias), **eliminando completamente la dependencia de `localStorage` del navegador**.
+8. `arca_compras_snapshots`: Historial de estados previos de comprobantes para trazabilidad.
+9. `proveedores_cuentas_pagar`: Seguimiento de deudas y pagos a proveedores.
+10. `proveedores`: Catálogo central de proveedores, CUITs, categorías, subcategorías, alias (nombres de fantasía) y huellas digitales de coincidencia OCR.
+11. `facturas_procesadas`: Registro de facturas digitalizadas y comprobantes reconocidos.
+12. `retiros_recaudacion`: Salidas de dinero directas de fondos recaudados con especificación de origen y responsable.
+13. `categorias_gastos`: Árbol de rubros y subcategorías de compras y gastos.
+14. `configuraciones`: Configuración del sistema (API Keys, CUIT empresa, credenciales ARCA, tours de usuario y preferencias).
 
 ---
 
@@ -54,8 +78,8 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
    - **Tier 3 (Keywords & Regex):** Reconocimiento inteligente por Razón Social y patrones de numeración.
 
 4. 🌐 **Soporte para Despliegue Híbrido & Remoto (Cloud + Ngrok):**
-   - Compatible con despliegues en servidores en la nube (VPS Windows/Linux o Render con volumen persistente).
-   - Integración remota con escáneres físicos locales mediante túneles **Ngrok / Agente Local**, permitiendo activar el escáner de la oficina a distancia desde cualquier notebook o tablet.
+   - Compatible con servidores en la nube (Render, Railway, VPS Linux/Windows).
+   - Integración remota con escáneres físicos locales mediante túneles **Ngrok / Agente Local**, permitiendo activar el escáner de la oficina a distancia.
 
 5. 🔄 **Restablecimiento Completo a Fábrica (`reset.py`):**
    - Limpieza completa de archivos temporales, comprobantes e historiales.
@@ -69,8 +93,9 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
 ## 🛠️ Tecnologías Utilizadas
 
 ### Backend & Automatización (Python)
-* **Flask & WSGI Multihilo (`threaded=True`):** Servidor HTTP de alto rendimiento.
-* **SQLite3 (`db_manager.py`):** Motor de base de datos relacional ligero e integrado.
+* **Flask & WSGI Multihilo (`threaded=True`):** Servidor HTTP de alto rendimiento (`app.py` y `app_cloud.py`).
+* **SQLite3 (`db_manager.py`):** Motor de base de datos relacional integrado con modo WAL.
+* **Firebase Admin SDK (`firebase_sync.py`):** Sincronización continua y en tiempo real con Google Cloud Firestore.
 * **Selenium WebDriver (`Edge / Chrome Headless`):** Bot automatizado para ingreso al portal de ARCA/AFIP.
 * **Google Gemini AI API:** Extracción asistida de comprobantes complejos por Inteligencia Artificial.
 * **PyPDFium2 & pdfplumber:** Extracción nativa de texto desde archivos PDF.
@@ -79,14 +104,15 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
 
 ### Frontend (Interfaz de Usuario)
 * **HTML5 & Vanilla CSS3:** Diseño Impeccable Light Mode, transiciones HSL/OKLCH y badges armónicos.
-* **Vanilla JavaScript ES6+ (SPA):** Fetch API asíncrona, actualización dinámica en tiempo real y vista en árbol.
+* **Vanilla JavaScript ES6+ (SPA):** Fetch API asíncrona, actualización dinámica en tiempo real y vista en árbol (`main.js` y `stakeholders.js`).
+* **Chart.js v4.4.0:** Gráficos estadísticos y evolución financiera.
 * **Driver.js:** Asistente y tutorial guiado paso a paso.
 
 ---
 
 ## 📋 Requisitos del Sistema (Dependencias Externas)
 
-Para OCR y escaneo físico, se requiere tener instalados:
+Para OCR y escaneo físico local en Windows, se requiere tener instalados:
 
 1. **Tesseract OCR (Para imágenes y PDFs escaneados)**
    - Ruta esperada: `C:\Program Files\Tesseract-OCR\tesseract.exe`
@@ -98,48 +124,41 @@ Para OCR y escaneo físico, se requiere tener instalados:
 
 ---
 
-## 📂 Uso y Scripts Disponibles
+## 📂 Uso y Modos de Ejecución
 
-### 1. Iniciar la Aplicación
+### 1. Iniciar la Aplicación Desktop (Completa con Watcher y OCR Local)
 ```bash
 python app.py
 ```
 O ejecutando el script `start.bat`.
 
-### 2. Sincronización Automática con ARCA
-1. Abre la aplicación y dirígete al módulo de **Ajustes** o pulsa **Sincronizar ARCA**.
-2. Ingresa CUIT, Clave Fiscal y la Razón Social a representar.
-3. El bot descargará los comprobantes y actualizará los proveedores automáticamente en SQLite.
-
-### 3. Restablecimiento Completo (Reset a Fábrica)
-Para limpiar todas las tablas de SQLite y vaciar los directorios de trabajo a 0 registros:
+### 2. Iniciar el Portal Web / Cloud (Stakeholders & Compras)
 ```bash
-python reset.py --force
+python app_cloud.py
 ```
 
-### 4. Compilar Ejecutable de Windows (.exe)
-Para generar una compilación completa y empaquetar todas las dependencias (Flask, SQLite, Firebase, Selenium, plantillas y archivos estáticos):
+### 3. Compilar Ejecutable de Windows (.exe)
 ```bash
 python build.py
 ```
-o ejecutando el script automático:
+o ejecutando:
 ```bash
 build.bat
 ```
-El instalador/ejecutable final se generará automáticamente en `dist/GDSERP/GDSERP.exe`, creando la estructura completa de carpetas de producción (`CSV ARCA`, `Facturas_A_Procesar`, `Facturas_Procesadas`, `Remitos`, `registros`, etc.).
+El instalador/ejecutable final se generará automáticamente en `dist/GDSERP/GDSERP.exe`.
 
 ---
 
 ## ☁️ Sincronización Multi-Equipo (Cloud Sync Relay con Firebase)
 El sistema utiliza una arquitectura **Local-First + Cloud Sync Relay**:
-- Cada computadora trabaja de forma 100% autónoma y rápida leyendo y escribiendo en su propia base de datos **SQLite local (`control_interno.db`)**.
-- Para sincronizar varias computadoras entre sí en tiempo real a costo $0 (sin pagar servidores VPS):
-  1. Descarga el archivo de credenciales de Firebase `firebase_credentials.json` desde Firebase Console.
-  2. Coloca `firebase_credentials.json` en la misma carpeta que `GDSERP.exe` (o en la raíz del proyecto).
-  3. El motor `firebase_sync.py` se activará automáticamente e intercambiará deltas entre todas las computadoras vinculadas.
+- Cada instancia trabaja de forma 100% autónoma y rápida leyendo y escribiendo en su propia base de datos **SQLite local (`control_interno.db`)**.
+- Para sincronizar múltiples computadoras o instancias web en la nube en tiempo real:
+  1. Descarga el archivo de credenciales de Firebase `firebase_credentials.json` desde Firebase Console (o establece la variable de entorno `FIREBASE_CREDENTIALS_JSON`).
+  2. Coloca `firebase_credentials.json` en la raíz del proyecto o junto al ejecutable.
+  3. El motor `firebase_sync.py` se activará automáticamente e intercambiará deltas entre todas las instancias vinculadas.
 
 ---
 
 ## 🔒 Privacidad y Seguridad
-- Todas las credenciales y datos contables se almacenan **exclusivamente de forma local en la base de datos SQLite (`control_interno.db`)**.
-- No se envía información ni datos contables a servidores de terceros, excepto las consultas dirigidas estrictamente a la API oficial de Google Gemini, al portal de ARCA/AFIP o al proyecto privado de Firebase Cloud Sync configurado por el usuario.
+- Todas las credenciales y datos contables se almacenan de forma local en SQLite (`control_interno.db`) y se replican exclusivamente hacia el proyecto privado de Firebase Cloud Firestore configurado por el usuario.
+- No se envía información a servidores de terceros, excepto las consultas estrictamente dirigidas a la API oficial de Google Gemini o al portal oficial de ARCA/AFIP.
