@@ -790,10 +790,32 @@ def delete_category(category_id):
     """Elimina una categoría y sus subcategorías."""
     conn = get_connection()
     cursor = conn.cursor()
+    
+    # Obtener UUIDs para borrar en Firestore
+    uuids_to_delete = []
+    try:
+        cursor.execute("SELECT uuid FROM categorias_gastos WHERE id = ? OR padre_id = ?", (category_id, category_id))
+        uuids_to_delete = [r['uuid'] for r in cursor.fetchall() if r['uuid']]
+    except Exception:
+        pass
+
     cursor.execute("DELETE FROM categorias_gastos WHERE padre_id = ?", (category_id,))
     cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (category_id,))
     conn.commit()
     conn.close()
+
+    if uuids_to_delete:
+        try:
+            import firebase_sync
+            if firebase_sync._firestore_db:
+                for u in uuids_to_delete:
+                    try:
+                        firebase_sync._firestore_db.collection('categorias_gastos').document(u).delete()
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[db_manager] Error borrando categorías de Firestore: {e}")
+
     return True
 
 def update_supplier_category(nombre_or_id, categoria, subcategoria=''):

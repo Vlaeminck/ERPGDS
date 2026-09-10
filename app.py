@@ -2322,6 +2322,75 @@ def api_test_marcar_mes_pagado():
     
     return jsonify({"success": True, "actualizados": actualizados})
 
+
+@app.route('/api/suppliers', methods=['GET'])
+def api_suppliers():
+    rows = db_manager.get_all_unique_suppliers()
+    return jsonify({"suppliers": rows})
+
+
+@app.route('/api/categorias', methods=['GET', 'POST'])
+def api_categorias():
+    if request.method == 'POST':
+        data = request.json or {}
+        nombre = str(data.get('nombre', '')).strip()
+        padre_id = data.get('padre_id')
+        icono = str(data.get('icono', 'fa-tag')).strip()
+        color = str(data.get('color', '#3b82f6')).strip()
+
+        if not nombre:
+            return jsonify({"success": False, "message": "El nombre de la categoría es obligatorio"}), 400
+
+        res = db_manager.save_category(nombre, padre_id, icono, color)
+        firebase_sync.sync_cycle()
+        return jsonify({"success": True, "categoria": res, "message": f"Categoría '{nombre}' creada exitosamente"})
+    else:
+        tree = db_manager.get_categories_tree()
+        flat = db_manager.get_categories_flat()
+        return jsonify({"tree": tree, "flat": flat, "categorias": tree})
+
+
+@app.route('/api/categorias/<int:cat_id>', methods=['DELETE'])
+def api_delete_categoria(cat_id):
+    db_manager.delete_category(cat_id)
+    firebase_sync.sync_cycle()
+    return jsonify({"success": True, "message": "Categoría eliminada exitosamente"})
+
+
+@app.route('/api/proveedores/<int:prov_id>/categoria', methods=['POST'])
+def api_update_proveedor_categoria(prov_id):
+    data = request.json or {}
+    categoria = str(data.get('categoria', 'General')).strip()
+    subcategoria = str(data.get('subcategoria', '')).strip()
+
+    db_manager.update_supplier_category(prov_id, categoria, subcategoria)
+    firebase_sync.sync_cycle()
+    return jsonify({"success": True, "message": "Categoría de proveedor actualizada exitosamente"})
+
+
+@app.route('/api/proveedores/alias', methods=['GET', 'POST'])
+def api_proveedores_alias():
+    if request.method == 'POST':
+        data = request.json or {}
+        nombre = str(data.get('nombre', '')).strip()
+        alias = str(data.get('alias', '')).strip()
+        categoria = data.get('categoria')
+        subcategoria = data.get('subcategoria')
+        
+        if not nombre:
+            return jsonify({"success": False, "message": "El nombre del proveedor es obligatorio"}), 400
+            
+        db_manager.update_supplier_alias(nombre, alias)
+        if categoria is not None:
+            db_manager.update_supplier_category(nombre, str(categoria).strip(), str(subcategoria or '').strip())
+            
+        firebase_sync.sync_cycle()
+        return jsonify({"success": True, "message": f"Datos guardados correctamente para {nombre}"})
+    else:
+        rows = db_manager.get_all_unique_suppliers()
+        return jsonify({"proveedores": rows})
+
+
 if __name__ == '__main__':
     import webbrowser
     from threading import Timer

@@ -881,13 +881,16 @@ function renderDashboardCharts(data) {
 
 function toggleCategoryManager() {
     const body = document.getElementById('category-manager-body');
+    const toggleText = document.getElementById('cat-mgr-toggle-text');
     const chevron = document.getElementById('cat-mgr-chevron');
     if (!body) return;
     if (body.style.display === 'none' || !body.style.display) {
         body.style.display = 'block';
+        if (toggleText) toggleText.innerHTML = '<i class="fa-solid fa-chevron-up"></i> Ocultar Panel';
         if (chevron) chevron.className = 'fa-solid fa-chevron-up';
     } else {
         body.style.display = 'none';
+        if (toggleText) toggleText.innerHTML = '<i class="fa-solid fa-chevron-down"></i> Mostrar Panel';
         if (chevron) chevron.className = 'fa-solid fa-chevron-down';
     }
 }
@@ -958,7 +961,7 @@ function renderCategoriesTree() {
 }
 
 async function createNewCategory() {
-    const input = document.getElementById('cat-nuevo-nombre');
+    const input = document.getElementById('new-cat-name') || document.getElementById('cat-nuevo-nombre');
     const selectPadre = document.getElementById('cat-padre-select');
     if (!input) return;
 
@@ -980,6 +983,8 @@ async function createNewCategory() {
         if (data.success) {
             showToast(`Categoría '${nombre}' guardada con éxito`, 'success');
             input.value = '';
+            const altInput = document.getElementById('cat-nuevo-nombre') || document.getElementById('new-cat-name');
+            if (altInput) altInput.value = '';
             if (selectPadre) selectPadre.value = '';
             await loadCategories();
             renderAliasTable(allProveedoresList);
@@ -1142,7 +1147,7 @@ function renderAliasTable(list) {
                     </select>
                 </td>
                 <td>
-                    <input type="text" id="${inputId}" class="form-control" placeholder="Ej: PEPE CONGELADOS" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
+                    <input type="text" id="${inputId}" class="form-control" placeholder="Nombre de fantasía" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                 </td>
                 <td style="text-align: center;">
                     <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 5px 12px; cursor: pointer;" onclick="saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
