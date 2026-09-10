@@ -547,8 +547,87 @@
             </div>
         </section>
 
-        <!-- TAB 4: DASHBOARD DE GRÁFICOS -->
+        <!-- TAB 4: DASHBOARD DE GRÁFICOS & RANKING DE CONSUMO -->
         <section id="tab-dashboard" class="tab-content" style="display: none;">
+            
+            <!-- BARRA DE FILTROS AVANZADOS DEL DASHBOARD -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-filter" style="color: var(--primary-accent); font-size: 1.1rem;"></i>
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: #0f172a;">Filtros de Análisis & Ranking de Consumo</h3>
+                    </div>
+                    <button class="btn btn-sm" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 700; border-radius: 8px; padding: 6px 12px; cursor: pointer;" onclick="resetDashboardFilters()">
+                        <i class="fa-solid fa-rotate-left"></i> Limpiar Filtros
+                    </button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                    <!-- Filtro Categoría / Rubro -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Rubro / Categoría:</label>
+                        <select id="dash-filter-cat" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="onDashboardCategoryChange()">
+                            <option value="all">-- Todos los Rubros --</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Subcategoría -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Subcategoría:</label>
+                        <select id="dash-filter-subcat" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="fetchDashboardStats()">
+                            <option value="all">-- Todas las Subcategorías --</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Método de Pago -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Método de Pago:</label>
+                        <select id="dash-filter-metodo" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="fetchDashboardStats()">
+                            <option value="all">-- Todos los Métodos --</option>
+                            <option value="Efectivo">🟩 Efectivo</option>
+                            <option value="Galicia">🟧 Galicia</option>
+                            <option value="Mercado Pago">🟦 Mercado Pago</option>
+                            <option value="Tarjeta crédito">🟪 Tarjeta de Crédito</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Estado de Pago -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Estado de Pago:</label>
+                        <select id="dash-filter-estado" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="fetchDashboardStats()">
+                            <option value="all">-- Todos los Estados --</option>
+                            <option value="Pagado">✅ Pagados</option>
+                            <option value="Pendiente">⏳ Pendientes</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Resumen KPI Mini-Cards del Filtro -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #f1f5f9;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Total Filtrado</span>
+                        <div id="dash-kpi-total" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px;">$ 0</div>
+                    </div>
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase;">Total Pagado</span>
+                        <div id="dash-kpi-pagado" style="font-size: 1.15rem; font-weight: 800; color: #16a34a; margin-top: 2px;">$ 0</div>
+                    </div>
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #b45309; font-weight: 700; text-transform: uppercase;">Total Pendiente</span>
+                        <div id="dash-kpi-pendiente" style="font-size: 1.15rem; font-weight: 800; color: #d97706; margin-top: 2px;">$ 0</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Comprobantes</span>
+                        <div id="dash-kpi-comprobantes" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px;">0</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Proveedores Únicos</span>
+                        <div id="dash-kpi-proveedores" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px;">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GRÁFICOS -->
             <div class="dashboard-grid">
                 <!-- Gráfico 1: Evolución Mensual -->
                 <div class="chart-card">
@@ -583,28 +662,87 @@
                     </div>
                 </div>
 
-                <!-- Gráfico 4: Top 10 Proveedores -->
+                <!-- Gráfico 4: Top Proveedores -->
                 <div class="chart-card">
                     <div class="chart-card-title">
-                        <span><i class="fa-solid fa-ranking-star" style="color: var(--purple-accent);"></i> Top Proveedores</span>
-                        <small style="color: #64748b; font-weight: 600;">Mayores importes facturados</small>
+                        <span><i class="fa-solid fa-ranking-star" style="color: var(--purple-accent);"></i> <span id="title-top-proveedores">Top Proveedores</span></span>
+                        <small id="sub-top-proveedores" style="color: #64748b; font-weight: 600;">Mayores importes facturados</small>
                     </div>
                     <div style="height: 280px; position: relative;">
                         <canvas id="chart-top-proveedores"></canvas>
                     </div>
                 </div>
 
-                <!-- Gráfico 5: Desglose por Rubro / Categoría de Proveedor -->
+                <!-- Gráfico 5: Desglose por Rubro / Subcategoría de Proveedor -->
                 <div class="chart-card" style="grid-column: 1 / -1;">
-                    <div class="chart-card-title">
-                        <span><i class="fa-solid fa-tags" style="color: #06b6d4;"></i> Gastos por Rubro / Categoría de Proveedor</span>
-                        <small style="color: #64748b; font-weight: 600;">Carnes, Verdulería, Limpieza, Papelería, Bebidas, etc.</small>
+                    <div class="chart-card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <span><i class="fa-solid fa-tags" style="color: #06b6d4;"></i> <span id="title-chart-rubro">Gastos por Rubro / Categoría de Proveedor</span></span>
+                            <small style="color: #64748b; font-weight: 600; display: block; margin-top: 2px;">💡 Haga clic en un sector del gráfico para filtrar automáticamente el ranking por ese rubro.</small>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button id="btn-view-rubro-cat" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; cursor: pointer;" onclick="setRubroViewMode('categoria')">
+                                <i class="fa-solid fa-layer-group"></i> Por Rubro Principal
+                            </button>
+                            <button id="btn-view-rubro-sub" class="btn btn-sm" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 700; border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; cursor: pointer;" onclick="setRubroViewMode('subcategoria')">
+                                <i class="fa-solid fa-sitemap"></i> Por Subcategoría
+                            </button>
+                        </div>
                     </div>
-                    <div style="height: 300px; position: relative;">
+                    <div style="height: 320px; position: relative;">
                         <canvas id="chart-rubro"></canvas>
                     </div>
                 </div>
             </div>
+
+            <!-- SECCIÓN: RANKING DETALLADO DE CONSUMO POR PROVEEDOR -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;" id="ranking-header-title">🏆 Ranking de Consumo & Facturación por Proveedor</h3>
+                            <span id="ranking-count-badge" class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.8rem; padding: 3px 8px; border-radius: 999px;">0 proveedores</span>
+                        </div>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;" id="ranking-header-subtitle">Listado ordenado por mayor volumen de facturación según los filtros aplicados.</p>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <div style="width: 260px; max-width: 100%;">
+                            <input type="text" id="input-search-ranking" class="form-control" placeholder="🔍 Buscar en ranking..." oninput="filterRankingTable(this.value)" style="width: 100%; padding: 0.45rem 0.75rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem;">
+                        </div>
+                        <select id="select-ranking-limit" class="form-control" style="padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 700; font-size: 0.85rem;" onchange="renderRankingTable()">
+                            <option value="10">Top 10</option>
+                            <option value="25" selected>Top 25</option>
+                            <option value="50">Top 50</option>
+                            <option value="all">Todos</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="max-height: 540px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
+                            <tr>
+                                <th style="width: 60px; text-align: center;"># Rank</th>
+                                <th style="min-width: 240px;">Proveedor / Nombre de Fantasía</th>
+                                <th style="min-width: 140px;">Rubro</th>
+                                <th style="min-width: 130px;">Subcategoría</th>
+                                <th style="width: 110px; text-align: center;">Facturas</th>
+                                <th style="min-width: 160px; text-align: right;">Total Facturado</th>
+                                <th style="min-width: 160px;">% del Total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-ranking-body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando ranking...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </section>
 
         <!-- TAB 5: CONFIGURACIÓN DE PROVEEDORES & ALIAS & CATEGORÍAS -->

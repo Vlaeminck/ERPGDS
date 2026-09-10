@@ -638,15 +638,159 @@ async function fetchCuentasPagarCloud() {
 }
 
 // ==========================================
-// TAB 4: DASHBOARD DE GRÁFICOS (CHART.JS)
+// TAB 4: DASHBOARD DE GRÁFICOS & RANKING (CHART.JS)
 // ==========================================
+
+let dashboardRawData = null;
+let currentRankingList = [];
+let dashboardRubroViewMode = 'categoria'; // 'categoria' | 'subcategoria'
+
+function populateDashboardFilterCategories() {
+    const catSelect = document.getElementById('dash-filter-cat');
+    if (!catSelect) return;
+
+    const currentVal = catSelect.value || 'all';
+    let optionsHtml = '<option value="all">-- Todos los Rubros --</option>';
+
+    const seenCats = new Set();
+    // 1. Agregar desde categoriesTree
+    (categoriesTree || []).forEach(cat => {
+        const nom = (cat.nombre || '').trim();
+        if (nom && !seenCats.has(nom.toLowerCase())) {
+            seenCats.add(nom.toLowerCase());
+            const isSel = (nom.toLowerCase() === currentVal.toLowerCase()) ? 'selected' : '';
+            optionsHtml += `<option value="${escapeHtml(nom)}" ${isSel}>${escapeHtml(nom)}</option>`;
+        }
+    });
+
+    // 2. Agregar desde categorías presentes en los datos de proveedores
+    if (dashboardRawData && dashboardRawData.gastos_rubro) {
+        Object.keys(dashboardRawData.gastos_rubro).forEach(nom => {
+            const trimmed = nom.trim();
+            if (trimmed && !seenCats.has(trimmed.toLowerCase())) {
+                seenCats.add(trimmed.toLowerCase());
+                const isSel = (trimmed.toLowerCase() === currentVal.toLowerCase()) ? 'selected' : '';
+                optionsHtml += `<option value="${escapeHtml(trimmed)}" ${isSel}>${escapeHtml(trimmed)}</option>`;
+            }
+        });
+    }
+
+    catSelect.innerHTML = optionsHtml;
+}
+
+function onDashboardCategoryChange() {
+    const catSelect = document.getElementById('dash-filter-cat');
+    const subcatSelect = document.getElementById('dash-filter-subcat');
+    const selectedCat = catSelect ? catSelect.value : 'all';
+
+    if (subcatSelect) {
+        let subHtml = '<option value="all">-- Todas las Subcategorías --</option>';
+        if (selectedCat && selectedCat !== 'all') {
+            const matchedCat = (categoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === selectedCat.toLowerCase().trim());
+            if (matchedCat && matchedCat.subcategorias) {
+                matchedCat.subcategorias.forEach(sub => {
+                    subHtml += `<option value="${escapeHtml(sub.nombre)}">${escapeHtml(sub.nombre)}</option>`;
+                });
+            }
+        }
+        subcatSelect.innerHTML = subHtml;
+    }
+
+    fetchDashboardStats();
+}
+
+function resetDashboardFilters() {
+    const catSelect = document.getElementById('dash-filter-cat');
+    const subcatSelect = document.getElementById('dash-filter-subcat');
+    const metodoSelect = document.getElementById('dash-filter-metodo');
+    const estadoSelect = document.getElementById('dash-filter-estado');
+    const searchInput = document.getElementById('input-search-ranking');
+
+    if (catSelect) catSelect.value = 'all';
+    if (subcatSelect) subcatSelect.innerHTML = '<option value="all">-- Todas las Subcategorías --</option>';
+    if (metodoSelect) metodoSelect.value = 'all';
+    if (estadoSelect) estadoSelect.value = 'all';
+    if (searchInput) searchInput.value = '';
+
+    fetchDashboardStats();
+}
+
+function setRubroViewMode(mode) {
+    dashboardRubroViewMode = mode;
+    const btnCat = document.getElementById('btn-view-rubro-cat');
+    const btnSub = document.getElementById('btn-view-rubro-sub');
+    const titleEl = document.getElementById('title-chart-rubro');
+
+    if (mode === 'categoria') {
+        if (btnCat) {
+            btnCat.style.background = 'var(--primary-accent)';
+            btnCat.style.color = '#ffffff';
+            btnCat.style.border = 'none';
+        }
+        if (btnSub) {
+            btnSub.style.background = '#f1f5f9';
+            btnSub.style.color = '#475569';
+            btnSub.style.border = '1px solid #cbd5e1';
+        }
+        if (titleEl) titleEl.textContent = 'Gastos por Rubro Principal';
+    } else {
+        if (btnSub) {
+            btnSub.style.background = 'var(--primary-accent)';
+            btnSub.style.color = '#ffffff';
+            btnSub.style.border = 'none';
+        }
+        if (btnCat) {
+            btnCat.style.background = '#f1f5f9';
+            btnCat.style.color = '#475569';
+            btnCat.style.border = '1px solid #cbd5e1';
+        }
+        if (titleEl) titleEl.textContent = 'Gastos por Subcategoría';
+    }
+
+    if (dashboardRawData) {
+        renderRubroChart(dashboardRawData);
+    }
+}
 
 async function fetchDashboardStats() {
     try {
-        const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
-        const res = await fetch('/api/dashboard/stats' + param);
+        const catVal = document.getElementById('dash-filter-cat')?.value || 'all';
+        const subcatVal = document.getElementById('dash-filter-subcat')?.value || 'all';
+        const metodoVal = document.getElementById('dash-filter-metodo')?.value || 'all';
+        const estadoVal = document.getElementById('dash-filter-estado')?.value || 'all';
+
+        const params = new URLSearchParams();
+        if (currentMonth && currentMonth !== 'all') params.append('mes', currentMonth);
+        if (catVal && catVal !== 'all') params.append('categoria', catVal);
+        if (subcatVal && subcatVal !== 'all') params.append('subcategoria', subcatVal);
+        if (metodoVal && metodoVal !== 'all') params.append('metodo_pago', metodoVal);
+        if (estadoVal && estadoVal !== 'all') params.append('estado', estadoVal);
+
+        const url = '/api/dashboard/stats?' + params.toString();
+        const res = await fetch(url);
         const data = await res.json();
+        dashboardRawData = data;
+        currentRankingList = data.ranking_proveedores || [];
+
+        // Actualizar mini KPIs
+        const resumen = data.resumen || {};
+        const kpiTot = document.getElementById('dash-kpi-total');
+        const kpiPag = document.getElementById('dash-kpi-pagado');
+        const kpiPen = document.getElementById('dash-kpi-pendiente');
+        const kpiComp = document.getElementById('dash-kpi-comprobantes');
+        const kpiProv = document.getElementById('dash-kpi-proveedores');
+
+        if (kpiTot) kpiTot.textContent = formatCurrency(resumen.total_facturado);
+        if (kpiPag) kpiPag.textContent = formatCurrency(resumen.total_pagado);
+        if (kpiPen) kpiPen.textContent = formatCurrency(resumen.total_pendiente);
+        if (kpiComp) kpiComp.textContent = (resumen.total_comprobantes || 0).toLocaleString('es-AR');
+        if (kpiProv) kpiProv.textContent = (resumen.total_proveedores || 0).toLocaleString('es-AR');
+
+        // Poblar selector de categorías si no está cargado
+        populateDashboardFilterCategories();
+
         renderDashboardCharts(data);
+        renderRankingTable();
     } catch (e) {
         console.error("Error cargando estadísticas del dashboard:", e);
     }
@@ -710,7 +854,7 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 2. Gráfico por Categoría (Pinamar, Leloir, Socios)
+    // 2. Gráfico por Categoría de Pago (Pinamar, Leloir, Socios)
     const ctxCategoria = document.getElementById('chart-categoria');
     if (ctxCategoria) {
         if (chartCategoria) chartCategoria.destroy();
@@ -760,7 +904,7 @@ function renderDashboardCharts(data) {
                 labels: metLabels.length ? metLabels : ['Sin Pagos'],
                 datasets: [{
                     data: metValues.length ? metValues : [0],
-                    backgroundColor: ['#ea580c', '#2563eb', '#059669', '#7c3aed', '#64748b'],
+                    backgroundColor: ['#059669', '#ea580c', '#2563eb', '#7c3aed', '#64748b'],
                     borderWidth: 2,
                     borderColor: '#ffffff'
                 }]
@@ -782,7 +926,7 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 4. Gráfico Top Proveedores
+    // 4. Gráfico Top Proveedores (del Filtro Actual)
     const ctxTop = document.getElementById('chart-top-proveedores');
     if (ctxTop) {
         if (chartTop) chartTop.destroy();
@@ -790,13 +934,23 @@ function renderDashboardCharts(data) {
         const topLabels = topList.map(t => t.display_name);
         const topValues = topList.map(t => t.total);
 
+        const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
+        const titleTopEl = document.getElementById('title-top-proveedores');
+        const subTopEl = document.getElementById('sub-top-proveedores');
+        if (titleTopEl) {
+            titleTopEl.textContent = (filterCat && filterCat !== 'all') ? `Top Proveedores (${filterCat})` : 'Top Proveedores';
+        }
+        if (subTopEl) {
+            subTopEl.textContent = (filterCat && filterCat !== 'all') ? `Proveedores con mayor facturación en ${filterCat}` : 'Mayores importes facturados';
+        }
+
         chartTop = new Chart(ctxTop, {
             type: 'bar',
             data: {
-                labels: topLabels,
+                labels: topLabels.length ? topLabels : ['Sin Proveedores'],
                 datasets: [{
                     label: 'Gasto Total',
-                    data: topValues,
+                    data: topValues.length ? topValues : [0],
                     backgroundColor: 'rgba(124, 58, 237, 0.75)',
                     borderColor: '#7c3aed',
                     borderWidth: 1,
@@ -834,45 +988,204 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 5. Gráfico por Rubro / Categoría de Proveedor (Carnes, Verdulería, Limpieza, etc.)
-    const ctxRubro = document.getElementById('chart-rubro');
-    if (ctxRubro) {
-        if (chartRubro) chartRubro.destroy();
-        const rubroObj = data.gastos_rubro || {};
-        const rubroLabels = Object.keys(rubroObj);
-        const rubroValues = Object.values(rubroObj);
+    // 5. Gráfico por Rubro / Subcategoría
+    renderRubroChart(data);
+}
 
-        chartRubro = new Chart(ctxRubro, {
-            type: 'doughnut',
-            data: {
-                labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
-                datasets: [{
-                    data: rubroValues.length ? rubroValues : [0],
-                    backgroundColor: [
-                        '#e11d48', '#059669', '#2563eb', '#d97706',
-                        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
-                        '#84cc16', '#ec4899', '#6366f1', '#14b8a6'
-                    ],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
+function renderRubroChart(data) {
+    const ctxRubro = document.getElementById('chart-rubro');
+    if (!ctxRubro || typeof Chart === 'undefined') return;
+    if (chartRubro) chartRubro.destroy();
+
+    const isSub = (dashboardRubroViewMode === 'subcategoria');
+    const rubroObj = isSub ? (data.gastos_subrubro || {}) : (data.gastos_rubro || {});
+    const rubroLabels = Object.keys(rubroObj);
+    const rubroValues = Object.values(rubroObj);
+
+    const palette = [
+        '#e11d48', '#059669', '#2563eb', '#d97706',
+        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
+        '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
+        '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'
+    ];
+
+    chartRubro = new Chart(ctxRubro, {
+        type: 'doughnut',
+        data: {
+            labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
+            datasets: [{
+                data: rubroValues.length ? rubroValues : [0],
+                backgroundColor: palette.slice(0, Math.max(rubroLabels.length, 1)),
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onClick: (evt, elements) => {
+                if (elements && elements.length > 0) {
+                    const idx = elements[0].index;
+                    const clickedLabel = rubroLabels[idx];
+                    if (!clickedLabel || clickedLabel === 'Sin Datos') return;
+
+                    if (isSub && clickedLabel.includes('>')) {
+                        const parts = clickedLabel.split('>').map(s => s.trim());
+                        const parentCat = parts[0];
+                        const subCat = parts[1];
+                        const catSelect = document.getElementById('dash-filter-cat');
+                        if (catSelect) {
+                            catSelect.value = parentCat;
+                            onDashboardCategoryChange();
+                            setTimeout(() => {
+                                const subSelect = document.getElementById('dash-filter-subcat');
+                                if (subSelect) {
+                                    subSelect.value = subCat;
+                                    fetchDashboardStats();
+                                }
+                            }, 100);
+                        }
+                        showToast(`Filtrando por subcategoría: ${clickedLabel}`, 'info');
+                    } else {
+                        const catSelect = document.getElementById('dash-filter-cat');
+                        if (catSelect) {
+                            catSelect.value = clickedLabel;
+                            onDashboardCategoryChange();
+                            showToast(`Filtrando ranking por rubro: ${clickedLabel}`, 'info');
+                        }
+                    }
+                }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'bottom', labels: { font: { weight: 'bold', family: 'Albert Sans' } } },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return context.label + ': ' + formatCurrency(context.raw);
-                            }
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        font: { weight: 'bold', family: 'Albert Sans' },
+                        boxWidth: 14,
+                        padding: 12
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.label + ': ' + formatCurrency(context.raw);
                         }
                     }
                 }
             }
-        });
+        }
+    });
+}
+
+function renderRankingTable() {
+    const tbody = document.getElementById('tbl-ranking-body');
+    if (!tbody) return;
+
+    const searchTerm = (document.getElementById('input-search-ranking')?.value || '').toLowerCase().trim();
+    const limitVal = document.getElementById('select-ranking-limit')?.value || '25';
+
+    let list = [...currentRankingList];
+
+    if (searchTerm) {
+        list = list.filter(p =>
+            (p.razon_social || '').toLowerCase().includes(searchTerm) ||
+            (p.alias || '').toLowerCase().includes(searchTerm) ||
+            (p.cuit || '').toLowerCase().includes(searchTerm) ||
+            (p.categoria || '').toLowerCase().includes(searchTerm) ||
+            (p.subcategoria || '').toLowerCase().includes(searchTerm)
+        );
     }
+
+    const totalCount = list.length;
+    const badge = document.getElementById('ranking-count-badge');
+    const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
+    const filterSub = document.getElementById('dash-filter-subcat')?.value || 'all';
+
+    if (badge) {
+        badge.textContent = `${totalCount} proveedor${totalCount === 1 ? '' : 'es'}`;
+    }
+
+    const headerTitle = document.getElementById('ranking-header-title');
+    const headerSub = document.getElementById('ranking-header-subtitle');
+    if (headerTitle) {
+        if (filterCat && filterCat !== 'all') {
+            const subPart = (filterSub && filterSub !== 'all') ? ` > ${filterSub}` : '';
+            headerTitle.textContent = `🏆 Ranking de Consumo en ${filterCat}${subPart}`;
+        } else {
+            headerTitle.textContent = '🏆 Ranking de Consumo & Facturación por Proveedor';
+        }
+    }
+    if (headerSub) {
+        if (filterCat && filterCat !== 'all') {
+            headerSub.textContent = `Proveedores ordenados por facturación en el rubro ${filterCat}.`;
+        } else {
+            headerSub.textContent = 'Listado ordenado por mayor volumen de facturación según los filtros aplicados.';
+        }
+    }
+
+    if (limitVal !== 'all') {
+        const numLimit = parseInt(limitVal, 10);
+        if (!isNaN(numLimit)) list = list.slice(0, numLimit);
+    }
+
+    if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 2.5rem;">No se encontraron proveedores para los filtros seleccionados.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = list.map(p => {
+        let rankBadge = `<span style="font-weight: 800; color: #64748b; font-size: 0.9rem;">#${p.rank}</span>`;
+        if (p.rank === 1) rankBadge = `<span style="background: #fef08a; color: #854d0e; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-crown"></i> #1</span>`;
+        else if (p.rank === 2) rankBadge = `<span style="background: #f1f5f9; color: #334155; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #2</span>`;
+        else if (p.rank === 3) rankBadge = `<span style="background: #ffedd5; color: #9a3412; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #3</span>`;
+
+        const hasAlias = Boolean(p.alias && p.alias.trim());
+        const mainName = hasAlias ? p.alias : p.razon_social;
+        const subName = hasAlias ? p.razon_social : '';
+
+        return `
+            <tr>
+                <td style="text-align: center;">${rankBadge}</td>
+                <td>
+                    <div style="font-weight: 800; color: #0f172a; font-size: 0.95rem;">${escapeHtml(mainName)}</div>
+                    ${subName ? `<div style="font-size: 0.76rem; color: #64748b; font-weight: 500;">${escapeHtml(subName)}</div>` : ''}
+                    <div style="font-family: monospace; font-size: 0.74rem; color: #94a3b8;">${escapeHtml(p.cuit || '')}</div>
+                </td>
+                <td>
+                    <span class="badge" style="background: #eff6ff; color: #1d4ed8; font-weight: 700; font-size: 0.78rem; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                        ${escapeHtml(p.categoria || 'General')}
+                    </span>
+                </td>
+                <td>
+                    ${p.subcategoria ? `
+                        <span class="badge" style="background: #f8fafc; color: #475569; font-weight: 600; font-size: 0.76rem; padding: 2px 7px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                            ${escapeHtml(p.subcategoria)}
+                        </span>
+                    ` : `<span style="color: #cbd5e1; font-size: 0.8rem;">-</span>`}
+                </td>
+                <td style="text-align: center;">
+                    <span style="background: #f1f5f9; color: #334155; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 999px;">
+                        ${p.comprobantes_count}
+                    </span>
+                </td>
+                <td style="text-align: right; font-weight: 800; color: #0f172a; font-size: 0.95rem;">
+                    ${formatCurrency(p.total)}
+                </td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="flex: 1; background: #f1f5f9; border-radius: 999px; height: 7px; overflow: hidden;">
+                            <div style="background: var(--primary-accent); height: 100%; width: ${Math.min(p.porcentaje, 100)}%; border-radius: 999px;"></div>
+                        </div>
+                        <span style="font-size: 0.78rem; font-weight: 700; color: #475569; min-width: 42px; text-align: right;">${p.porcentaje}%</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function filterRankingTable(term) {
+    renderRankingTable();
 }
 
 // ==========================================
@@ -903,6 +1216,7 @@ async function loadCategories() {
         categoriesFlat = data.flat || [];
         renderCategoriesTree();
         populateParentCategorySelect();
+        populateDashboardFilterCategories();
     } catch (e) {
         console.error("Error cargando categorías:", e);
     }

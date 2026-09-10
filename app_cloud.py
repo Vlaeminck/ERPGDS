@@ -940,11 +940,16 @@ def api_proveedores_alias():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def api_dashboard_stats():
-    mes = request.args.get('mes')
+    mes = request.args.get('mes', '').strip()
+    categoria_filtro = request.args.get('categoria', '').strip()
+    subcategoria_filtro = request.args.get('subcategoria', '').strip()
+    metodo_filtro = request.args.get('metodo_pago', '').strip()
+    estado_filtro = request.args.get('estado', '').strip()
+
     conn = db_manager.get_connection()
     cursor = conn.cursor()
 
-    # 1. Evolución mensual (Todos los meses con compras)
+    # 1. Evolución mensual global (todos los meses con compras)
     cursor.execute('''
         SELECT mes, 
                SUM(imp_total) as total_facturado,
@@ -963,68 +968,174 @@ def api_dashboard_stats():
         "pendiente": [round(float(r['total_pendiente'] or 0), 2) for r in evolucion_rows]
     }
 
-    # Filtro base para las siguientes consultas
-    where_mes = "WHERE c.mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
-    where_mes_c = "WHERE mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
-    params_mes = (mes,) if (mes and mes != 'all') else ()
+    # Construcción dinámica de filtros WHERE
+    where_clauses = ["1=1"]
+    params = []
 
-    # 2. Desglose por Categoría de Pago (Pinamar / Leloir / Socios)
-    cursor.execute(f'''
-        SELECT COALESCE(NULLIF(categoria_pago, ''), 'Sin Categorizar') as cat,
-               SUM(imp_total) as total
-        FROM arca_compras_csv
-        {where_mes_c} AND estado = 'Pagado'
-        GROUP BY cat
-    ''', params_mes)
-    cat_rows = cursor.fetchall()
-    gastos_categoria = {r['cat']: round(float(r['total'] or 0), 2) for r in cat_rows}
+    if mes and mes != 'all':
+        where_clauses.append("c.mes = ?")
+        params.append(mes)
 
-    # 3. Desglose por Método de Pago
-    cursor.execute(f'''
-        SELECT COALESCE(NULLIF(metodo_pago, ''), 'Sin Definir') as metodo,
-               SUM(imp_total) as total
-        FROM arca_compras_csv
-        {where_mes_c} AND estado = 'Pagado'
-        GROUP BY metodo
-    ''', params_mes)
-    metodo_rows = cursor.fetchall()
-    gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
+    if categoria_filtro and categoria_filtro != 'all':
+        where_clauses.append("COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') = ? COLLATE NOCASE")
+        params.append(categoria_filtro)
 
-    # 4. Desglose por Rubro / Categoría de Proveedor (Carnes, Limpieza, etc.)
+    if subcategoria_filtro and subcategoria_filtro != 'all':
+        where_clauses.append("COALESCE(NULLIF(TRIM(p.subcategoria), ''), 'Sin Subcategoría') = ? COLLATE NOCASE")
+        params.append(subcategoria_filtro)
+
+    if metodo_filtro and metodo_filtro != 'all':
+        where_clauses.append("c.metodo_pago = ?")
+        params.append(metodo_filtro)
+
+    if estado_filtro and estado_filtro != 'all':
+        if estado_filtro == 'Pagado':
+            where_clauses.append("c.estado = 'Pagado'")
+        elif estado_filtro == 'Pendiente':
+            where_clauses.append("c.estado != 'Pagado'")
+
+    where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    # Where clause solo para filtro de mes
+    where_mes_only = "WHERE c.mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
+    params_mes_only = (mes,) if (mes and mes != 'all') else ()
+
+    # 2. Desglose por Rubro / Categoría Principal (para el mes seleccionado)
     cursor.execute(f'''
-        SELECT COALESCE(NULLIF(p.categoria, ''), 'General') as rubro,
-               SUM(c.imp_total) as total
+        SELECT COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') as rubro,
+               SUM(c.imp_total) as total,
+               COUNT(c.id) as comprobantes_count
         FROM arca_compras_csv c
-        LEFT JOIN proveedores p ON (c.denominacion_emisor = p.nombre COLLATE NOCASE)
-        {where_mes}
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_mes_only}
         GROUP BY rubro
         ORDER BY total DESC
-    ''', params_mes)
+    ''', params_mes_only)
     rubro_rows = cursor.fetchall()
     gastos_rubro = {r['rubro']: round(float(r['total'] or 0), 2) for r in rubro_rows}
 
-    # 5. Top 10 Proveedores con Mayor Gasto
-    cursor.execute(f'''
-        SELECT denominacion_emisor, SUM(imp_total) as total
-        FROM arca_compras_csv
-        {where_mes_c}
-        GROUP BY denominacion_emisor
-        ORDER BY total DESC
-        LIMIT 10
-    ''', params_mes)
-    top_rows = cursor.fetchall()
+    # 3. Desglose por Subcategoría (para el mes seleccionado o categoría filtrada)
+    subcat_where_sql = "WHERE " + " AND ".join(where_clauses) if categoria_filtro and categoria_filtro != 'all' else where_mes_only
+    subcat_params = params if categoria_filtro and categoria_filtro != 'all' else params_mes_only
 
-    alias_map = db_manager.get_suppliers_alias_map()
-    top_proveedores = []
-    for r in top_rows:
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') as rubro,
+               COALESCE(NULLIF(TRIM(p.subcategoria), ''), 'Sin Subcategoría') as subrubro,
+               SUM(c.imp_total) as total,
+               COUNT(c.id) as comprobantes_count
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {subcat_where_sql}
+        GROUP BY rubro, subrubro
+        ORDER BY total DESC
+    ''', subcat_params)
+    subcat_rows = cursor.fetchall()
+    gastos_subrubro = {}
+    for r in subcat_rows:
+        label = f"{r['rubro']} > {r['subrubro']}" if r['subrubro'] != 'Sin Subcategoría' else r['rubro']
+        gastos_subrubro[label] = round(float(r['total'] or 0), 2)
+
+    # 4. Desglose por Categoría de Pago (Pinamar / Leloir / Socios)
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(c.categoria_pago, ''), 'Sin Categorizar') as cat,
+               SUM(c.imp_total) as total
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.estado = 'Pagado'
+        GROUP BY cat
+    ''', params)
+    cat_rows = cursor.fetchall()
+    gastos_categoria = {r['cat']: round(float(r['total'] or 0), 2) for r in cat_rows}
+
+    # 5. Desglose por Método de Pago
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(c.metodo_pago, ''), 'Sin Definir') as metodo,
+               SUM(c.imp_total) as total
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.estado = 'Pagado'
+        GROUP BY metodo
+    ''', params)
+    metodo_rows = cursor.fetchall()
+    gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
+
+    # 6. Totales y KPIs en el filtro actual
+    cursor.execute(f'''
+        SELECT SUM(c.imp_total) as gran_total,
+               SUM(CASE WHEN c.estado = 'Pagado' THEN c.imp_total ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN c.estado != 'Pagado' THEN c.imp_total ELSE 0 END) as total_pendiente,
+               COUNT(c.id) as total_comprobantes,
+               COUNT(DISTINCT c.denominacion_emisor) as total_proveedores
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql}
+    ''', params)
+    tot_row = cursor.fetchone()
+    gran_total = float(tot_row['gran_total'] or 0)
+    total_pagado = float(tot_row['total_pagado'] or 0)
+    total_pendiente = float(tot_row['total_pendiente'] or 0)
+    total_comprobantes = int(tot_row['total_comprobantes'] or 0)
+    total_proveedores_unicos = int(tot_row['total_proveedores'] or 0)
+
+    # 7. Ranking de Proveedores con Mayor Facturación / Consumo
+    cursor.execute(f'''
+        SELECT c.denominacion_emisor,
+               c.nro_doc_emisor,
+               MAX(p.nombre) as prov_nombre,
+               MAX(p.alias) as prov_alias,
+               COALESCE(NULLIF(MAX(p.categoria), ''), 'General') as categoria,
+               COALESCE(NULLIF(MAX(p.subcategoria), ''), '') as subcategoria,
+               SUM(c.imp_total) as total,
+               COUNT(c.id) as comprobantes_count
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql}
+        GROUP BY c.denominacion_emisor
+        ORDER BY total DESC
+    ''', params)
+    ranking_rows = cursor.fetchall()
+
+    ranking_completo = []
+    for idx, r in enumerate(ranking_rows):
         razon = r['denominacion_emisor'] or 'Desconocido'
-        alias = alias_map.get(razon, '')
-        top_proveedores.append({
+        alias = (r['prov_alias'] or '').strip()
+        cuit = r['nro_doc_emisor'] or ''
+        monto = round(float(r['total'] or 0), 2)
+        pct = round((monto / gran_total * 100), 1) if gran_total > 0 else 0.0
+
+        ranking_completo.append({
+            "rank": idx + 1,
             "razon_social": razon,
-            "display_name": alias if alias else (razon[:30] + '...' if len(razon) > 30 else razon),
-            "total": round(float(r['total'] or 0), 2)
+            "cuit": cuit,
+            "alias": alias,
+            "display_name": alias if alias else razon,
+            "categoria": r['categoria'],
+            "subcategoria": r['subcategoria'],
+            "total": monto,
+            "comprobantes_count": int(r['comprobantes_count'] or 0),
+            "porcentaje": pct
         })
 
+    top_proveedores = ranking_completo[:10]
+    tree = db_manager.get_categories_tree()
     conn.close()
 
     return jsonify({
@@ -1032,8 +1143,24 @@ def api_dashboard_stats():
         "gastos_categoria": gastos_categoria,
         "gastos_metodo": gastos_metodo,
         "gastos_rubro": gastos_rubro,
+        "gastos_subrubro": gastos_subrubro,
         "top_proveedores": top_proveedores,
-        "mes_seleccionado": mes or 'all'
+        "ranking_proveedores": ranking_completo,
+        "resumen": {
+            "total_facturado": round(gran_total, 2),
+            "total_pagado": round(total_pagado, 2),
+            "total_pendiente": round(total_pendiente, 2),
+            "total_comprobantes": total_comprobantes,
+            "total_proveedores": total_proveedores_unicos
+        },
+        "categorias_tree": tree,
+        "filtros_activos": {
+            "mes": mes or 'all',
+            "categoria": categoria_filtro or 'all',
+            "subcategoria": subcategoria_filtro or 'all',
+            "metodo_pago": metodo_filtro or 'all',
+            "estado": estado_filtro or 'all'
+        }
     })
 
 
