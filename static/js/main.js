@@ -4300,6 +4300,360 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.dispatchEvent(new Event('input', { bubbles: true }));
         }
     });
+
+    // =========================================================================
+    // MODAL: ANÁLISIS DE PROVEEDORES & RUBROS (PORTAL WEB EN DESKTOP)
+    // =========================================================================
+    let chartModalProvBreakdownInst = null;
+    let modalProvDataCache = null;
+    let modalProvCategoriesCache = [];
+    let modalProvChartMode = 'rubro'; // 'rubro', 'subrubro', 'metodo'
+
+    const modalAnalisisProv = document.getElementById('modal-analisis-proveedores');
+    const btnCloseModalProvStats = document.getElementById('btn-close-modal-prov-stats');
+    const btnModalProvCerrar = document.getElementById('btn-modal-prov-cerrar');
+    const btnModalProvReset = document.getElementById('btn-modal-prov-reset');
+    const selModalProvMes = document.getElementById('modal-prov-filter-mes');
+    const selModalProvRubro = document.getElementById('modal-prov-filter-rubro');
+    const selModalProvSubrubro = document.getElementById('modal-prov-filter-subrubro');
+    const selModalProvMetodo = document.getElementById('modal-prov-filter-metodo');
+    const selModalProvEstado = document.getElementById('modal-prov-filter-estado');
+    const inputModalProvSearch = document.getElementById('modal-prov-search-input');
+
+    window.abrirModalAnalisisProveedores = async function () {
+        if (!modalAnalisisProv) return;
+        modalAnalisisProv.style.display = 'flex';
+
+        // Sincronizar meses disponibles si no se cargaron
+        await cargarFiltrosModalProv();
+
+        // Cargar datos
+        await cargarModalAnalisisProveedores();
+    };
+
+    window.cerrarModalAnalisisProveedores = function () {
+        if (modalAnalisisProv) {
+            modalAnalisisProv.style.display = 'none';
+        }
+    };
+
+    if (btnCloseModalProvStats) btnCloseModalProvStats.addEventListener('click', cerrarModalAnalisisProveedores);
+    if (btnModalProvCerrar) btnModalProvCerrar.addEventListener('click', cerrarModalAnalisisProveedores);
+
+    async function cargarFiltrosModalProv() {
+        try {
+            // Meses
+            if (selModalProvMes && selModalProvMes.options.length <= 1) {
+                const resMes = await fetch('/api/meses_disponibles');
+                const dataMes = await resMes.json();
+                const meses = dataMes.meses || [];
+                selModalProvMes.innerHTML = '<option value="all">Todos los Meses</option>' +
+                    meses.map(m => `<option value="${m}">${m}</option>`).join('');
+                if (currentSelectedMonth && meses.includes(currentSelectedMonth)) {
+                    selModalProvMes.value = currentSelectedMonth;
+                }
+            } else if (selModalProvMes && currentSelectedMonth) {
+                selModalProvMes.value = currentSelectedMonth;
+            }
+
+            // Categorías y Subcategorías
+            const resCat = await fetch('/api/categorias');
+            const dataCat = await resCat.json();
+            modalProvCategoriesCache = dataCat.tree || [];
+
+            if (selModalProvRubro) {
+                const currentRubro = selModalProvRubro.value;
+                selModalProvRubro.innerHTML = '<option value="all">Todos los Rubros</option>' +
+                    modalProvCategoriesCache.map(c => `<option value="${escapeHtml(c.nombre)}">${escapeHtml(c.nombre)}</option>`).join('');
+                if (currentRubro && Array.from(selModalProvRubro.options).some(o => o.value === currentRubro)) {
+                    selModalProvRubro.value = currentRubro;
+                }
+            }
+            actualizarSubrubrosModalProv();
+        } catch (e) {
+            console.error("Error inicializando filtros de análisis de proveedores:", e);
+        }
+    }
+
+    function actualizarSubrubrosModalProv() {
+        if (!selModalProvSubrubro) return;
+        const rubroSel = selModalProvRubro ? selModalProvRubro.value : 'all';
+        let subcats = [];
+
+        if (rubroSel === 'all') {
+            modalProvCategoriesCache.forEach(c => {
+                if (c.subcategorias) {
+                    c.subcategorias.forEach(s => {
+                        if (!subcats.includes(s.nombre)) subcats.push(s.nombre);
+                    });
+                }
+            });
+        } else {
+            const found = modalProvCategoriesCache.find(c => c.nombre === rubroSel);
+            if (found && found.subcategorias) {
+                subcats = found.subcategorias.map(s => s.nombre);
+            }
+        }
+
+        selModalProvSubrubro.innerHTML = '<option value="all">Todas las Subcategorías</option>' +
+            subcats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    }
+
+    async function cargarModalAnalisisProveedores() {
+        try {
+            const mesVal = selModalProvMes ? selModalProvMes.value : (currentSelectedMonth || 'all');
+            const rubroVal = selModalProvRubro ? selModalProvRubro.value : 'all';
+            const subrubroVal = selModalProvSubrubro ? selModalProvSubrubro.value : 'all';
+            const metodoVal = selModalProvMetodo ? selModalProvMetodo.value : 'all';
+            const estadoVal = selModalProvEstado ? selModalProvEstado.value : 'all';
+
+            const params = new URLSearchParams();
+            if (mesVal && mesVal !== 'all') params.append('mes', mesVal);
+            if (rubroVal && rubroVal !== 'all') params.append('categoria', rubroVal);
+            if (subrubroVal && subrubroVal !== 'all') params.append('subcategoria', subrubroVal);
+            if (metodoVal && metodoVal !== 'all') params.append('metodo_pago', metodoVal);
+            if (estadoVal && estadoVal !== 'all') params.append('estado', estadoVal);
+
+            const res = await fetch('/api/dashboard/stats?' + params.toString());
+            const data = await res.json();
+            modalProvDataCache = data;
+
+            // Actualizar KPIs
+            const resumen = data.resumen || {};
+            if (document.getElementById('modal-prov-kpi-total')) {
+                document.getElementById('modal-prov-kpi-total').textContent = formatCurrency(resumen.total_facturado || 0);
+            }
+            if (document.getElementById('modal-prov-kpi-pagado')) {
+                document.getElementById('modal-prov-kpi-pagado').textContent = formatCurrency(resumen.total_pagado || 0);
+            }
+            if (document.getElementById('modal-prov-kpi-pendiente')) {
+                document.getElementById('modal-prov-kpi-pendiente').textContent = formatCurrency(resumen.total_pendiente || 0);
+            }
+            if (document.getElementById('modal-prov-kpi-comprobantes')) {
+                document.getElementById('modal-prov-kpi-comprobantes').textContent = `${(resumen.cant_comprobantes || 0).toLocaleString('es-AR')} docs / ${(resumen.cant_proveedores || 0).toLocaleString('es-AR')} provs`;
+            }
+
+            // Renderizar Gráfico y Tabla
+            renderModalProvChart();
+            renderModalProvRanking();
+        } catch (e) {
+            console.error("Error al cargar datos de proveedores en modal:", e);
+        }
+    }
+
+    window.cambiarModoGraficoProv = function (mode) {
+        modalProvChartMode = mode;
+        ['rubro', 'subrubro', 'metodo'].forEach(m => {
+            const btn = document.getElementById(`btn-chart-mode-${m}`);
+            if (btn) {
+                if (m === mode) {
+                    btn.classList.add('active');
+                    btn.style.background = '#2563eb';
+                    btn.style.color = '#ffffff';
+                } else {
+                    btn.classList.remove('active');
+                    btn.style.background = '';
+                    btn.style.color = '';
+                }
+            }
+        });
+        renderModalProvChart();
+    };
+
+    async function renderModalProvChart() {
+        await waitForChart();
+        const canvas = document.getElementById('chartModalProvBreakdown');
+        if (!canvas || !modalProvDataCache) return;
+
+        if (chartModalProvBreakdownInst) {
+            chartModalProvBreakdownInst.destroy();
+        }
+
+        let datasetObj = {};
+        let chartLabel = 'Distribución';
+
+        if (modalProvChartMode === 'rubro') {
+            datasetObj = modalProvDataCache.gastos_rubro || {};
+            chartLabel = 'Gasto por Rubro ($)';
+        } else if (modalProvChartMode === 'subrubro') {
+            datasetObj = modalProvDataCache.gastos_subrubro || {};
+            chartLabel = 'Gasto por Subcategoría ($)';
+        } else if (modalProvChartMode === 'metodo') {
+            datasetObj = modalProvDataCache.gastos_metodo || {};
+            chartLabel = 'Gasto por Método de Pago ($)';
+        }
+
+        const labels = Object.keys(datasetObj);
+        const dataValues = Object.values(datasetObj);
+
+        if (labels.length === 0) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+
+        const colors = [
+            '#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
+            '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1'
+        ];
+
+        const ctx = canvas.getContext('2d');
+        chartModalProvBreakdownInst = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: chartLabel,
+                    data: dataValues,
+                    backgroundColor: colors.slice(0, labels.length),
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                return ` ${chartLabel}: ${formatCurrency(context.raw)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        ticks: {
+                            callback: function (val) {
+                                if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
+                                if (val >= 1000) return '$' + (val / 1000).toFixed(0) + 'k';
+                                return '$' + val;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderModalProvRanking() {
+        const tbody = document.getElementById('modal-prov-ranking-body');
+        const badge = document.getElementById('modal-prov-count-badge');
+        if (!tbody || !modalProvDataCache) return;
+
+        let ranking = modalProvDataCache.ranking_proveedores || [];
+        const query = (inputModalProvSearch ? inputModalProvSearch.value : '').toLowerCase().trim();
+
+        if (query) {
+            ranking = ranking.filter(p =>
+                (p.razon_social && p.razon_social.toLowerCase().includes(query)) ||
+                (p.display_name && p.display_name.toLowerCase().includes(query)) ||
+                (p.cuit && p.cuit.includes(query)) ||
+                (p.rubro && p.rubro.toLowerCase().includes(query)) ||
+                (p.subcategoria && p.subcategoria.toLowerCase().includes(query))
+            );
+        }
+
+        if (badge) {
+            badge.textContent = `${ranking.length} proveedores`;
+        }
+
+        if (ranking.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 2.5rem; color: #64748b;">
+                No se encontraron proveedores que coincidan con los filtros aplicados.
+            </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = ranking.map(p => {
+            const hasAlias = p.display_name && p.display_name !== p.razon_social;
+            const rankBadgeColor = p.ranking === 1 ? '#eab308' : (p.ranking === 2 ? '#94a3b8' : (p.ranking === 3 ? '#b45309' : '#64748b'));
+            const pendClass = p.pendiente > 0 ? 'color: #dc2626; font-weight: 700;' : 'color: #059669;';
+
+            return `
+                <tr>
+                    <td style="text-align: center; font-weight: 800; color: ${rankBadgeColor}; font-size: 0.9rem;">
+                        #${p.ranking}
+                    </td>
+                    <td>
+                        <div style="display: flex; flex-direction: column;">
+                            <strong style="color: #0f172a; font-size: 0.9rem;">
+                                ${escapeHtml(p.display_name || p.razon_social)}
+                            </strong>
+                            ${hasAlias ? `<span style="font-size: 0.75rem; color: #64748b;">${escapeHtml(p.razon_social)}</span>` : ''}
+                        </div>
+                    </td>
+                    <td style="font-family: monospace; font-size: 0.8rem; color: #475569;">
+                        ${escapeHtml(p.cuit || '-')}
+                    </td>
+                    <td>
+                        <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
+                            ${escapeHtml(p.rubro || 'General')}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-size: 0.8rem; color: #64748b;">
+                            ${escapeHtml(p.subcategoria || '-')}
+                        </span>
+                    </td>
+                    <td style="text-align: center; font-weight: 600;">
+                        ${p.cant_facturas || 0}
+                    </td>
+                    <td style="text-align: right; font-weight: 700; color: #0f172a; font-size: 0.9rem;">
+                        ${formatCurrency(p.total)}
+                    </td>
+                    <td style="text-align: right;">
+                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px;">
+                            <span style="font-size: 0.8rem; font-weight: 700; color: #2563eb;">${p.porcentaje}%</span>
+                            <div style="width: 45px; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                                <div style="width: ${Math.min(p.porcentaje, 100)}%; height: 100%; background: #2563eb; border-radius: 3px;"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td style="text-align: right; ${pendClass}">
+                        ${p.pendiente > 0 ? formatCurrency(p.pendiente) : '<i class="fa-solid fa-check" style="color: #059669;" title="Al día"></i>'}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // Listeners de Filtros de Proveedores
+    if (selModalProvMes) selModalProvMes.addEventListener('change', cargarModalAnalisisProveedores);
+    if (selModalProvRubro) {
+        selModalProvRubro.addEventListener('change', () => {
+            actualizarSubrubrosModalProv();
+            cargarModalAnalisisProveedores();
+        });
+    }
+    if (selModalProvSubrubro) selModalProvSubrubro.addEventListener('change', cargarModalAnalisisProveedores);
+    if (selModalProvMetodo) selModalProvMetodo.addEventListener('change', cargarModalAnalisisProveedores);
+    if (selModalProvEstado) selModalProvEstado.addEventListener('change', cargarModalAnalisisProveedores);
+
+    if (inputModalProvSearch) {
+        let debounceTimer;
+        inputModalProvSearch.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                renderModalProvRanking();
+            }, 180);
+        });
+    }
+
+    if (btnModalProvReset) {
+        btnModalProvReset.addEventListener('click', () => {
+            if (selModalProvMes) selModalProvMes.value = currentSelectedMonth || 'all';
+            if (selModalProvRubro) selModalProvRubro.value = 'all';
+            actualizarSubrubrosModalProv();
+            if (selModalProvSubrubro) selModalProvSubrubro.value = 'all';
+            if (selModalProvMetodo) selModalProvMetodo.value = 'all';
+            if (selModalProvEstado) selModalProvEstado.value = 'all';
+            if (inputModalProvSearch) inputModalProvSearch.value = '';
+            cargarModalAnalisisProveedores();
+        });
+    }
 });
+
 
 

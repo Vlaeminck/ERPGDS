@@ -1417,6 +1417,9 @@ def api_dashboard_resumen():
         
         cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion WHERE fecha LIKE ?", (f"{mes}%",))
         gasto_retiros = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos WHERE mes = ?", (mes,))
+        gasto_fijo = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT SUM(total_diario) FROM recaudacion_diaria")
         tot_rec = cursor.fetchone()[0] or 0
@@ -1429,12 +1432,11 @@ def api_dashboard_resumen():
         
         cursor.execute("SELECT SUM(monto) FROM retiros_recaudacion")
         gasto_retiros = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos")
+        gasto_fijo = cursor.fetchone()[0] or 0
         
     ganancia_bruta = tot_rec + tot_est
-    
-    cursor.execute("SELECT SUM(monto_mensual) FROM gastos_fijos")
-    gasto_fijo = cursor.fetchone()[0] or 0
-    
     ganancia_neta = ganancia_bruta - gasto_caja - gasto_fijo - gasto_retiros
     
     conn.close()
@@ -1447,6 +1449,276 @@ def api_dashboard_resumen():
         "recaudacion_total": tot_rec,
         "estacionamiento_total": tot_est
     })
+
+
+@app.route('/api/dashboard/stats', methods=['GET'])
+def api_dashboard_stats():
+    mes = request.args.get('mes')
+    categoria = request.args.get('categoria')
+    subcategoria = request.args.get('subcategoria')
+    metodo_pago = request.args.get('metodo_pago')
+    estado = request.args.get('estado')
+    
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+
+    # 1. Evolución mensual (Todos los meses con compras)
+    cursor.execute('''
+        SELECT mes, 
+               SUM(imp_total) as total_facturado,
+               SUM(CASE WHEN estado = 'Pagado' THEN imp_total ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN estado != 'Pagado' THEN imp_total ELSE 0 END) as total_pendiente
+        FROM arca_compras_csv
+        WHERE mes IS NOT NULL AND mes != ''
+        GROUP BY mes
+        ORDER BY mes ASC
+    ''')
+    evolucion_rows = cursor.fetchall()
+    evolucion_mensual = {
+        "meses": [r['mes'] for r in evolucion_rows],
+        "facturado": [round(float(r['total_facturado'] or 0), 2) for r in evolucion_rows],
+        "pagado": [round(float(r['total_pagado'] or 0), 2) for r in evolucion_rows],
+        "pendiente": [round(float(r['total_pendiente'] or 0), 2) for r in evolucion_rows]
+    }
+
+    # Dynamic WHERE filters
+    where_clauses = ["1=1"]
+    params = []
+
+    if mes and mes != 'all':
+        where_clauses.append("c.mes = ?")
+        params.append(mes)
+    if categoria and categoria != 'all':
+        where_clauses.append("COALESCE(NULLIF(p.categoria, ''), 'General') = ?")
+        params.append(categoria)
+    if subcategoria and subcategoria != 'all':
+        where_clauses.append("COALESCE(NULLIF(p.subcategoria, ''), 'General') = ?")
+        params.append(subcategoria)
+    if metodo_pago and metodo_pago != 'all':
+        where_clauses.append("c.metodo_pago = ?")
+        params.append(metodo_pago)
+    if estado and estado != 'all':
+        where_clauses.append("c.estado = ?")
+        params.append(estado)
+
+    where_str = " AND ".join(where_clauses)
+
+    base_join = '''
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(REPLACE(c.nro_doc_emisor, '-', ''), ' ', '') = REPLACE(REPLACE(p.cuit, '-', ''), ' ', ''))
+            OR (c.denominacion_emisor = p.nombre COLLATE NOCASE)
+        )
+    '''
+
+    # Resumen General / KPIs
+    cursor.execute(f'''
+        SELECT 
+            COUNT(*) as cant_comprobantes,
+            COUNT(DISTINCT c.denominacion_emisor) as cant_proveedores,
+            SUM(c.imp_total) as total_facturado,
+            SUM(CASE WHEN c.estado = 'Pagado' THEN c.imp_total ELSE 0 END) as total_pagado,
+            SUM(CASE WHEN c.estado != 'Pagado' THEN c.imp_total ELSE 0 END) as total_pendiente
+        {base_join}
+        WHERE {where_str}
+    ''', tuple(params))
+    res_row = cursor.fetchone()
+    resumen = {
+        "cant_comprobantes": res_row['cant_comprobantes'] or 0,
+        "cant_proveedores": res_row['cant_proveedores'] or 0,
+        "total_facturado": round(float(res_row['total_facturado'] or 0), 2),
+        "total_pagado": round(float(res_row['total_pagado'] or 0), 2),
+        "total_pendiente": round(float(res_row['total_pendiente'] or 0), 2)
+    }
+
+    # Desglose por Rubro / Categoría
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(p.categoria, ''), 'General') as rubro,
+               SUM(c.imp_total) as total
+        {base_join}
+        WHERE {where_str}
+        GROUP BY rubro
+        ORDER BY total DESC
+    ''', tuple(params))
+    rubro_rows = cursor.fetchall()
+    gastos_rubro = {r['rubro']: round(float(r['total'] or 0), 2) for r in rubro_rows}
+
+    # Desglose por Subrubro / Subcategoría
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(p.subcategoria, ''), 'General') as subrubro,
+               SUM(c.imp_total) as total
+        {base_join}
+        WHERE {where_str}
+        GROUP BY subrubro
+        ORDER BY total DESC
+    ''', tuple(params))
+    subrubro_rows = cursor.fetchall()
+    gastos_subrubro = {r['subrubro']: round(float(r['total'] or 0), 2) for r in subrubro_rows}
+
+    # Desglose por Categoría de Pago
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(c.categoria_pago, ''), 'Sin Categorizar') as cat,
+               SUM(c.imp_total) as total
+        {base_join}
+        WHERE {where_str} AND c.estado = 'Pagado'
+        GROUP BY cat
+    ''', tuple(params))
+    cat_rows = cursor.fetchall()
+    gastos_categoria = {r['cat']: round(float(r['total'] or 0), 2) for r in cat_rows}
+
+    # Desglose por Método de Pago
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(c.metodo_pago, ''), 'Sin Definir') as metodo,
+               SUM(c.imp_total) as total
+        {base_join}
+        WHERE {where_str} AND c.estado = 'Pagado'
+        GROUP BY metodo
+    ''', tuple(params))
+    metodo_rows = cursor.fetchall()
+    gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
+
+    # Ranking completo de Proveedores por Consumo / Facturación
+    cursor.execute(f'''
+        SELECT 
+            c.denominacion_emisor as razon_social,
+            c.nro_doc_emisor as cuit,
+            COALESCE(NULLIF(p.categoria, ''), 'General') as rubro,
+            COALESCE(NULLIF(p.subcategoria, ''), 'General') as subcategoria,
+            COALESCE(NULLIF(p.alias, ''), c.denominacion_emisor) as display_name,
+            COUNT(*) as cant_facturas,
+            SUM(c.imp_total) as total,
+            SUM(CASE WHEN c.estado != 'Pagado' THEN c.imp_total ELSE 0 END) as pendiente
+        {base_join}
+        WHERE {where_str}
+        GROUP BY c.denominacion_emisor, c.nro_doc_emisor
+        ORDER BY total DESC
+    ''', tuple(params))
+    ranking_rows = cursor.fetchall()
+
+    tot_fact = resumen['total_facturado'] or 1.0
+    ranking_proveedores = []
+    for idx, r in enumerate(ranking_rows, 1):
+        tot_prov = round(float(r['total'] or 0), 2)
+        pct = round((tot_prov / tot_fact) * 100, 2) if tot_fact > 0 else 0
+        ranking_proveedores.append({
+            "ranking": idx,
+            "razon_social": r['razon_social'] or 'Desconocido',
+            "cuit": r['cuit'] or '',
+            "display_name": r['display_name'] or r['razon_social'] or 'Desconocido',
+            "rubro": r['rubro'],
+            "subcategoria": r['subcategoria'],
+            "cant_facturas": r['cant_facturas'],
+            "total": tot_prov,
+            "porcentaje": pct,
+            "pendiente": round(float(r['pendiente'] or 0), 2)
+        })
+
+    # Top 10 para compatibilidad con gráficos existentes
+    top_proveedores = ranking_proveedores[:10]
+
+    conn.close()
+
+    return jsonify({
+        "resumen": resumen,
+        "evolucion_mensual": evolucion_mensual,
+        "gastos_categoria": gastos_categoria,
+        "gastos_metodo": gastos_metodo,
+        "gastos_rubro": gastos_rubro,
+        "gastos_subrubro": gastos_subrubro,
+        "ranking_proveedores": ranking_proveedores,
+        "top_proveedores": top_proveedores,
+        "filtros_aplicados": {
+            "mes": mes or 'all',
+            "categoria": categoria or 'all',
+            "subcategoria": subcategoria or 'all',
+            "metodo_pago": metodo_pago or 'all',
+            "estado": estado or 'all'
+        }
+    })
+
+
+@app.route('/api/suppliers', methods=['GET'])
+def api_suppliers():
+    rows = db_manager.get_all_unique_suppliers()
+    return jsonify({"suppliers": rows})
+
+
+@app.route('/api/categorias', methods=['GET', 'POST'])
+def api_categorias():
+    if request.method == 'POST':
+        data = request.json or {}
+        nombre = str(data.get('nombre', '')).strip()
+        padre_id = data.get('padre_id')
+        icono = str(data.get('icono', 'fa-tag')).strip()
+        color = str(data.get('color', '#3b82f6')).strip()
+
+        if not nombre:
+            return jsonify({"success": False, "message": "El nombre de la categoría es obligatorio"}), 400
+
+        res = db_manager.save_category(nombre, padre_id, icono, color)
+        try:
+            import firebase_sync
+            firebase_sync.sync_cycle()
+        except Exception:
+            pass
+        return jsonify({"success": True, "categoria": res, "message": f"Categoría '{nombre}' creada exitosamente"})
+    else:
+        tree = db_manager.get_categories_tree()
+        flat = db_manager.get_categories_flat()
+        return jsonify({"tree": tree, "flat": flat, "categorias": tree})
+
+
+@app.route('/api/categorias/<int:cat_id>', methods=['DELETE'])
+def api_delete_categoria(cat_id):
+    db_manager.delete_category(cat_id)
+    try:
+        import firebase_sync
+        firebase_sync.sync_cycle()
+    except Exception:
+        pass
+    return jsonify({"success": True, "message": "Categoría eliminada exitosamente"})
+
+
+@app.route('/api/proveedores/<int:prov_id>/categoria', methods=['POST'])
+def api_update_proveedor_categoria(prov_id):
+    data = request.json or {}
+    categoria = str(data.get('categoria', 'General')).strip()
+    subcategoria = str(data.get('subcategoria', '')).strip()
+
+    db_manager.update_supplier_category(prov_id, categoria, subcategoria)
+    try:
+        import firebase_sync
+        firebase_sync.sync_cycle()
+    except Exception:
+        pass
+    return jsonify({"success": True, "message": "Categoría de proveedor actualizada exitosamente"})
+
+
+@app.route('/api/proveedores/alias', methods=['GET', 'POST'])
+def api_proveedores_alias():
+    if request.method == 'POST':
+        data = request.json or {}
+        nombre = str(data.get('nombre', '')).strip()
+        alias = str(data.get('alias', '')).strip()
+        categoria = data.get('categoria')
+        subcategoria = data.get('subcategoria')
+        
+        if not nombre:
+            return jsonify({"success": False, "message": "El nombre del proveedor es obligatorio"}), 400
+            
+        db_manager.update_supplier_alias(nombre, alias)
+        if categoria is not None:
+            db_manager.update_supplier_category(nombre, str(categoria).strip(), str(subcategoria or '').strip())
+            
+        try:
+            import firebase_sync
+            firebase_sync.sync_cycle()
+        except Exception:
+            pass
+        return jsonify({"success": True, "message": f"Datos guardados correctamente para {nombre}"})
+    else:
+        rows = db_manager.get_all_unique_suppliers()
+        return jsonify({"proveedores": rows})
 
 
 @app.route('/api/meses_disponibles', methods=['GET'])
