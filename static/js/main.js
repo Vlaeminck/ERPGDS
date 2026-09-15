@@ -473,31 +473,247 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Audio Feedback y Controlador de Escáner Físico ---
+    function playLidReadySound() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+            osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12); // A5
+            gain.gain.setValueAtTime(0.18, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.38);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.38);
+        } catch (e) {}
+    }
+
+    let scannerPollInterval = null;
+    let lidReadyAnnounced = false;
+
+    function updateStep(stepId, state) {
+        const el = document.getElementById(stepId);
+        if (!el) return;
+        if (state === 'done') {
+            el.style.background = '#ecfdf5';
+            el.style.borderColor = '#a7f3d0';
+            el.style.color = '#065f46';
+            el.innerHTML = el.innerHTML.replace('fa-circle-dot', 'fa-circle-check').replace('fa-spinner fa-spin', 'fa-circle-check');
+        } else if (state === 'active') {
+            el.style.background = '#eff6ff';
+            el.style.borderColor = '#bfdbfe';
+            el.style.color = '#1d4ed8';
+            el.innerHTML = el.innerHTML.replace('fa-circle-dot', 'fa-spinner fa-spin').replace('fa-circle-check', 'fa-spinner fa-spin');
+        } else {
+            el.style.background = '#f8fafc';
+            el.style.borderColor = '#e2e8f0';
+            el.style.color = 'var(--text-secondary)';
+            el.innerHTML = el.innerHTML.replace('fa-circle-check', 'fa-circle-dot').replace('fa-spinner fa-spin', 'fa-circle-dot');
+        }
+    }
+
+    async function pollScannerProgress() {
+        try {
+            const res = await fetch('/api/scanner/status');
+            const data = await res.json();
+            
+            const card = document.getElementById('scanner-progress-card');
+            const iconBox = document.getElementById('scanner-status-icon-box');
+            const icon = document.getElementById('scanner-status-icon');
+            const lidBadge = document.getElementById('scanner-lid-badge');
+            const substatus = document.getElementById('scanner-substatus');
+            const msg = document.getElementById('scanner-status-msg');
+            const bar = document.getElementById('scanner-progress-bar-fill');
+            const pct = document.getElementById('scanner-progress-percent');
+            const timer = document.getElementById('scanner-timer-text');
+
+            if (!card) return;
+
+            if (data.elapsed !== undefined && timer) {
+                timer.textContent = `Tiempo: ${data.elapsed}s`;
+            }
+
+            const currentPct = Math.max(5, Math.min(100, data.progress || 0));
+            if (bar) bar.style.width = `${currentPct}%`;
+            if (pct) pct.textContent = `${currentPct}%`;
+
+            // FASE 1: ESCANEANDO FÍSICAMENTE (Tapa bloqueada)
+            if (data.phase === 'scanning') {
+                card.style.borderColor = '#f59e0b';
+                card.style.background = 'rgba(245, 158, 11, 0.04)';
+                if (iconBox) {
+                    iconBox.style.background = 'rgba(245, 158, 11, 0.15)';
+                    iconBox.style.color = '#d97706';
+                }
+                if (icon) icon.className = 'fa-solid fa-print fa-bounce';
+                if (lidBadge) {
+                    lidBadge.style.background = '#fef3c7';
+                    lidBadge.style.color = '#b45309';
+                    lidBadge.style.borderColor = '#fde68a';
+                    lidBadge.innerHTML = '<i class="fa-solid fa-lock"></i> NO ABRIR LA TAPA TODAVÍA';
+                }
+                if (substatus) substatus.textContent = 'Digitalizando hoja en el escáner...';
+                if (msg) msg.textContent = 'El carro del escáner está en movimiento.';
+                updateStep('scan-step-1', 'active');
+                updateStep('scan-step-2', 'idle');
+                updateStep('scan-step-3', 'idle');
+                updateStep('scan-step-4', 'idle');
+            }
+
+            // FASE 2: ESCANEO FÍSICO CONCLUIDO (Ya podés abrir la tapa)
+            if (data.can_open_lid && (data.phase === 'can_open_lid' || data.phase === 'processing')) {
+                card.style.borderColor = '#10b981';
+                card.style.background = 'rgba(16, 185, 129, 0.06)';
+                if (iconBox) {
+                    iconBox.style.background = 'rgba(16, 185, 129, 0.18)';
+                    iconBox.style.color = '#059669';
+                }
+                if (icon) icon.className = 'fa-solid fa-folder-open';
+                if (lidBadge) {
+                    lidBadge.style.background = '#d1fae5';
+                    lidBadge.style.color = '#065f46';
+                    lidBadge.style.borderColor = '#6ee7b7';
+                    lidBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> ¡YA PODÉS ABRIR LA TAPA DEL ESCÁNER!';
+                }
+                if (substatus) substatus.textContent = 'Escaneo físico finalizado con éxito';
+                if (msg) msg.textContent = 'Podés retirar el comprobante y colocar la siguiente factura.';
+
+                if (!lidReadyAnnounced) {
+                    lidReadyAnnounced = true;
+                    playLidReadySound();
+                    showToast('¡Listo! Ya podés abrir la tapa del escáner.', 'info');
+                }
+
+                updateStep('scan-step-1', 'done');
+                updateStep('scan-step-2', 'done');
+                if (data.phase === 'processing') {
+                    updateStep('scan-step-3', 'active');
+                }
+            }
+
+            // FASE 3: FINALIZADO CON ÉXITO
+            if (data.phase === 'completed') {
+                if (scannerPollInterval) {
+                    clearInterval(scannerPollInterval);
+                    scannerPollInterval = null;
+                }
+                if (bar) {
+                    bar.style.width = '100%';
+                    bar.style.background = '#10b981';
+                }
+                if (pct) pct.textContent = '100%';
+                card.style.borderColor = '#10b981';
+                card.style.background = 'rgba(16, 185, 129, 0.08)';
+                if (icon) icon.className = 'fa-solid fa-circle-check';
+                if (lidBadge) {
+                    lidBadge.style.background = '#d1fae5';
+                    lidBadge.style.color = '#065f46';
+                    lidBadge.style.borderColor = '#6ee7b7';
+                    lidBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> PROCESO COMPLETADO';
+                }
+                if (substatus) substatus.textContent = 'Factura lista y registrada';
+                if (msg) msg.textContent = data.message || 'Factura digitalizada con éxito.';
+
+                updateStep('scan-step-1', 'done');
+                updateStep('scan-step-2', 'done');
+                updateStep('scan-step-3', 'done');
+                updateStep('scan-step-4', 'done');
+
+                if (btnScanner) {
+                    btnScanner.innerHTML = '<i class="fa-solid fa-print"></i> Escáner Automático';
+                    btnScanner.disabled = false;
+                }
+
+                showToast('¡Factura procesada con éxito y registrada en el sistema!', 'success');
+
+                // REFRESCAR INMEDIATAMENTE TODAS LAS LISTAS
+                if (typeof fetchUserHistory === 'function') fetchUserHistory();
+                if (typeof fetchStatus === 'function') fetchStatus();
+                if (typeof fetchArcaComprasLocal === 'function') fetchArcaComprasLocal();
+                else if (typeof fetchArcaCompras === 'function') fetchArcaCompras();
+
+                // Ocultar suavemente después de 14 segundos si el usuario no inicia otro escaneo
+                setTimeout(() => {
+                    if (card && (!scannerPollInterval)) {
+                        card.style.display = 'none';
+                    }
+                }, 14000);
+            }
+
+            // FASE ERROR
+            if (data.phase === 'error') {
+                if (scannerPollInterval) {
+                    clearInterval(scannerPollInterval);
+                    scannerPollInterval = null;
+                }
+                card.style.borderColor = '#ef4444';
+                card.style.background = 'rgba(239, 68, 68, 0.05)';
+                if (iconBox) {
+                    iconBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                    iconBox.style.color = '#dc2626';
+                }
+                if (icon) icon.className = 'fa-solid fa-triangle-exclamation';
+                if (lidBadge) {
+                    lidBadge.style.background = '#fee2e2';
+                    lidBadge.style.color = '#991b1b';
+                    lidBadge.style.borderColor = '#fca5a5';
+                    lidBadge.innerHTML = '<i class="fa-solid fa-xmark"></i> ERROR EN ESCANEO';
+                }
+                if (msg) msg.textContent = data.message || 'Ocurrió un error con el escáner.';
+                showToast(data.message || 'Error en el escáner', 'error');
+
+                if (btnScanner) {
+                    btnScanner.innerHTML = '<i class="fa-solid fa-print"></i> Escáner Automático';
+                    btnScanner.disabled = false;
+                }
+            }
+        } catch (e) {
+            console.error("Error polling scanner progress:", e);
+        }
+    }
+
     if (btnScanner) {
         btnScanner.addEventListener('click', async () => {
-            // Animación temporal en el botón
             const originalHTML = btnScanner.innerHTML;
             btnScanner.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
             btnScanner.disabled = true;
+
+            const card = document.getElementById('scanner-progress-card');
+            if (card) {
+                card.style.display = 'block';
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+            lidReadyAnnounced = false;
+
+            // Reset UI de pasos
+            updateStep('scan-step-1', 'active');
+            updateStep('scan-step-2', 'idle');
+            updateStep('scan-step-3', 'idle');
+            updateStep('scan-step-4', 'idle');
 
             try {
                 const res = await fetch('/api/open_scanner', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    showToast(data.message, 'success');
+                    showToast(data.message, 'info');
+                    if (scannerPollInterval) clearInterval(scannerPollInterval);
+                    scannerPollInterval = setInterval(pollScannerProgress, 600);
+                    pollScannerProgress();
                 } else {
-                    showToast("Error al abrir escáner automático", 'error');
+                    showToast(data.message || "Error al abrir escáner automático", 'error');
+                    btnScanner.innerHTML = originalHTML;
+                    btnScanner.disabled = false;
+                    if (card) card.style.display = 'none';
                 }
             } catch (e) {
                 showToast("Error de conexión con el escáner", 'error');
-            }
-
-            // Habilitar botón de nuevo después de 5s para que no se quede pegado 
-            // (el proceso de escaneo funciona en segundo plano)
-            setTimeout(() => {
                 btnScanner.innerHTML = originalHTML;
                 btnScanner.disabled = false;
-            }, 5000);
+                if (card) card.style.display = 'none';
+            }
         });
     }
 

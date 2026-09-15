@@ -622,8 +622,36 @@ import threading
 
 scanning_lock = threading.Lock()
 
+SCANNER_STATE = {
+    "active": False,
+    "phase": "idle",  # "idle", "scanning", "can_open_lid", "processing", "completed", "error"
+    "can_open_lid": True,
+    "message": "Listo para escanear.",
+    "progress": 0,
+    "start_time": 0,
+    "elapsed": 0,
+    "filename": None,
+    "error": None,
+    "result": None
+}
+
+@app.route('/api/scanner/status', methods=['GET'])
+def api_scanner_status():
+    global SCANNER_STATE
+    st = dict(SCANNER_STATE)
+    if st.get("active") and st.get("phase") == "scanning" and st.get("start_time"):
+        elapsed = round(time.time() - st["start_time"], 1)
+        st["elapsed"] = elapsed
+        # Estimación suave del progreso durante el escaneo físico (típico 15s a 22s)
+        calc_progress = min(68, int(15 + (elapsed / 20.0) * 50))
+        st["progress"] = calc_progress
+    elif st.get("start_time"):
+        st["elapsed"] = round(time.time() - st["start_time"], 1)
+    return jsonify(st)
+
 @app.route('/api/open_scanner', methods=['POST'])
 def open_scanner():
+    global SCANNER_STATE
     lic_status = license_manager.check_license_status()
     if not lic_status.get("valid"):
         return jsonify({"success": False, "message": f"Licencia inactiva: {lic_status.get('message')}"})
@@ -646,7 +674,21 @@ def open_scanner():
         # Iniciar el vigía si no estaba corriendo (durará 5 min sin actividad)
         watcher_manager.start()
         
+        SCANNER_STATE = {
+            "active": True,
+            "phase": "scanning",
+            "can_open_lid": False,
+            "message": "Escaneando hoja en el escáner... No abras la tapa todavía.",
+            "progress": 15,
+            "start_time": time.time(),
+            "elapsed": 0,
+            "filename": filename,
+            "error": None,
+            "result": None
+        }
+        
         def run_scanner():
+            global SCANNER_STATE
             try:
                 kwargs = {}
                 if getattr(subprocess, 'CREATE_NO_WINDOW', None) is not None:
@@ -658,18 +700,78 @@ def open_scanner():
                 kwargs['startupinfo'] = startupinfo
                 
                 subprocess.run([naps2_path, '-o', output_path], **kwargs)
+                
+                # Al terminar NAPS2, el escaneo físico terminó y la lámpara volvió a posición de descanso
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    SCANNER_STATE["phase"] = "can_open_lid"
+                    SCANNER_STATE["can_open_lid"] = True
+                    SCANNER_STATE["progress"] = 72
+                    SCANNER_STATE["message"] = "¡Escaneo físico completado! Ya podés abrir la tapa del escáner."
+                    
+                    if scanning_lock.locked():
+                        scanning_lock.release()
+                        
+                    # Procesar la factura digitalizada
+                    SCANNER_STATE["phase"] = "processing"
+                    SCANNER_STATE["progress"] = 85
+                    SCANNER_STATE["message"] = "Procesando documento (OCR / CAE / IA)..."
+                    
+                    from processor import process_invoice, get_user_history
+                    time.sleep(0.6)
+                    if os.path.exists(output_path):
+                        process_invoice(output_path)
+                        
+                    # Buscar el resultado en el historial
+                    hist = get_user_history()
+                    res_item = None
+                    if hist:
+                        for h in hist[:10]:
+                            if filename in h.get('filename', '') or (res_item is None and h.get('status_code') in ('ok', 'remito', 'error')):
+                                res_item = h
+                                break
+                                
+                    SCANNER_STATE["phase"] = "completed"
+                    SCANNER_STATE["progress"] = 100
+                    SCANNER_STATE["can_open_lid"] = True
+                    SCANNER_STATE["active"] = False
+                    SCANNER_STATE["result"] = res_item
+                    
+                    supp = res_item.get('supplier', 'Comprobante') if res_item else 'Comprobante'
+                    num = res_item.get('invoice_number', '') if res_item else ''
+                    msg_txt = f"¡{supp} {num} procesado y guardado!".strip()
+                    SCANNER_STATE["message"] = msg_txt
+                else:
+                    SCANNER_STATE["phase"] = "error"
+                    SCANNER_STATE["can_open_lid"] = True
+                    SCANNER_STATE["progress"] = 100
+                    SCANNER_STATE["active"] = False
+                    SCANNER_STATE["message"] = "El escáner no generó el archivo de salida."
+                    SCANNER_STATE["error"] = "Archivo no encontrado tras escaneo"
+                    if scanning_lock.locked():
+                        scanning_lock.release()
             except Exception as e:
                 print(f"Error durante el escaneo con NAPS2: {e}", flush=True)
-            finally:
-                scanning_lock.release()
+                SCANNER_STATE["phase"] = "error"
+                SCANNER_STATE["can_open_lid"] = True
+                SCANNER_STATE["progress"] = 100
+                SCANNER_STATE["active"] = False
+                SCANNER_STATE["message"] = f"Error en el escaneo: {e}"
+                SCANNER_STATE["error"] = str(e)
+                if scanning_lock.locked():
+                    scanning_lock.release()
                 
         # Ejecutar de fondo sin bloquear el servidor web
         thread = threading.Thread(target=run_scanner)
         thread.start()
         
-        return jsonify({"success": True, "message": "Iniciando escaneo silencioso con NAPS2..."})
+        return jsonify({
+            "success": True, 
+            "message": "Iniciando escaneo... ¡No abras la tapa del escáner todavía!",
+            "filename": filename
+        })
     except Exception as e:
-        scanning_lock.release()
+        if scanning_lock.locked():
+            scanning_lock.release()
         return jsonify({"success": False, "message": f"Error: {e}"})
 
 # ==========================================
