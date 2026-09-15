@@ -405,6 +405,11 @@ def init_db(seed_samples=False):
 
     conn.commit()
     conn.close()
+    try:
+        cleanup_and_repair_categories_and_suppliers()
+    except Exception as e:
+        print(f"[db_manager] Error en cleanup_and_repair: {e}")
+
     if seed_samples:
         seed_initial_data()
 
@@ -646,6 +651,20 @@ def get_all_suppliers_dict():
         result[r['nombre']] = det
     return result
 
+def get_deterministic_supplier_uuid(nombre):
+    """Genera un UUID determinista para un proveedor basado en su nombre normalizado."""
+    import hashlib
+    return hashlib.md5(f"prov:{str(nombre).strip().lower()}".encode()).hexdigest()
+
+def get_deterministic_category_uuid(nombre, padre_nombre=None):
+    """Genera un UUID determinista para una categoría o subcategoría."""
+    import hashlib
+    nom = str(nombre).strip().lower()
+    if padre_nombre:
+        p_nom = str(padre_nombre).strip().lower()
+        return hashlib.md5(f"subcat:{p_nom}:{nom}".encode()).hexdigest()
+    return hashlib.md5(f"cat:{nom}".encode()).hexdigest()
+
 def get_suppliers_alias_map():
     """Retorna un diccionario {clave_coincidencia: alias} con los alias configurados."""
     import json
@@ -676,29 +695,76 @@ def get_suppliers_alias_map():
     conn.close()
     return alias_map
 
-def update_supplier_alias(nombre, alias):
-    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor (coincidencia insensible a mayúsculas/minúsculas)."""
+def update_supplier_meta(nombre_or_id, alias=None, categoria=None, subcategoria=None):
+    """
+    Actualiza atómicamente el alias (nombre de fantasía), categoría y subcategoría de un proveedor.
+    Si se especifica subcategoría pero la categoría es 'General' o vacía, infiere la categoría padre.
+    """
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Buscar proveedor actual
+    if str(nombre_or_id).isdigit():
+        cursor.execute("SELECT * FROM proveedores WHERE id = ?", (int(nombre_or_id),))
+    else:
+        cursor.execute("SELECT * FROM proveedores WHERE nombre = ? COLLATE NOCASE", (str(nombre_or_id).strip(),))
+    prov = cursor.fetchone()
+    if not prov:
+        conn.close()
+        return False
+
+    current_alias = prov['alias'] or ''
+    current_cat = prov['categoria'] or 'General'
+    current_subcat = prov['subcategoria'] or ''
+    prov_name = prov['nombre']
+
+    final_alias = str(alias).strip() if alias is not None else current_alias
+    final_cat = str(categoria).strip() if categoria is not None else current_cat
+    final_subcat = str(subcategoria).strip() if subcategoria is not None else current_subcat
+
+    # Inferencia inteligente de categoría padre si subcategoría está presente
+    if final_subcat and (not final_cat or final_cat.lower() in ('general', 'sin rubro', '')):
+        cursor.execute("""
+            SELECT p.nombre as padre_nombre
+            FROM categorias_gastos s
+            JOIN categorias_gastos p ON s.padre_id = p.id
+            WHERE LOWER(TRIM(s.nombre)) = ?
+            LIMIT 1
+        """, (final_subcat.lower(),))
+        matched_parent = cursor.fetchone()
+        if matched_parent and matched_parent['padre_nombre']:
+            final_cat = matched_parent['padre_nombre']
+
+    # Asegurar UUID determinista
+    det_uuid = get_deterministic_supplier_uuid(prov_name)
+
     cursor.execute('''
-        UPDATE proveedores
-        SET alias = ?, updated_at = ?, sync_status = 0
-        WHERE nombre = ? COLLATE NOCASE
-    ''', (alias.strip(), now_iso, nombre.strip()))
+        UPDATE proveedores 
+        SET alias = ?, categoria = ?, subcategoria = ?, uuid = ?, updated_at = ?, sync_status = 0
+        WHERE id = ?
+    ''', (final_alias, final_cat, final_subcat, det_uuid, now_iso, prov['id']))
     conn.commit()
     conn.close()
     return True
 
+def update_supplier_alias(nombre, alias):
+    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor."""
+    return update_supplier_meta(nombre, alias=alias)
+
+def update_supplier_category(nombre_or_id, categoria, subcategoria=''):
+    """Actualiza la categoría y subcategoría de un proveedor."""
+    return update_supplier_meta(nombre_or_id, categoria=categoria, subcategoria=subcategoria)
+
 def get_all_unique_suppliers():
     """
-    Retorna los 405 proveedores oficiales configurados sin duplicados de mayúsculas/minúsculas.
+    Retorna los proveedores configurados sin duplicados de mayúsculas/minúsculas.
     """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, nombre, cuit, categoria, subcategoria, alias 
+        SELECT id, nombre, cuit, categoria, subcategoria, alias, uuid, updated_at 
         FROM proveedores 
         WHERE is_deleted = 0
         GROUP BY LOWER(TRIM(nombre))
@@ -716,26 +782,53 @@ def get_categories_tree():
     all_rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
-    # Deduplicar por nombre y padre_id en memoria por seguridad
+    id_to_name = {r['id']: r['nombre'].strip() for r in all_rows}
+
     seen_main = set()
-    main_cats = []
+    main_cats_map = {}
     sub_cats = []
-    
+
     for r in all_rows:
         p_id = r.get('padre_id')
         nom = (r.get('nombre') or '').strip()
-        if not p_id:
-            if nom.lower() not in seen_main:
-                seen_main.add(nom.lower())
-                main_cats.append(r)
-        else:
-            sub_cats.append(r)
+        nom_lower = nom.lower()
 
-    tree = []
-    for m in main_cats:
-        m_copy = dict(m)
-        m_copy['subcategorias'] = [s for s in sub_cats if s.get('padre_id') == m['id']]
-        tree.append(m_copy)
+        if not p_id:
+            if nom_lower not in seen_main:
+                seen_main.add(nom_lower)
+                cat_dict = dict(r)
+                cat_dict['subcategorias'] = []
+                main_cats_map[nom_lower] = cat_dict
+        else:
+            sub_cats.append(dict(r))
+
+    for sub in sub_cats:
+        p_id = sub.get('padre_id')
+        sub_nom_lower = (sub.get('nombre') or '').strip().lower()
+        parent_name = id_to_name.get(p_id, '').lower()
+
+        if parent_name not in main_cats_map and p_id in id_to_name:
+            parent_row = next((r for r in all_rows if r['id'] == p_id), None)
+            if parent_row and parent_row.get('padre_id'):
+                grand_id = parent_row['padre_id']
+                parent_name = id_to_name.get(grand_id, '').lower()
+
+        target_main = main_cats_map.get(parent_name)
+        if not target_main:
+            for m in main_cats_map.values():
+                if m['id'] == p_id:
+                    target_main = m
+                    break
+
+        if target_main:
+            existing_subs = [s['nombre'].strip().lower() for s in target_main['subcategorias']]
+            if sub_nom_lower not in existing_subs:
+                target_main['subcategorias'].append(sub)
+
+    tree = list(main_cats_map.values())
+    tree.sort(key=lambda x: x['nombre'].lower())
+    for cat in tree:
+        cat['subcategorias'].sort(key=lambda x: x['nombre'].lower())
     return tree
 
 def get_categories_flat():
@@ -757,25 +850,30 @@ def get_categories_flat():
 
 def save_category(nombre, padre_id=None, icono='fa-tag', color='#3b82f6'):
     """Crea una nueva categoría o subcategoría evitando duplicados."""
-    import hashlib
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     p_id = int(padre_id) if padre_id and str(padre_id).isdigit() and int(padre_id) > 0 else None
     
-    # Verificar si ya existe exactamente esa categoría/subcategoría
+    padre_nombre = None
+    if p_id is not None:
+        cursor.execute("SELECT nombre FROM categorias_gastos WHERE id = ?", (p_id,))
+        p_row = cursor.fetchone()
+        if p_row:
+            padre_nombre = p_row['nombre']
+
+    det_uuid = get_deterministic_category_uuid(nombre, padre_nombre)
+
     if p_id is None:
         cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND padre_id IS NULL", (nombre.strip().lower(),))
     else:
-        cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND padre_id = ?", (nombre.strip().lower(), p_id))
+        cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND (padre_id = ? OR uuid = ?)", (nombre.strip().lower(), p_id, det_uuid))
     existing = cursor.fetchone()
     if existing:
         res = dict(existing)
         conn.close()
         return res
-
-    det_uuid = hashlib.md5(f"{nombre.strip().lower()}:{p_id or ''}".encode()).hexdigest()
 
     cursor.execute('''
         INSERT INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
@@ -791,7 +889,6 @@ def delete_category(category_id):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Obtener UUIDs para borrar en Firestore
     uuids_to_delete = []
     try:
         cursor.execute("SELECT uuid FROM categorias_gastos WHERE id = ? OR padre_id = ?", (category_id, category_id))
@@ -818,53 +915,116 @@ def delete_category(category_id):
 
     return True
 
-def update_supplier_category(nombre_or_id, categoria, subcategoria=''):
-    """Actualiza la categoría y subcategoría de un proveedor."""
-    import datetime as dt_mod
-    conn = get_connection()
-    cursor = conn.cursor()
-    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    if str(nombre_or_id).isdigit():
-        cursor.execute('''
-            UPDATE proveedores 
-            SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
-            WHERE id = ?
-        ''', (categoria.strip(), subcategoria.strip(), now_iso, int(nombre_or_id)))
-    else:
-        cursor.execute('''
-            UPDATE proveedores 
-            SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
-            WHERE nombre = ? COLLATE NOCASE
-        ''', (categoria.strip(), subcategoria.strip(), now_iso, str(nombre_or_id).strip()))
-    conn.commit()
-    conn.close()
-    return True
-
 def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None, alias=''):
+    """
+    Guarda o actualiza un proveedor preservando categorías personalizadas, subcategorías y alias.
+    """
     import json
-    import uuid as uuid_mod
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     kw_str = json.dumps(keywords if keywords is not None else [])
     det_str = json.dumps(detalles if detalles is not None else {})
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    u_id = uuid_mod.uuid4().hex
+    u_id = get_deterministic_supplier_uuid(nombre)
     
     cursor.execute('''
         INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, alias, uuid, updated_at, sync_status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
         ON CONFLICT(nombre) DO UPDATE SET
-            cuit = excluded.cuit,
-            categoria = excluded.categoria,
-            keywords = excluded.keywords,
-            detalles = excluded.detalles,
+            cuit = CASE WHEN excluded.cuit != '' THEN excluded.cuit ELSE proveedores.cuit END,
+            categoria = CASE 
+                WHEN excluded.categoria != '' AND excluded.categoria != 'General' THEN excluded.categoria 
+                ELSE proveedores.categoria 
+            END,
+            keywords = CASE WHEN excluded.keywords != '[]' THEN excluded.keywords ELSE proveedores.keywords END,
+            detalles = CASE WHEN excluded.detalles != '{}' THEN excluded.detalles ELSE proveedores.detalles END,
             alias = CASE WHEN excluded.alias != '' THEN excluded.alias ELSE proveedores.alias END,
+            subcategoria = proveedores.subcategoria,
+            uuid = excluded.uuid,
             updated_at = excluded.updated_at,
             sync_status = 0
     ''', (nombre, cuit, categoria, kw_str, det_str, alias, u_id, now_iso))
     conn.commit()
     conn.close()
+
+def cleanup_and_repair_categories_and_suppliers():
+    """
+    Repara y normaliza las tablas categorias_gastos y proveedores:
+    1. Deduplica categorías principales y re-vincula subcategorías.
+    2. Asigna UUIDs deterministas a todas las categorías y proveedores.
+    3. Asigna la categoría padre correcta a todos los proveedores que tienen subcategoría pero categoría 'General' o vacía.
+    """
+    import datetime as dt_mod
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # 1. Deduplicar categorías principales
+    cursor.execute("SELECT * FROM categorias_gastos WHERE padre_id IS NULL ORDER BY id ASC")
+    main_rows = cursor.fetchall()
+    canonical_main = {}
+    for r in main_rows:
+        nom_l = (r['nombre'] or '').strip().lower()
+        if nom_l not in canonical_main:
+            canonical_main[nom_l] = r['id']
+            det_uuid = get_deterministic_category_uuid(r['nombre'])
+            cursor.execute("UPDATE categorias_gastos SET uuid = ? WHERE id = ?", (det_uuid, r['id']))
+        else:
+            dup_id = r['id']
+            canon_id = canonical_main[nom_l]
+            cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE padre_id = ?", (canon_id, dup_id))
+            cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (dup_id,))
+
+    # 2. Re-vincular y normalizar subcategorías
+    cursor.execute("SELECT s.*, p.nombre as padre_nombre FROM categorias_gastos s LEFT JOIN categorias_gastos p ON s.padre_id = p.id WHERE s.padre_id IS NOT NULL")
+    sub_rows = cursor.fetchall()
+    for s in sub_rows:
+        s_id = s['id']
+        s_nom = (s['nombre'] or '').strip()
+        p_nom = (s['padre_nombre'] or '').strip()
+        
+        if s_nom.lower() in ('azúcar', 'azucar'):
+            if 'almacén' in canonical_main:
+                cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (canonical_main['almacén'], s_id))
+                p_nom = 'Almacén'
+            elif 'bebidas' in canonical_main:
+                cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (canonical_main['bebidas'], s_id))
+                p_nom = 'Bebidas'
+
+        det_uuid = get_deterministic_category_uuid(s_nom, p_nom)
+        cursor.execute("UPDATE categorias_gastos SET uuid = ? WHERE id = ?", (det_uuid, s_id))
+
+    # 3. Reparar proveedores con subcategorías pero categoría 'General' o vacía
+    cursor.execute("""
+        SELECT p.id, p.nombre, p.subcategoria, p.categoria, c_padre.nombre as inferred_categoria
+        FROM proveedores p
+        JOIN categorias_gastos c_sub ON LOWER(TRIM(p.subcategoria)) = LOWER(TRIM(c_sub.nombre))
+        JOIN categorias_gastos c_padre ON c_sub.padre_id = c_padre.id
+        WHERE p.subcategoria IS NOT NULL AND TRIM(p.subcategoria) != ''
+          AND (p.categoria IS NULL OR TRIM(p.categoria) = '' OR LOWER(TRIM(p.categoria)) = 'general')
+    """)
+    provs_to_repair = cursor.fetchall()
+    for p in provs_to_repair:
+        inf_cat = p['inferred_categoria']
+        if inf_cat:
+            cursor.execute("""
+                UPDATE proveedores 
+                SET categoria = ?, updated_at = ?, sync_status = 0
+                WHERE id = ?
+            """, (inf_cat, now_iso, p['id']))
+
+    # 4. Asegurar que todos los proveedores tengan UUIDs deterministas
+    cursor.execute("SELECT id, nombre, uuid FROM proveedores")
+    all_provs = cursor.fetchall()
+    for prov in all_provs:
+        correct_uuid = get_deterministic_supplier_uuid(prov['nombre'])
+        if prov['uuid'] != correct_uuid:
+            cursor.execute("UPDATE proveedores SET uuid = ? WHERE id = ?", (correct_uuid, prov['id']))
+
+    conn.commit()
+    conn.close()
+    print("[db_manager] Limpieza y normalización de categorías y proveedores completada exitosamente.")
 
 def save_processed_invoice(year, month, supplier, filename, filepath, total=0, cuit='', cae='', fecha='', fecha_procesado=''):
     conn = get_connection()

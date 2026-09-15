@@ -1410,8 +1410,19 @@ function renderAliasTable(list) {
         const subcatSelectId = `subcat-select-${pId}`;
         const safeNombre = escapeHtml(p.nombre || '');
         const currentAlias = escapeHtml(p.alias || '');
-        const currentCat = p.categoria || '';
-        const currentSubcat = p.subcategoria || '';
+        let currentCat = (p.categoria || '').trim();
+        const currentSubcat = (p.subcategoria || '').trim();
+
+        // Inferencia de categoría padre si subcategoría está presente pero categoría es 'General' o vacía
+        if (currentSubcat && (!currentCat || currentCat.toLowerCase() === 'general')) {
+            for (const c of categoriesTree) {
+                if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === currentSubcat.toLowerCase().trim())) {
+                    currentCat = c.nombre;
+                    p.categoria = c.nombre;
+                    break;
+                }
+            }
+        }
 
         // Opciones de categoría principal únicas
         let catOptions = `<option value="">-- Sin Rubro --</option>`;
@@ -1481,7 +1492,9 @@ function onCategorySelectChange(catSelectId, subcatSelectId) {
     const selectedCatName = catSelect.value.trim().toLowerCase();
     subcatSelect.innerHTML = '<option value="">-- Ninguna --</option>';
 
-    const matchedCat = categoriesTree.find(c => c.nombre.toLowerCase() === selectedCatName);
+    if (!selectedCatName) return;
+
+    const matchedCat = categoriesTree.find(c => (c.nombre || '').toLowerCase().trim() === selectedCatName);
     if (matchedCat && matchedCat.subcategorias) {
         matchedCat.subcategorias.forEach(s => {
             subcatSelect.innerHTML += `<option value="${escapeHtml(s.nombre)}">${escapeHtml(s.nombre)}</option>`;
@@ -1497,8 +1510,19 @@ async function saveProveedorAlias(nombre, inputId, btnId, catSelectId, subcatSel
     if (!input) return;
 
     const newAlias = input.value.trim();
-    const categoria = catSelect ? catSelect.value.trim() : '';
+    let categoria = catSelect ? catSelect.value.trim() : '';
     const subcategoria = subcatSelect ? subcatSelect.value.trim() : '';
+
+    // Si tiene subcategoría pero no categoría, auto-asignar categoría padre
+    if (subcategoria && (!categoria || categoria.toLowerCase() === 'general')) {
+        for (const c of categoriesTree) {
+            if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === subcategoria.toLowerCase().trim())) {
+                categoria = c.nombre;
+                if (catSelect) catSelect.value = c.nombre;
+                break;
+            }
+        }
+    }
 
     if (btn) {
         btn.disabled = true;

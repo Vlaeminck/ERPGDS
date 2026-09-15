@@ -217,13 +217,21 @@ _table_pull_timestamps = {}
 def reconcile_with_firestore(table=None):
     """
     Compara los UUIDs existentes en Firestore con los de SQLite:
-    1. Si un registro estaba sincronizado (sync_status = 1) en SQLite pero ya NO existe en Firestore (fue eliminado), se elimina de SQLite.
-    2. Si un documento existe en Firestore pero NO en SQLite, se descarga e inserta en SQLite.
+    1. Ejecuta primero un push de cambios pendientes para no perder ninguna modificación local.
+    2. Si un registro estaba sincronizado (sync_status = 1) en SQLite pero ya NO existe en Firestore (fue eliminado deliberadamente en la nube), se elimina de SQLite.
+    3. NUNCA elimina registros con sync_status = 0 (cambios locales pendientes).
+    4. Si un documento existe en Firestore pero NO en SQLite, se descarga e inserta en SQLite.
     """
     if not _firestore_db:
         if not init_firebase():
             return 0
     
+    # 1. Asegurar que cambios pendientes locales se suban antes de reconciliar
+    try:
+        push_local_changes()
+    except Exception as e_push:
+        print(f"[FirebaseSync] Aviso previo a reconciliación (push): {e_push}", flush=True)
+
     tables_to_check = [table] if table else SYNC_TABLES
     total_reconciled = 0
 
@@ -244,15 +252,29 @@ def reconcile_with_firestore(table=None):
             cursor.execute(f"PRAGMA table_info({tbl})")
             valid_cols = {col['name'] for col in cursor.fetchall()}
 
-            # 1. Eliminar de SQLite los registros que fueron borrados en Firestore, sin UUID o duplicados locales
-            for r in local_rows:
-                loc_id = r['id']
-                loc_uuid = r['uuid']
-                if not loc_uuid or loc_uuid not in remote_uuids or loc_uuid in local_uuids:
-                    cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
-                    total_reconciled += 1
-                else:
-                    local_uuids.add(loc_uuid)
+            # 1. Eliminar de SQLite solo si estaba marcado como sync_status = 1 y fue eliminado de Firestore
+            # Si Firestore está vacío (0 docs), nunca borrar la base de datos local
+            if len(remote_uuids) > 0:
+                for r in local_rows:
+                    loc_id = r['id']
+                    loc_uuid = r['uuid']
+                    loc_status = r['sync_status']
+
+                    # Proteger registros locales pendientes
+                    if loc_status == 0:
+                        if loc_uuid:
+                            local_uuids.add(loc_uuid)
+                        continue
+
+                    if not loc_uuid or (loc_uuid not in remote_uuids and loc_status == 1) or loc_uuid in local_uuids:
+                        cursor.execute(f"DELETE FROM {tbl} WHERE id = ?", (loc_id,))
+                        total_reconciled += 1
+                    else:
+                        local_uuids.add(loc_uuid)
+            else:
+                for r in local_rows:
+                    if r['uuid']:
+                        local_uuids.add(r['uuid'])
 
             # 2. Insertar o actualizar documentos que están en Firestore
             for r_uuid, r_data in remote_docs_map.items():
@@ -280,7 +302,7 @@ def reconcile_with_firestore(table=None):
     return total_reconciled
 
 def pull_remote_changes(force_full=False):
-    """Descarga e integra deltas por tabla desde Firebase a SQLite local."""
+    """Descarga e integra deltas por tabla desde Firebase a SQLite local respetando cambios locales pendientes."""
     global _table_pull_timestamps
     if not _firestore_db:
         if not init_firebase():
@@ -316,11 +338,16 @@ def pull_remote_changes(force_full=False):
 
                 remote_updated = str(data.get('updated_at', ''))
 
-                cursor.execute(f"SELECT id, updated_at FROM {table} WHERE uuid = ?", (rec_uuid,))
+                cursor.execute(f"SELECT id, updated_at, sync_status FROM {table} WHERE uuid = ?", (rec_uuid,))
                 local_row = cursor.fetchone()
 
                 if local_row:
                     local_updated = str(local_row['updated_at'] or '')
+                    local_status = local_row['sync_status']
+                    # Si el registro local tiene cambios pendientes y es más reciente, no sobreescribir
+                    if local_status == 0 and local_updated >= remote_updated:
+                        continue
+
                     if (remote_updated and remote_updated > local_updated) or force_full:
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
@@ -333,24 +360,29 @@ def pull_remote_changes(force_full=False):
                     existing_match = None
                     if table == 'arca_compras_csv' and data.get('nro_doc_emisor') and data.get('punto_venta') and data.get('nro_comprobante'):
                         cursor.execute(
-                            "SELECT id FROM arca_compras_csv WHERE nro_doc_emisor = ? AND punto_venta = ? AND nro_comprobante = ?",
+                            "SELECT id, updated_at, sync_status FROM arca_compras_csv WHERE nro_doc_emisor = ? AND punto_venta = ? AND nro_comprobante = ?",
                             (str(data['nro_doc_emisor']), str(data['punto_venta']), str(data['nro_comprobante']))
                         )
                         existing_match = cursor.fetchone()
                     elif table == 'proveedores' and data.get('nombre'):
                         cursor.execute(
-                            "SELECT id FROM proveedores WHERE LOWER(TRIM(nombre)) = ?",
+                            "SELECT id, updated_at, sync_status FROM proveedores WHERE LOWER(TRIM(nombre)) = ?",
                             (str(data['nombre']).strip().lower(),)
                         )
                         existing_match = cursor.fetchone()
                     elif table == 'categorias_gastos' and data.get('nombre'):
                         cursor.execute(
-                            "SELECT id FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ?",
+                            "SELECT id, updated_at, sync_status FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ?",
                             (str(data['nombre']).strip().lower(),)
                         )
                         existing_match = cursor.fetchone()
 
                     if existing_match:
+                        local_updated = str(existing_match['updated_at'] or '')
+                        local_status = existing_match['sync_status']
+                        if local_status == 0 and local_updated >= remote_updated:
+                            continue
+
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
                             set_clause = ", ".join([f"{k} = ?" for k in set_cols])

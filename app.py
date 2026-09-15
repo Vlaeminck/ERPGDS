@@ -2380,10 +2380,15 @@ def api_proveedores_alias():
         if not nombre:
             return jsonify({"success": False, "message": "El nombre del proveedor es obligatorio"}), 400
             
-        db_manager.update_supplier_alias(nombre, alias)
-        if categoria is not None:
-            db_manager.update_supplier_category(nombre, str(categoria).strip(), str(subcategoria or '').strip())
-            
+        ok = db_manager.update_supplier_meta(
+            nombre, 
+            alias=alias, 
+            categoria=str(categoria).strip() if categoria is not None else None, 
+            subcategoria=str(subcategoria).strip() if subcategoria is not None else None
+        )
+        if not ok:
+            return jsonify({"success": False, "message": f"Proveedor '{nombre}' no encontrado"}), 404
+
         firebase_sync.sync_cycle()
         return jsonify({"success": True, "message": f"Datos guardados correctamente para {nombre}"})
     else:
