@@ -682,8 +682,8 @@ def api_arca_import_excel():
                 cursor.execute("SELECT * FROM arca_compras_csv WHERE id = ?", (row_id,))
                 existing_row = cursor.fetchone()
 
-            if not existing_row and cae_val:
-                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND cae != ''", (cae_val,))
+            if not existing_row and cae_val and pv_val and nro_comp_val:
+                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND punto_venta = ? AND nro_comprobante = ?", (cae_val, pv_val, nro_comp_val))
                 existing_row = cursor.fetchone()
 
             if not existing_row and cuit and pv_val and nro_comp_val:

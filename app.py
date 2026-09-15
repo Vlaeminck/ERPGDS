@@ -1820,14 +1820,24 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
     total_nuevos = 0
     retroactivas_nuevas = 0
 
-    # Cargar deduplicación
-    cursor.execute("SELECT fecha_emision, nro_doc_emisor, denominacion_emisor, nro_comprobante, cae FROM arca_compras_csv")
+    # Cargar deduplicación con clave compuesta exacta (CUIT, PV, NroComprobante, TipoComprobante)
+    cursor.execute("SELECT nro_doc_emisor, punto_venta, nro_comprobante, tipo_comprobante, fecha_emision, denominacion_emisor, cae FROM arca_compras_csv")
     existentes = set()
     for r in cursor.fetchall():
-        key1 = (str(r[0] or '').strip(), str(r[1] or '').strip(), str(r[2] or '').strip(), str(r[3] or '').strip())
-        existentes.add(key1)
-        if r[4]:
-            existentes.add(('CAE', str(r[4]).strip()))
+        cuit_r = str(r[0] or '').strip()
+        pv_r = str(r[1] or '').strip()
+        comp_r = str(r[2] or '').strip()
+        tipo_r = str(r[3] or '').strip()
+        fecha_r = str(r[4] or '').strip()
+        denom_r = str(r[5] or '').strip()
+        cae_r = str(r[6] or '').strip()
+
+        if cuit_r and pv_r and comp_r:
+            existentes.add(('CUIT_PV_COMP', cuit_r, pv_r, comp_r))
+        if cae_r and pv_r and comp_r:
+            existentes.add(('CAE_PV_COMP', cae_r, pv_r, comp_r))
+        if fecha_r and denom_r and comp_r:
+            existentes.add(('FECHA_DENOM_COMP', fecha_r, denom_r, comp_r))
 
     csv_files = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
     
@@ -1897,10 +1907,11 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
             comp = get_val(idx_comp)
             tipo_comp = get_val(idx_tipo)
 
-            key1 = (fecha_em, nro, nombre, comp)
-            if key1 in existentes:
-                continue
-            if cae and ('CAE', cae) in existentes:
+            k_cuit = ('CUIT_PV_COMP', nro, pv, comp) if nro and pv and comp else None
+            k_cae = ('CAE_PV_COMP', cae, pv, comp) if cae and pv and comp else None
+            k_fecha = ('FECHA_DENOM_COMP', fecha_em, nombre, comp)
+
+            if (k_cuit and k_cuit in existentes) or (k_cae and k_cae in existentes) or (k_fecha in existentes):
                 continue
 
             try:
@@ -1912,9 +1923,7 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
             except Exception:
                 total = 0
 
-            # Clasificación de retroactividad:
-            # Es retroactiva ÚNICAMENTE si se inserta entre medio de fechas ya existentes ("abcDdefg").
-            # Es decir, su fecha_emision es estrictamente menor a la fecha máxima ya cargada en el snapshot previo para su proveedor o su mes.
+            # Clasificación de retroactividad
             es_retro = 0
             key_prov = f"{mes}_{nro}"
 
@@ -1925,8 +1934,9 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
                 if fecha_em < max_mes_snapshot[mes]:
                     es_retro = 1
 
-            import uuid as uuid_mod
-            u_id = uuid_mod.uuid4().hex
+            import hashlib
+            u_id = hashlib.md5(f"arca:{nro}:{pv}:{comp}:{tipo_comp}".encode()).hexdigest()
+
             cursor.execute('''
                 INSERT INTO arca_compras_csv (fecha_emision, punto_venta, nro_doc_emisor, denominacion_emisor, total_iva, imp_total, mes, cae, nro_comprobante, tipo_comprobante, es_retroactiva, fecha_importacion, uuid, updated_at, sync_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
@@ -1936,9 +1946,11 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
             if es_retro:
                 retroactivas_nuevas += 1
 
-            existentes.add(key1)
-            if cae:
-                existentes.add(('CAE', cae))
+            if k_cuit:
+                existentes.add(k_cuit)
+            if k_cae:
+                existentes.add(k_cae)
+            existentes.add(k_fecha)
 
             if mes not in max_mes_running or fecha_em > max_mes_running[mes]:
                 max_mes_running[mes] = fecha_em
@@ -2474,8 +2486,8 @@ def api_arca_import_excel():
                 cursor.execute("SELECT * FROM arca_compras_csv WHERE id = ?", (row_id,))
                 existing_row = cursor.fetchone()
 
-            if not existing_row and cae_val:
-                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND cae != ''", (cae_val,))
+            if not existing_row and cae_val and pv_val and nro_comp_val:
+                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND punto_venta = ? AND nro_comprobante = ?", (cae_val, pv_val, nro_comp_val))
                 existing_row = cursor.fetchone()
 
             if not existing_row and cuit and pv_val and nro_comp_val:
