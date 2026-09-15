@@ -895,6 +895,7 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
         # Hook para marcar factura recibida en ARCA Compras CSV
         try:
             import db_manager
+            import datetime as dt_module
             conn = db_manager.get_connection()
             cursor = conn.cursor()
             inv_clean = invoice_formatted.replace(" ", "") if invoice_formatted else ""
@@ -904,21 +905,29 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
                     pv_int = int(pv)
                     comp_int = int(comp)
                     fecha_str = invoice_date.strftime('%Y-%m-%d') if invoice_date else ""
+                    now_iso = dt_module.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     
                     cursor.execute("""
                         UPDATE arca_compras_csv 
-                        SET factura_recibida = 1 
+                        SET factura_recibida = 1, updated_at = ?, sync_status = 0 
                         WHERE CAST(punto_venta AS INTEGER) = ? 
                           AND (
                               (nro_comprobante != '' AND CAST(nro_comprobante AS INTEGER) = ?) 
                               OR 
                               (nro_comprobante = '' AND fecha_emision = ?)
                           )
-                          AND denominacion_emisor LIKE ?
-                    """, (pv_int, comp_int, fecha_str, f"%{supplier[:10]}%"))
+                          AND (denominacion_emisor LIKE ? OR ? LIKE '%' || denominacion_emisor || '%')
+                    """, (now_iso, pv_int, comp_int, fecha_str, f"%{supplier[:10]}%", supplier))
                     if cursor.rowcount > 0:
                         print(f"  [ARCA] Factura {inv_clean} marcada como recibida físicamente en la DB.", flush=True)
                     conn.commit()
+                    
+                    # Disparar sincronización inmediata a Firebase Cloud Relay
+                    try:
+                        import firebase_sync
+                        firebase_sync.sync_cycle()
+                    except Exception as e_fs:
+                        print(f"  [FirebaseSync] Aviso sincronizando escaneo: {e_fs}", flush=True)
                 except ValueError:
                     pass
             conn.close()

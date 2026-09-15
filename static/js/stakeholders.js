@@ -190,7 +190,7 @@ async function initPortal() {
     await fetchAllData();
     await loadProveedoresAlias();
     pollSyncStatus();
-    setInterval(pollSyncStatus, 15000);
+    setInterval(pollSyncStatus, 5000);
 }
 
 async function loadMonths() {
@@ -1268,6 +1268,8 @@ async function triggerManualSync() {
     }
 }
 
+let lastKnownRemoteUpdateCloud = null;
+
 async function pollSyncStatus() {
     try {
         const res = await fetch('/api/firebase/status');
@@ -1275,15 +1277,26 @@ async function pollSyncStatus() {
         const badge = document.getElementById('cloud-sync-badge');
         const text = document.getElementById('cloud-sync-text');
 
-        badge.classList.remove('syncing');
-        if (data.enabled || data.mode === 'ONLINE_SYNC') {
-            badge.style.background = 'rgba(16, 185, 129, 0.12)';
-            badge.style.color = '#059669';
-            text.textContent = `Nube Conectada (${data.synced_count} reg)`;
-        } else {
-            badge.style.background = 'rgba(245, 158, 11, 0.12)';
-            badge.style.color = '#d97706';
-            text.textContent = data.message || 'Modo Local';
+        if (badge && text) {
+            badge.classList.remove('syncing');
+            if (data.enabled || data.mode === 'ONLINE_SYNC') {
+                badge.style.background = 'rgba(16, 185, 129, 0.12)';
+                badge.style.color = '#059669';
+                text.textContent = `Nube Conectada (${data.synced_count} reg)`;
+            } else {
+                badge.style.background = 'rgba(245, 158, 11, 0.12)';
+                badge.style.color = '#d97706';
+                text.textContent = data.message || 'Modo Local';
+            }
+        }
+
+        // Auto-refrescar datos en el portal web si hubo sincronización remota
+        if (data.last_remote_update && lastKnownRemoteUpdateCloud && data.last_remote_update !== lastKnownRemoteUpdateCloud) {
+            console.log("[CloudSync] Actualización remota recibida desde Firebase. Refrescando datos en web...");
+            fetchAllData();
+        }
+        if (data.last_remote_update) {
+            lastKnownRemoteUpdateCloud = data.last_remote_update;
         }
     } catch (e) {}
 }

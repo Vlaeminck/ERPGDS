@@ -1266,21 +1266,28 @@ def api_registrar_pago_proveedor():
         arca_metodo = 'Efectivo/Caja Chica'
         if medio_pago == 'Banco': arca_metodo = 'Banco/Transferencia'
         if medio_pago == 'MercadoPago': arca_metodo = 'MercadoPago/Billetera'
+        now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
             UPDATE arca_compras_csv 
-            SET estado='Pagado', metodo_pago=?, fecha_pago=? 
+            SET estado='Pagado', metodo_pago=?, fecha_pago=?, updated_at=?, sync_status=0 
             WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
-        ''', (arca_metodo, fecha_pago, pv, nro))
+        ''', (arca_metodo, fecha_pago, now_iso, pv, nro))
     
     # Si el pago es con Caja Chica / Alivios, generar movimiento de egreso automático
     if medio_pago == 'Caja Chica':
+        now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            INSERT INTO caja_chica_movimientos (fecha, monto_retirado, monto_ingresado, motivo, responsable, categoria)
-            VALUES (?, ?, 0, ?, 'Sistema', 'Proveedor')
-        ''', (fecha_pago, monto_pago, f"Pago a Proveedor: {row['proveedor_nombre']} ({row['factura_numero']})"))
+            INSERT INTO caja_chica_movimientos (fecha, monto_retirado, monto_ingresado, motivo, responsable, categoria, updated_at, sync_status)
+            VALUES (?, ?, 0, ?, 'Sistema', 'Proveedor', ?, 0)
+        ''', (fecha_pago, monto_pago, f"Pago a Proveedor: {row['proveedor_nombre']} ({row['factura_numero']})", now_iso))
         
     conn.commit()
     conn.close()
+    try:
+        import firebase_sync
+        firebase_sync.sync_cycle()
+    except Exception:
+        pass
     return jsonify({"success": True})
 
 @app.route('/api/dashboard/empresa', methods=['GET'])
@@ -2110,6 +2117,11 @@ def api_arca_marcar_recibida(item_id):
     )
     conn.commit()
     conn.close()
+    try:
+        import firebase_sync
+        firebase_sync.sync_cycle()
+    except Exception:
+        pass
     return jsonify({"success": True})
 
 

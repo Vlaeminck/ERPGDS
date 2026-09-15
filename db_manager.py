@@ -847,13 +847,14 @@ def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=
 def save_processed_invoice(year, month, supplier, filename, filepath, total=0, cuit='', cae='', fecha='', fecha_procesado=''):
     conn = get_connection()
     cursor = conn.cursor()
+    now_iso = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if not fecha_procesado:
-        fecha_procesado = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        fecha_procesado = now_iso
         
     cursor.execute('''
-        INSERT INTO facturas_procesadas (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado))
+        INSERT INTO facturas_procesadas (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, updated_at, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    ''', (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, now_iso))
     conn.commit()
     conn.close()
 
