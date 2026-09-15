@@ -788,7 +788,7 @@ def api_cuentas_por_pagar():
     
     if mes and mes != 'all':
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
-        rows = [dict(r) for r in cursor.fetchall()]
+        raw_rows = [dict(r) for r in cursor.fetchall()]
         
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
         tot_fact = cursor.fetchone()[0] or 0
@@ -796,7 +796,7 @@ def api_cuentas_por_pagar():
         tot_pag = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
-        rows = [dict(r) for r in cursor.fetchall()]
+        raw_rows = [dict(r) for r in cursor.fetchall()]
         
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv")
         tot_fact = cursor.fetchone()[0] or 0
@@ -804,9 +804,72 @@ def api_cuentas_por_pagar():
         tot_pag = cursor.fetchone()[0] or 0
         
     pendiente = tot_fact - tot_pag
+
+    from collections import defaultdict
+    grouped = defaultdict(lambda: {
+        "proveedor_nombre": "",
+        "total_acumulado": 0.0,
+        "total_pendiente": 0.0,
+        "total_pagado": 0.0,
+        "cantidad_facturas": 0,
+        "fecha": "",
+        "categoria_pago": "",
+        "estado": "Pendiente",
+        "facturas": []
+    })
+
+    for r in raw_rows:
+        prov = r.get('proveedor_nombre') or 'Desconocido'
+        g = grouped[prov]
+        g['proveedor_nombre'] = prov
+        monto = float(r.get('monto_total') or 0.0)
+        pagado = float(r.get('monto_pagado') or 0.0)
+        is_paid = r.get('estado') == 'Pagado'
+        
+        g['total_acumulado'] += monto
+        if is_paid:
+            g['total_pagado'] += monto
+        else:
+            g['total_pendiente'] += (monto - pagado if monto > pagado else monto)
+            
+        g['cantidad_facturas'] += 1
+        if not g['fecha'] or str(r.get('fecha', '')) > str(g['fecha']):
+            g['fecha'] = r.get('fecha') or ''
+        if r.get('categoria_pago') and not g['categoria_pago']:
+            g['categoria_pago'] = r.get('categoria_pago')
+            
+        g['facturas'].append({
+            "id": r.get('id'),
+            "factura_numero": r.get('factura_numero'),
+            "fecha": r.get('fecha'),
+            "monto_total": monto,
+            "monto_pagado": pagado,
+            "estado": r.get('estado', 'Pendiente'),
+            "medio_pago": r.get('medio_pago', ''),
+            "fecha_pago": r.get('fecha_pago', ''),
+            "categoria_pago": r.get('categoria_pago', '')
+        })
+
+    proveedores_lista = []
+    for prov, g in grouped.items():
+        if g['cantidad_facturas'] > 0:
+            if g['total_pendiente'] <= 0 and g['total_pagado'] > 0:
+                g['estado'] = 'Pagado'
+            elif g['total_pagado'] > 0 and g['total_pendiente'] > 0:
+                g['estado'] = 'Parcial'
+            else:
+                g['estado'] = 'Pendiente'
+        g['total_acumulado'] = round(g['total_acumulado'], 2)
+        g['total_pendiente'] = round(g['total_pendiente'], 2)
+        g['total_pagado'] = round(g['total_pagado'], 2)
+        proveedores_lista.append(g)
+
+    proveedores_lista.sort(key=lambda x: x['total_acumulado'], reverse=True)
+
     conn.close()
     return jsonify({
-        "cuentas": rows,
+        "proveedores": proveedores_lista,
+        "cuentas": raw_rows,
         "resumen": {
             "total_facturado": tot_fact,
             "total_pagado": tot_pag,

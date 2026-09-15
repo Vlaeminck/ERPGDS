@@ -3,6 +3,8 @@ import os
 import time
 import threading
 import importlib
+import re
+import json
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
 from werkzeug.utils import secure_filename
@@ -1177,7 +1179,7 @@ def api_cuentas_por_pagar():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
     
-    # 1. Sincronizar facturas procesadas de config.OUTPUT_FOLDER si aún no están en DB
+    # 1. Sincronizar facturas procesadas de config.OUTPUT_FOLDER si aún no están en DB o tienen monto $0
     if os.path.exists(config.OUTPUT_FOLDER):
         for root, dirs, files in os.walk(config.OUTPUT_FOLDER):
             for file in files:
@@ -1189,19 +1191,46 @@ def api_cuentas_por_pagar():
                     year, month, supplier = parts[0], parts[1], parts[2]
                 else:
                     supplier = "Desconocido"
-                    
-                cursor.execute("SELECT COUNT(*) FROM proveedores_cuentas_pagar WHERE factura_numero = ?", (file,))
-                if cursor.fetchone()[0] == 0:
+                
+                match = re.search(r'(\d+)\s*-\s*(\d+)', file)
+                monto = 0.0
+                fecha_comp = datetime.now().strftime('%Y-%m-%d')
+                if match:
+                    pv_int = int(match.group(1))
+                    nro_int = int(match.group(2))
+                    cursor.execute("""
+                        SELECT imp_total, fecha_emision, denominacion_emisor, categoria_pago 
+                        FROM arca_compras_csv 
+                        WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ? 
+                        LIMIT 1
+                    """, (pv_int, nro_int))
+                    arca_match = cursor.fetchone()
+                    if arca_match:
+                        monto = float(arca_match['imp_total'] or 0.0)
+                        if arca_match['fecha_emision']:
+                            fecha_comp = str(arca_match['fecha_emision'])
+                        if arca_match['denominacion_emisor']:
+                            supplier = arca_match['denominacion_emisor']
+
+                cursor.execute("SELECT id, monto_total FROM proveedores_cuentas_pagar WHERE factura_numero = ?", (file,))
+                existing_cp = cursor.fetchone()
+                if not existing_cp:
                     cursor.execute('''
-                        INSERT INTO proveedores_cuentas_pagar (proveedor_nombre, factura_numero, fecha, monto_total, estado, monto_pagado)
-                        VALUES (?, ?, ?, ?, 'Pendiente', 0)
-                    ''', (supplier, file, datetime.now().strftime('%Y-%m-%d'), 0))
+                        INSERT INTO proveedores_cuentas_pagar (proveedor_nombre, factura_numero, fecha, monto_total, estado, monto_pagado, updated_at, sync_status)
+                        VALUES (?, ?, ?, ?, 'Pendiente', 0, datetime('now'), 0)
+                    ''', (supplier, file, fecha_comp, monto))
+                elif existing_cp['monto_total'] == 0 and monto > 0:
+                    cursor.execute("""
+                        UPDATE proveedores_cuentas_pagar 
+                        SET monto_total = ?, fecha = ?, proveedor_nombre = ?, updated_at = datetime('now'), sync_status = 0
+                        WHERE id = ?
+                    """, (monto, fecha_comp, supplier, existing_cp['id']))
         conn.commit()
         
     mes = request.args.get('mes')
     if mes and mes != 'all':
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
-        rows = [dict(r) for r in cursor.fetchall()]
+        raw_rows = [dict(r) for r in cursor.fetchall()]
         
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
         tot_fact = cursor.fetchone()[0] or 0
@@ -1209,7 +1238,7 @@ def api_cuentas_por_pagar():
         tot_pag = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
-        rows = [dict(r) for r in cursor.fetchall()]
+        raw_rows = [dict(r) for r in cursor.fetchall()]
         
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv")
         tot_fact = cursor.fetchone()[0] or 0
@@ -1217,10 +1246,73 @@ def api_cuentas_por_pagar():
         tot_pag = cursor.fetchone()[0] or 0
         
     pendiente = tot_fact - tot_pag
-    
+
+    # 2. Agrupar por Proveedor (Razón Social) para desglose interactivo acumulado
+    from collections import defaultdict
+    grouped = defaultdict(lambda: {
+        "proveedor_nombre": "",
+        "total_acumulado": 0.0,
+        "total_pendiente": 0.0,
+        "total_pagado": 0.0,
+        "cantidad_facturas": 0,
+        "fecha": "",
+        "categoria_pago": "",
+        "estado": "Pendiente",
+        "facturas": []
+    })
+
+    for r in raw_rows:
+        prov = r.get('proveedor_nombre') or 'Desconocido'
+        g = grouped[prov]
+        g['proveedor_nombre'] = prov
+        monto = float(r.get('monto_total') or 0.0)
+        pagado = float(r.get('monto_pagado') or 0.0)
+        is_paid = r.get('estado') == 'Pagado'
+        
+        g['total_acumulado'] += monto
+        if is_paid:
+            g['total_pagado'] += monto
+        else:
+            g['total_pendiente'] += (monto - pagado if monto > pagado else monto)
+            
+        g['cantidad_facturas'] += 1
+        if not g['fecha'] or str(r.get('fecha', '')) > str(g['fecha']):
+            g['fecha'] = r.get('fecha') or ''
+        if r.get('categoria_pago') and not g['categoria_pago']:
+            g['categoria_pago'] = r.get('categoria_pago')
+            
+        g['facturas'].append({
+            "id": r.get('id'),
+            "factura_numero": r.get('factura_numero'),
+            "fecha": r.get('fecha'),
+            "monto_total": monto,
+            "monto_pagado": pagado,
+            "estado": r.get('estado', 'Pendiente'),
+            "medio_pago": r.get('medio_pago', ''),
+            "fecha_pago": r.get('fecha_pago', ''),
+            "categoria_pago": r.get('categoria_pago', '')
+        })
+
+    proveedores_lista = []
+    for prov, g in grouped.items():
+        if g['cantidad_facturas'] > 0:
+            if g['total_pendiente'] <= 0 and g['total_pagado'] > 0:
+                g['estado'] = 'Pagado'
+            elif g['total_pagado'] > 0 and g['total_pendiente'] > 0:
+                g['estado'] = 'Parcial'
+            else:
+                g['estado'] = 'Pendiente'
+        g['total_acumulado'] = round(g['total_acumulado'], 2)
+        g['total_pendiente'] = round(g['total_pendiente'], 2)
+        g['total_pagado'] = round(g['total_pagado'], 2)
+        proveedores_lista.append(g)
+
+    proveedores_lista.sort(key=lambda x: x['total_acumulado'], reverse=True)
+
     conn.close()
     return jsonify({
-        "cuentas": rows,
+        "proveedores": proveedores_lista,
+        "cuentas": raw_rows,
         "resumen": {
             "total_facturado": tot_fact,
             "total_pagado": tot_pag,

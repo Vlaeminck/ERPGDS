@@ -1875,50 +1875,178 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 1. Cuentas por Pagar
+    window.toggleDesgloseCuentaLocal = function (idx) {
+        const row = document.getElementById(`breakdown-row-local-${idx}`);
+        const icon = document.getElementById(`breakdown-icon-local-${idx}`);
+        if (row) {
+            if (row.style.display === 'none' || !row.style.display) {
+                row.style.display = 'table-row';
+                if (icon) icon.style.transform = 'rotate(90deg)';
+            } else {
+                row.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        }
+    };
+
     async function fetchCuentasPorPagar() {
         try {
             const url = '/api/cuentas_por_pagar' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
             const res = await fetch(url);
             const data = await res.json();
 
-            document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
-            document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
-            document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
+            if (data.resumen) {
+                document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
+                document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
+                document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
+            }
 
-            const pendientes = data.cuentas.filter(c => c.estado !== 'Pagado');
             const tbody = document.getElementById('tbl-cuentas-pagar-body');
-            if (!pendientes || pendientes.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No hay facturas pendientes en cuentas por pagar</td></tr>`;
+            const proveedores = data.proveedores || [];
+            const rawCuentas = data.cuentas || [];
+
+            if (proveedores.length === 0 && rawCuentas.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">No hay facturas pendientes en cuentas por pagar</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = pendientes.map(c => {
-                let badgeClass = 'badge-pending';
-                if (c.estado === 'Pagado') badgeClass = 'badge-paid';
-                if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
+            // Vista agrupada por Proveedor (con desglose acordeón)
+            if (proveedores.length > 0) {
+                tbody.innerHTML = proveedores.map((p, idx) => {
+                    const isPagado = p.estado === 'Pagado';
+                    const isParcial = p.estado === 'Parcial';
+                    let badgeClass = 'badge-pending';
+                    if (isPagado) badgeClass = 'badge-paid';
+                    if (isParcial) badgeClass = 'badge-partial';
 
-                const actionBtn = c.estado !== 'Pagado' ? `
-                    <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
-                        onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
-                        <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
-                        <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
-                        <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
-                        <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
-                        <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
-                    </select>
-                ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+                    const firstPending = p.facturas.find(f => f.estado !== 'Pagado') || p.facturas[0];
 
-                return `
-                    <tr>
-                        <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
-                        <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
-                        <td>${escapeHtml(c.fecha || '-')}</td>
-                        <td><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
-                        <td>${escapeHtml(c.medio_pago || '-')}</td>
-                        <td>${actionBtn}</td>
-                    </tr>
-                `;
-            }).join('');
+                    const actionBtn = !isPagado ? `
+                        <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                            onclick="event.stopPropagation();"
+                            onchange="if(this.value) { registrarPagoProveedor(${firstPending.id}, this.value); this.value=''; }">
+                            <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                            <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
+                            <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
+                            <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
+                            <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
+                        </select>
+                    ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+
+                    return `
+                        <tr style="cursor: pointer; transition: background 0.15s;" onclick="toggleDesgloseCuentaLocal(${idx})" title="Click para ver desglose de comprobantes">
+                            <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">
+                                <i class="fa-solid fa-chevron-right" id="breakdown-icon-local-${idx}" style="margin-right: 6px; font-size: 0.75rem; color: var(--text-secondary); transition: transform 0.2s;"></i>
+                                ${escapeHtml(p.fecha || '-')}
+                            </td>
+                            <td>
+                                <strong>${escapeHtml(p.proveedor_nombre)}</strong>
+                                <span class="badge" style="background: rgba(59, 130, 246, 0.12); color: #2563eb; font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">
+                                    ${p.cantidad_facturas} ${p.cantidad_facturas === 1 ? 'factura' : 'facturas'}
+                                </span>
+                            </td>
+                            <td>
+                                <span style="font-size: 0.82rem; color: var(--text-secondary); font-family: monospace;">
+                                    <i class="fa-solid fa-list-check" style="color: #3b82f6; margin-right: 4px;"></i>
+                                    ${p.cantidad_facturas} comprobante${p.cantidad_facturas === 1 ? '' : 's'} (Ver desglose)
+                                </span>
+                            </td>
+                            <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: var(--text-primary);">
+                                ${formatCurrency(p.total_acumulado)}
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="badge-status ${badgeClass}">${escapeHtml(p.estado)}</span>
+                            </td>
+                            <td style="text-align: center;" onclick="event.stopPropagation();">
+                                ${actionBtn}
+                            </td>
+                        </tr>
+                        <tr id="breakdown-row-local-${idx}" style="display: none; background: rgba(0, 0, 0, 0.02);">
+                            <td colspan="6" style="padding: 0.8rem 1.2rem; border-bottom: 2px solid var(--border-color);">
+                                <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #cbd5e1); border-radius: 10px; padding: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                                    <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
+                                        <span><i class="fa-solid fa-receipt" style="color: #2563eb; margin-right: 6px;"></i> Desglose de Facturas (${p.cantidad_facturas}) &mdash; <strong>${escapeHtml(p.proveedor_nombre)}</strong></span>
+                                        <span style="color: var(--text-primary); font-weight: 800;">Total Acumulado: ${formatCurrency(p.total_acumulado)}</span>
+                                    </div>
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                                        <thead>
+                                            <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary); background: rgba(0,0,0,0.02);">
+                                                <th style="text-align: left; padding: 6px 10px;">N° Comprobante / Archivo</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Fecha</th>
+                                                <th style="text-align: right; padding: 6px 10px;">Monto Total</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Estado</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Medio de Pago</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${p.facturas.map(f => {
+                                                const fPagado = f.estado === 'Pagado';
+                                                const fBadgeClass = fPagado ? 'badge-paid' : 'badge-pending';
+                                                return `
+                                                    <tr style="border-bottom: 1px solid var(--border-color, #f1f5f9);">
+                                                        <td style="padding: 6px 10px; font-family: monospace; font-weight: 600; color: var(--text-primary);">
+                                                            <i class="fa-solid fa-file-invoice" style="color: var(--text-secondary); margin-right: 6px;"></i>
+                                                            ${escapeHtml(f.factura_numero || '-')}
+                                                        </td>
+                                                        <td style="padding: 6px 10px; text-align: center; color: var(--text-secondary); font-family: monospace;">${escapeHtml(f.fecha || '-')}</td>
+                                                        <td style="padding: 6px 10px; text-align: right; font-weight: 800; color: var(--text-primary);">${formatCurrency(f.monto_total)}</td>
+                                                        <td style="padding: 6px 10px; text-align: center;">
+                                                            <span class="badge-status ${fBadgeClass}">${escapeHtml(f.estado)}</span>
+                                                        </td>
+                                                        <td style="padding: 6px 10px; text-align: center; color: var(--text-secondary); font-size: 0.8rem;">${escapeHtml(f.medio_pago || '-')}</td>
+                                                        <td style="padding: 6px 10px; text-align: center;">
+                                                            ${!fPagado ? `
+                                                                <select class="form-control" style="font-size: 0.75rem; padding: 2px 4px; height: 26px; border-radius: 6px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                                                                    onchange="if(this.value) { registrarPagoProveedor(${f.id}, this.value); this.value=''; }">
+                                                                    <option value="" disabled selected>Pagar...</option>
+                                                                    <option value="Efectivo">🟩 Efectivo</option>
+                                                                    <option value="Galicia">🟧 Galicia</option>
+                                                                    <option value="Mercado Pago">🟦 MP</option>
+                                                                    <option value="Tarjeta crédito">🟪 Crédito</option>
+                                                                </select>
+                                                            ` : `<span style="color: #047857; font-weight: 700; font-size: 0.78rem;"><i class="fa-solid fa-check"></i></span>`}
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                // Fallback plano
+                tbody.innerHTML = rawCuentas.map(c => {
+                    let badgeClass = 'badge-pending';
+                    if (c.estado === 'Pagado') badgeClass = 'badge-paid';
+                    if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
+
+                    const actionBtn = c.estado !== 'Pagado' ? `
+                        <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                            onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
+                            <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                            <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
+                            <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
+                            <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
+                            <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
+                        </select>
+                    ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+
+                    return `
+                        <tr>
+                            <td>${escapeHtml(c.fecha || '-')}</td>
+                            <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
+                            <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
+                            <td style="text-align: right; font-weight: 800;">${formatCurrency(c.monto_total)}</td>
+                            <td style="text-align: center;"><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
+                            <td style="text-align: center;">${actionBtn}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
         } catch (e) {
             console.error("Error cargando cuentas por pagar:", e);
         }
