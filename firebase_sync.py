@@ -349,6 +349,20 @@ def pull_remote_changes(force_full=False):
                         continue
 
                     if (remote_updated and remote_updated > local_updated) or force_full:
+                        if table == 'proveedores':
+                            loc_cat = str(local_row['categoria'] or '').strip()
+                            rem_cat = str(data.get('categoria', '') or '').strip()
+                            if loc_cat and loc_cat.lower() != 'general' and (not rem_cat or rem_cat.lower() == 'general'):
+                                data['categoria'] = loc_cat
+                            loc_sub = str(local_row['subcategoria'] or '').strip()
+                            rem_sub = str(data.get('subcategoria', '') or '').strip()
+                            if loc_sub and not rem_sub:
+                                data['subcategoria'] = loc_sub
+                            loc_alias = str(local_row['alias'] or '').strip()
+                            rem_alias = str(data.get('alias', '') or '').strip()
+                            if loc_alias and not rem_alias:
+                                data['alias'] = loc_alias
+
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
                             set_clause = ", ".join([f"{k} = ?" for k in set_cols])
@@ -366,7 +380,7 @@ def pull_remote_changes(force_full=False):
                         existing_match = cursor.fetchone()
                     elif table == 'proveedores' and data.get('nombre'):
                         cursor.execute(
-                            "SELECT id, updated_at, sync_status FROM proveedores WHERE LOWER(TRIM(nombre)) = ?",
+                            "SELECT id, updated_at, sync_status, categoria, subcategoria, alias FROM proveedores WHERE LOWER(TRIM(nombre)) = ?",
                             (str(data['nombre']).strip().lower(),)
                         )
                         existing_match = cursor.fetchone()
@@ -382,6 +396,20 @@ def pull_remote_changes(force_full=False):
                         local_status = existing_match['sync_status']
                         if local_status == 0 and local_updated >= remote_updated:
                             continue
+
+                        if table == 'proveedores':
+                            loc_cat = str(existing_match['categoria'] or '').strip()
+                            rem_cat = str(data.get('categoria', '') or '').strip()
+                            if loc_cat and loc_cat.lower() != 'general' and (not rem_cat or rem_cat.lower() == 'general'):
+                                data['categoria'] = loc_cat
+                            loc_sub = str(existing_match['subcategoria'] or '').strip()
+                            rem_sub = str(data.get('subcategoria', '') or '').strip()
+                            if loc_sub and not rem_sub:
+                                data['subcategoria'] = loc_sub
+                            loc_alias = str(existing_match['alias'] or '').strip()
+                            rem_alias = str(data.get('alias', '') or '').strip()
+                            if loc_alias and not rem_alias:
+                                data['alias'] = loc_alias
 
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:

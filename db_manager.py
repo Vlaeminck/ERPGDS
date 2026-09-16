@@ -917,7 +917,8 @@ def delete_category(category_id):
 
 def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None, alias=''):
     """
-    Guarda o actualiza un proveedor preservando categorías personalizadas, subcategorías y alias.
+    Guarda o actualiza un proveedor preservando estrictamente categorías personalizadas, subcategorías y alias.
+    Solo marca sync_status = 0 si hubo cambios reales en cuit, keywords o detalles técnicos.
     """
     import json
     import datetime as dt_mod
@@ -928,23 +929,56 @@ def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     u_id = get_deterministic_supplier_uuid(nombre)
     
-    cursor.execute('''
-        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, alias, uuid, updated_at, sync_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        ON CONFLICT(nombre) DO UPDATE SET
-            cuit = CASE WHEN excluded.cuit != '' THEN excluded.cuit ELSE proveedores.cuit END,
-            categoria = CASE 
-                WHEN excluded.categoria != '' AND excluded.categoria != 'General' THEN excluded.categoria 
-                ELSE proveedores.categoria 
-            END,
-            keywords = CASE WHEN excluded.keywords != '[]' THEN excluded.keywords ELSE proveedores.keywords END,
-            detalles = CASE WHEN excluded.detalles != '{}' THEN excluded.detalles ELSE proveedores.detalles END,
-            alias = CASE WHEN excluded.alias != '' THEN excluded.alias ELSE proveedores.alias END,
-            subcategoria = proveedores.subcategoria,
-            uuid = excluded.uuid,
-            updated_at = excluded.updated_at,
-            sync_status = 0
-    ''', (nombre, cuit, categoria, kw_str, det_str, alias, u_id, now_iso))
+    clean_nombre = str(nombre).strip()
+    cursor.execute("SELECT * FROM proveedores WHERE nombre = ? COLLATE NOCASE", (clean_nombre,))
+    existing = cursor.fetchone()
+    
+    if not existing:
+        cursor.execute('''
+            INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, alias, uuid, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        ''', (clean_nombre, cuit, categoria or 'General', kw_str, det_str, alias, u_id, now_iso))
+    else:
+        current_cuit = existing['cuit'] or ''
+        current_kw = existing['keywords'] or '[]'
+        current_det = existing['detalles'] or '{}'
+        current_cat = existing['categoria'] or 'General'
+        current_alias = existing['alias'] or ''
+        current_subcat = existing['subcategoria'] or ''
+        
+        new_cuit = cuit if cuit else current_cuit
+        new_kw = kw_str if kw_str != '[]' else current_kw
+        new_det = det_str if det_str != '{}' else current_det
+        
+        # Preservar siempre categoria personalizada si ya existe
+        if current_cat and current_cat != 'General':
+            new_cat = current_cat
+        elif categoria and categoria != 'General':
+            new_cat = categoria
+        else:
+            new_cat = current_cat
+            
+        new_alias = alias if alias else current_alias
+        
+        # Detectar si hay cambios técnicos reales
+        has_changes = (
+            new_cuit != current_cuit or 
+            new_kw != current_kw or 
+            new_det != current_det or 
+            (categoria and categoria != 'General' and new_cat != current_cat) or 
+            (alias and new_alias != current_alias)
+        )
+        
+        if has_changes:
+            cursor.execute('''
+                UPDATE proveedores
+                SET cuit = ?, categoria = ?, keywords = ?, detalles = ?, alias = ?, uuid = ?, updated_at = ?, sync_status = 0
+                WHERE id = ?
+            ''', (new_cuit, new_cat, new_kw, new_det, new_alias, u_id, now_iso, existing['id']))
+        else:
+            if existing['uuid'] != u_id:
+                cursor.execute("UPDATE proveedores SET uuid = ? WHERE id = ?", (u_id, existing['id']))
+                
     conn.commit()
     conn.close()
 
