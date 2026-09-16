@@ -3,6 +3,8 @@ import os
 import time
 import threading
 import importlib
+import re
+import json
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
 from werkzeug.utils import secure_filename
@@ -1318,11 +1320,63 @@ def api_cuentas_por_pagar():
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE estado = 'Pagado'")
         tot_pag = cursor.fetchone()[0] or 0
         
+    # Cruzar montos de facturas con arca_compras_csv si vienen con 0 o None
+    for r in rows:
+        if not r['monto_total'] or r['monto_total'] == 0:
+            match = re.search(r'(\d+)\s*-\s*(\d+)', str(r['factura_numero']))
+            if match:
+                pv = int(match.group(1))
+                nro = int(match.group(2))
+                cursor.execute("""
+                    SELECT imp_total, fecha_emision, denominacion_emisor 
+                    FROM arca_compras_csv 
+                    WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
+                    ORDER BY id DESC LIMIT 1
+                """, (pv, nro))
+                arca_r = cursor.fetchone()
+                if arca_r:
+                    monto = float(arca_r['imp_total'] or 0)
+                    fecha = arca_r['fecha_emision'] or r['fecha']
+                    r['monto_total'] = monto
+                    r['fecha'] = fecha
+                    cursor.execute("UPDATE proveedores_cuentas_pagar SET monto_total = ?, fecha = ? WHERE id = ?", (monto, fecha, r['id']))
+    conn.commit()
+
+    # Agrupar por Proveedor para mostrar Totales Acumulados y Desglose
+    prov_map = {}
+    for r in rows:
+        p_name = r['proveedor_nombre'] or "Desconocido"
+        if p_name not in prov_map:
+            prov_map[p_name] = {
+                "proveedor_nombre": p_name,
+                "total_acumulado": 0.0,
+                "total_pendiente": 0.0,
+                "cantidad_facturas": 0,
+                "fecha": r['fecha'],
+                "categoria_pago": r.get('categoria_pago', ''),
+                "estado": "Pagado",
+                "facturas": []
+            }
+        monto_val = float(r.get('monto_total') or 0.0)
+        prov_map[p_name]["total_acumulado"] += monto_val
+        if r['estado'] != 'Pagado':
+            prov_map[p_name]["total_pendiente"] += monto_val
+            prov_map[p_name]["estado"] = "Pendiente"
+        prov_map[p_name]["cantidad_facturas"] += 1
+        prov_map[p_name]["facturas"].append(r)
+        if r.get('categoria_pago'):
+            prov_map[p_name]["categoria_pago"] = r['categoria_pago']
+        if r.get('fecha') and str(r['fecha']) > str(prov_map[p_name]["fecha"]):
+            prov_map[p_name]["fecha"] = r['fecha']
+
+    proveedores_list = list(prov_map.values())
+    proveedores_list.sort(key=lambda x: x['total_acumulado'], reverse=True)
+
     pendiente = tot_fact - tot_pag
-    
     conn.close()
     return jsonify({
         "cuentas": rows,
+        "proveedores": proveedores_list,
         "resumen": {
             "total_facturado": tot_fact,
             "total_pagado": tot_pag,

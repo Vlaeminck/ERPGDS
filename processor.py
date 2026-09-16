@@ -252,14 +252,15 @@ def extract_cuits_from_text(text):
 
 def load_arca_csvs():
     """
-    Lee todos los archivos CSV en la carpeta CSV ARCA y construye un índice por CAE y por CUIT.
+    Lee todos los archivos CSV en la carpeta CSV ARCA y construye un índice por CAE, por CUIT y por número de factura (PV-NUM).
     """
     cae_index = {}
     arca_cuit_index = {}
+    arca_invoice_index = {}
     from config import BASE_DIR
     csv_folder = os.path.join(BASE_DIR, "CSV ARCA")
     if not os.path.exists(csv_folder):
-        return cae_index, arca_cuit_index
+        return cae_index, arca_cuit_index, arca_invoice_index
 
     import csv
     import io
@@ -317,21 +318,32 @@ def load_arca_csvs():
                 total = row[total_idx].strip().replace('"', '')
                 date_val = row[date_idx].strip().replace('"', '') if len(row) > date_idx else None
 
+                info_dict = {
+                    "cuit": cuit,
+                    "name": name,
+                    "pv": pv,
+                    "num": num,
+                    "total": total,
+                    "date": date_val,
+                    "cae": cae
+                }
+
                 if cae:
-                    cae_index[cae] = {
-                        "cuit": cuit,
-                        "name": name,
-                        "pv": pv,
-                        "num": num,
-                        "total": total,
-                        "date": date_val
-                    }
+                    if cae not in cae_index:
+                        cae_index[cae] = []
+                    cae_index[cae].append(info_dict)
                 if cuit and name:
                     arca_cuit_index[cuit] = name
+                if pv and num:
+                    try:
+                        inv_key = f"{int(pv)}-{int(num)}"
+                        arca_invoice_index[inv_key] = info_dict
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"Error procesando CSV {os.path.basename(file_path)}: {e}", flush=True)
 
-    return cae_index, arca_cuit_index
+    return cae_index, arca_cuit_index, arca_invoice_index
 
 def normalize_string(s):
     """Normaliza un texto para comparaciones de keywords robustas."""
@@ -419,7 +431,7 @@ def build_cuit_to_supplier_map():
 
 # Índices globales construidos una sola vez
 _CUIT_INDEX = build_cuit_to_supplier_map()
-_CAE_INDEX, _ARCA_CUIT_INDEX = load_arca_csvs()
+_CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX = load_arca_csvs()
 
 def find_supplier(text):
     """
@@ -432,16 +444,30 @@ def find_supplier(text):
     # Normalizar el texto completo de la factura para matching de keywords
     normalized_text = normalize_string(text)
 
-    # --- Tier 1: matching por CAE ---
-    # Un CAE es un número de 14 dígitos en las facturas electrónicas argentinas
+    # --- Tier 1: matching por CAE / CAEA ---
+    # Un CAE/CAEA es un número de 14 dígitos en las facturas electrónicas argentinas
     caes_in_text = re.findall(r'\b\d{14}\b', text)
     for cae in caes_in_text:
         if cae in _CAE_INDEX:
-            csv_info = _CAE_INDEX[cae]
+            invoices_for_cae = _CAE_INDEX[cae]
+            csv_info = None
+            if len(invoices_for_cae) == 1:
+                csv_info = invoices_for_cae[0]
+            else:
+                # Es un CAEA quincenal con múltiples facturas
+                # Buscar si el número de comprobante coincide con alguna factura específica
+                for inv in invoices_for_cae:
+                    num_str = str(inv.get('num', ''))
+                    if num_str and (num_str in text or f"{int(inv['pv']):04d}-{int(inv['num']):08d}" in text or f"{int(inv['pv']):05d}-{int(inv['num']):08d}" in text):
+                        csv_info = inv
+                        break
+                if not csv_info:
+                    csv_info = invoices_for_cae[0]
+
             cuit = csv_info["cuit"]
             if cuit in _CUIT_INDEX:
                 supplier = _CUIT_INDEX[cuit]
-                print(f"  [OK] Proveedor identificado por CAE {cae} de ARCA: {supplier}", flush=True)
+                print(f"  [OK] Proveedor identificado por CAE/CAEA {cae} de ARCA: {supplier}", flush=True)
                 return supplier, "CAE", csv_info
 
     # --- Tier 2: matching por CUIT ---
@@ -631,22 +657,36 @@ def process_invoice(file_path):
     invoice_number = None
 
     if supplier_found:
-        data = config.SUPPLIERS[supplier_found]
-        # Si se identificó por CAE, reconstruimos el número de factura de forma exacta desde ARCA CSV
-        if match_method == "CAE" and csv_info:
+        data = config.SUPPLIERS.get(supplier_found, {})
+        # 1. Priorizar número de factura extraído directamente del texto del documento
+        match = re.search(data.get("invoice_regex", r"(\d{4,5}\s*-\s*\d{8})"), text)
+        if match:
+            doc_inv_num = match.group(1).replace(" ", "")
+            m_parts = re.search(r'(\d+)\s*-\s*(\d+)', doc_inv_num)
+            if m_parts:
+                pv_i = int(m_parts.group(1))
+                num_i = int(m_parts.group(2))
+                inv_key = f"{pv_i}-{num_i}"
+                if inv_key in _ARCA_INVOICE_INDEX:
+                    csv_info = _ARCA_INVOICE_INDEX[inv_key]
+                    pv_len = len(str(csv_info.get('pv', '4')))
+                    pv_fmt = f"{pv_i:05d}" if pv_len == 5 else f"{pv_i:04d}"
+                    invoice_number = f"{pv_fmt}-{num_i:08d}"
+                    print(f"  [OK] Numero de comprobante {invoice_number} validado con ARCA CSV", flush=True)
+                else:
+                    invoice_number = doc_inv_num
+            else:
+                invoice_number = doc_inv_num
+        elif match_method == "CAE" and csv_info:
             try:
                 pv_val = int(csv_info['pv'])
                 num_val = int(csv_info['num'])
-                pv_len = len(csv_info['pv'])
+                pv_len = len(str(csv_info.get('pv', '4')))
                 pv_fmt = f"{pv_val:05d}" if pv_len == 5 else f"{pv_val:04d}"
                 invoice_number = f"{pv_fmt}-{num_val:08d}"
             except Exception:
                 invoice_number = f"{csv_info['pv']}-{csv_info['num']}"
             print(f"  [OK] Numero de factura obtenido de ARCA CSV: {invoice_number}", flush=True)
-        else:
-            match = re.search(data["invoice_regex"], text)
-            if match:
-                invoice_number = match.group(1).replace(" ", "")
 
     if supplier_found:
         # Extraer la fecha de la factura para determinar el destino
@@ -1213,27 +1253,36 @@ def extract_data_via_ai(file_path):
         
         prompt = f"""
         Eres un asistente experto en analizar documentos comerciales y facturas de Argentina. La fecha actual es {today_str} (Año actual: {current_year}).
-        Extrae la siguiente información de la imagen y devuelve ÚNICAMENTE un objeto JSON válido con este formato exacto:
+        Analiza detenidamente la imagen y extrae la información contable. Devuelve ÚNICAMENTE un objeto JSON válido con este formato exacto:
         {{
-            "es_documento_no_fiscal": true/false (coloca true si el documento es un remito, presupuesto, cotización, nota de pedido, orden de compra/trabajo/servicio, proforma, uso interno, sin valor comercial, o incluye leyendas como 'documento no valido como factura'),
-            "cuit": "el CUIT del emisor (11 digitos sin guiones)",
+            "es_documento_no_fiscal": false,
+            "cuit": "el CUIT del EMISOR/VENDEDOR que emite la factura (11 digitos sin guiones)",
             "nombre_emisor": "el nombre o razón social del emisor",
-            "numero_factura": "el número COMPLETO de la factura, incluyendo SIEMPRE el Punto de Venta (4 o 5 dígitos) y el Número de Comprobante (8 dígitos), unidos por un guion. Ejemplo: 00002-00001536",
+            "numero_factura": "el número COMPLETO de la factura, incluyendo el Punto de Venta (4 o 5 dígitos) y el Número de Comprobante (8 dígitos), unidos por un guion. Ejemplo: 0611-00307609",
             "fecha_emision": "la fecha de emisión en formato YYYY-MM-DD",
+            "cae_o_caea": "el código de autorización de 14 dígitos CAE o CAEA si figura en el comprobante",
+            "monto_total": "el importe total final a pagar en número flotante o null",
             "keywords_optimizadas": ["palabra1", "palabra2", "palabra3", "palabra4", "palabra5"]
         }}
         Si no encuentras alguno de los datos, coloca null en su valor sin comillas.
 
-        REGLA DE FECHA DE EMISIÓN:
-        - La fecha de emisión NUNCA puede ser posterior a la fecha actual ({today_str}) ni pertenecer a un año futuro (mayor a {current_year}).
-        - Si en la imagen se observa un año irrazonable o lejano en el pasado (menor a {min_year}, por ejemplo años como 2002, 2005, etc.) o en el futuro (como 2028), evalúa si se trata de un error de lectura/OCR (ej. un 6 o 5 leído como 8 o 2) y extrae la fecha correcta correspondiente a la factura real. Si no es posible determinar una fecha válida, coloca null.
-        - Las facturas emitidas en los últimos años (desde {min_year} hasta {current_year}) son totalmente válidas.
+        REGLAS CRÍTICAS PARA FACTURAS DE ARGENTINA:
+        1. EMISOR vs CLIENTE:
+           - El CUIT y nombre a extraer DEBE SER SIEMPRE EL DEL EMISOR/PROVEEDOR (quien vende y emite el documento, ubicado en el encabezado superior).
+           - NUNCA uses el CUIT ni nombre del cliente/comprador (como Gastro Market SRL o CUIT 30-714817767).
+        2. FECHA DE EMISIÓN:
+           - En Argentina las fechas se escriben SIEMPRE como DIA.MES.AÑO (DD.MM.YYYY o DD/MM/YYYY).
+           - Ejemplo: '03.09.2026' representa el 3 de SEPTIEMBRE de 2026 -> DEBES DEVOLVER '2026-09-03' (NUNCA 2026-03-09).
+           - La fecha de emisión NUNCA puede ser posterior a hoy ({today_str}) ni pertenecer a un año futuro (mayor a {current_year}).
+        3. COMPROBANTE FISCAL VÁLIDO:
+           - Si el documento indica "FACTURA A", "FACTURA B", "FACTURA C", "FACTURA M", "LIQUIDACIÓN", o contiene "C.A.E." / "C.A.E.A." o "IVA Responsable Inscripto", ES UN COMPROBANTE FISCAL VÁLIDO -> "es_documento_no_fiscal" DEBE SER false.
+           - Solo coloca true si es explícitamente un remito de entrega, presupuesto, orden de compra o comprobante sin valor fiscal.
+        4. NÚMERO DE FACTURA:
+           - Extrae el Punto de Venta exacto (ej. 0611 o 0002) y el Número correlativo (ej. 00307609).
 
         KEYWORDS OPTIMIZADAS:
-        - Extrae ENTRE 3 y 6 PALABRAS CLAVE que sean ÚNICAS y EXCLUSIVAS de este proveedor emisor.
-        - Incluye nombres comerciales, siglas, marcas distintivas, la razón social sin sufijos genéricos, direcciones web o nombres de fantasía.
-        - Evita palabras genéricas ("factura", "SA", "SRL", "CUIT", "fecha", "total", "IVA", "original", "comprobante").
-        NO devuelvas explicaciones, marcadores markdown (```json) ni texto adicional, SOLAMENTE el diccionario JSON en texto plano.
+        - Extrae ENTRE 3 y 6 PALABRAS CLAVE distintivas del proveedor emisor (nombres comerciales, marcas, dominios web).
+        NO devuelvas explicaciones, texto extra ni bloques markdown, ÚNICAMENTE el JSON en texto plano.
         """
         contents.append(prompt)
         
@@ -1245,8 +1294,53 @@ def extract_data_via_ai(file_path):
         
         if isinstance(data, dict):
             raw_str = json.dumps(data).lower()
-            if any(re.search(pat, raw_str) for pat in [r'\biva\s+responsable\s+inscripto\b', r'\bresponsable\s+inscripto\b', r'\bresp\.?\s*inscripto\b']):
+            if any(re.search(pat, raw_str) for pat in [r'\biva\s+responsable\s+inscripto\b', r'\bresponsable\s+inscripto\b', r'\bresp\.?\s*inscripto\b', r'\bcaea?\b', r'\bfactura\b']):
                 data['es_documento_no_fiscal'] = False
+                
+            # Si Gemini detectó el CUIT propio o del receptor, intentar corregir con ARCA o CAE
+            from config import MY_CUIT
+            my_cuit_digits = re.sub(r'\D', '', MY_CUIT) if MY_CUIT else ""
+            cuit_extracted = re.sub(r'\D', '', str(data.get('cuit') or ''))
+            cae_extracted = re.sub(r'\D', '', str(data.get('cae_o_caea') or ''))
+            
+            if cae_extracted and cae_extracted in _CAE_INDEX:
+                arca_data = _CAE_INDEX[cae_extracted]
+                data['cuit'] = arca_data.get('cuit')
+                data['nombre_emisor'] = arca_data.get('name') or data.get('nombre_emisor')
+                try:
+                    pv_i = int(arca_data['pv'])
+                    num_i = int(arca_data['num'])
+                    data['numero_factura'] = f"{pv_i:04d}-{num_i:08d}"
+                except Exception:
+                    pass
+                if arca_data.get('date'):
+                    data['fecha_emision'] = arca_data['date']
+                if arca_data.get('total'):
+                    try:
+                        data['monto_total'] = float(str(arca_data['total']).replace(',', '.'))
+                    except Exception:
+                        pass
+            elif data.get('numero_factura'):
+                inv_match = re.search(r'(\d+)\s*-\s*(\d+)', str(data['numero_factura']))
+                if inv_match:
+                    try:
+                        inv_key = f"{int(inv_match.group(1))}-{int(inv_match.group(2))}"
+                        if inv_key in _ARCA_INVOICE_INDEX:
+                            arca_data = _ARCA_INVOICE_INDEX[inv_key]
+                            data['cuit'] = arca_data.get('cuit')
+                            data['nombre_emisor'] = arca_data.get('name') or data.get('nombre_emisor')
+                            pv_i = int(arca_data['pv'])
+                            num_i = int(arca_data['num'])
+                            data['numero_factura'] = f"{pv_i:04d}-{num_i:08d}"
+                            if arca_data.get('date'):
+                                data['fecha_emision'] = arca_data['date']
+                            if arca_data.get('total'):
+                                data['monto_total'] = float(str(arca_data['total']).replace(',', '.'))
+                    except Exception:
+                        pass
+            elif cuit_extracted and cuit_extracted == my_cuit_digits:
+                # El CUIT extraído fue el del cliente receptor, intentar buscar CUIT alternativo
+                pass
         
         return data
             
