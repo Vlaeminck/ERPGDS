@@ -67,11 +67,13 @@ ALLOWED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"]
 
 # CUIT propio para ignorar en logs de OCR (Receptor)
 MY_CUIT_FILE = os.path.join(BASE_DIR, 'my_cuit.txt')
-MY_CUIT = ""
+MY_CUIT = "30714817767"
 if os.path.exists(MY_CUIT_FILE):
     try:
         with open(MY_CUIT_FILE, 'r', encoding='utf-8') as f:
-            MY_CUIT = f.read().strip()
+            cuit_val = f.read().strip()
+            if cuit_val:
+                MY_CUIT = cuit_val
     except Exception:
         pass
 

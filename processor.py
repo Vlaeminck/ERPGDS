@@ -252,15 +252,16 @@ def extract_cuits_from_text(text):
 
 def load_arca_csvs():
     """
-    Lee todos los archivos CSV en la carpeta CSV ARCA y construye un índice por CAE, por CUIT y por número de factura (PV-NUM).
+    Lee todos los archivos CSV en la carpeta CSV ARCA y construye un índice por CAE, por CUIT, por número de factura (PV-NUM) y lista de comprobantes por CUIT.
     """
     cae_index = {}
     arca_cuit_index = {}
     arca_invoice_index = {}
+    arca_cuit_invoices = {}
     from config import BASE_DIR
     csv_folder = os.path.join(BASE_DIR, "CSV ARCA")
     if not os.path.exists(csv_folder):
-        return cae_index, arca_cuit_index, arca_invoice_index
+        return cae_index, arca_cuit_index, arca_invoice_index, arca_cuit_invoices
 
     import csv
     import io
@@ -334,6 +335,10 @@ def load_arca_csvs():
                     cae_index[cae].append(info_dict)
                 if cuit and name:
                     arca_cuit_index[cuit] = name
+                if cuit:
+                    if cuit not in arca_cuit_invoices:
+                        arca_cuit_invoices[cuit] = []
+                    arca_cuit_invoices[cuit].append(info_dict)
                 if pv and num:
                     try:
                         inv_key = f"{int(pv)}-{int(num)}"
@@ -343,7 +348,7 @@ def load_arca_csvs():
         except Exception as e:
             print(f"Error procesando CSV {os.path.basename(file_path)}: {e}", flush=True)
 
-    return cae_index, arca_cuit_index, arca_invoice_index
+    return cae_index, arca_cuit_index, arca_invoice_index, arca_cuit_invoices
 
 def normalize_string(s):
     """Normaliza un texto para comparaciones de keywords robustas."""
@@ -431,7 +436,7 @@ def build_cuit_to_supplier_map():
 
 # Índices globales construidos una sola vez
 _CUIT_INDEX = build_cuit_to_supplier_map()
-_CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX = load_arca_csvs()
+_CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX, _ARCA_CUIT_INVOICES = load_arca_csvs()
 
 def find_supplier(text):
     """
@@ -580,6 +585,133 @@ def extract_date_from_text(text):
                 
     return None
 
+def extract_invoice_number_from_text(text, supplier_found=None, csv_info=None):
+    """
+    Extrae de forma robusta el número de factura/comprobante a partir del texto del documento,
+    soportando puntos de venta de 4 o 5 dígitos, separadores por espacio o guion, y validando
+    cruzadamente con los comprobantes de ARCA si están disponibles.
+    Devuelve (invoice_number_str, updated_csv_info).
+    """
+    # 1. Si ya tenemos csv_info (por CAE), formatear directamente respetando padding
+    if csv_info and csv_info.get('pv') and csv_info.get('num'):
+        try:
+            pv_i = int(csv_info['pv'])
+            num_i = int(csv_info['num'])
+            pv_len = len(str(csv_info.get('pv', '4')).strip())
+            pv_fmt = f"{pv_i:05d}" if pv_len == 5 or pv_i > 9999 else f"{pv_i:04d}"
+            return f"{pv_fmt}-{num_i:08d}", csv_info
+        except Exception:
+            pass
+
+    data = config.SUPPLIERS.get(supplier_found, {}) if supplier_found else {}
+    custom_regex = data.get("invoice_regex")
+
+    # 2. FASE CONTEXTUAL: Buscar números precedidos por encabezados fiscales o sistemas SAP/B2B
+    contextual_patterns = [
+        # Prefijos ERP/SAP comunes: ZFVA FACTURA A N* 06744 00001702, ZB2B FACTURA A N*06744 00001503
+        r'(?:(?:\b(?:zfva|zb2b)\s+)?(?:factura|tique\s+factura|fact|tique|comprobante|recibo|nota\s+de\s+d[eé]bito|nota\s+de\s+cr[eé]dito)\s*[abcm]?\s*(?:n[°*ºo\.]*|nro\.?|n[uú]mero)?\s*[:\s]*(\d{4,5})[\s-]+(\d{8}))',
+        # Encabezado genérico N° / Nro / Número:
+        r'\b(?:n[°*ºo]|nro\.?|n[uú]mero)\s*[:\s]*(\d{4,5})[\s-]+(\d{8})\b',
+        # Punto de venta y comprobante rotulados por separado:
+        r'(?:punto\s+de\s+venta|pto\.?\s*vta\.?)\s*[:\s]*(\d{1,5})\s*(?:comp\.?\s*nro\.?|comprobante|nro\.?|n[uú]mero)?\s*[:\s]*(\d{1,8})'
+    ]
+
+    for pat in contextual_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            pv_str, num_str = m.group(1), m.group(2)
+            try:
+                pv_i = int(pv_str)
+                num_i = int(num_str)
+                inv_key = f"{pv_i}-{num_i}"
+                if inv_key in _ARCA_INVOICE_INDEX:
+                    arca_info = _ARCA_INVOICE_INDEX[inv_key]
+                    pv_len = len(str(arca_info.get('pv', '4')).strip())
+                    pv_fmt = f"{pv_i:05d}" if (len(pv_str) == 5 or pv_len == 5 or pv_i > 9999) else f"{pv_i:04d}"
+                    print(f"  [OK] Numero contextual {pv_fmt}-{num_i:08d} validado con ARCA CSV", flush=True)
+                    return f"{pv_fmt}-{num_i:08d}", arca_info
+                
+                pv_fmt = f"{pv_i:05d}" if len(pv_str) == 5 or pv_i > 9999 else f"{pv_i:04d}"
+                return f"{pv_fmt}-{num_i:08d}", csv_info
+            except Exception:
+                pass
+
+    # 3. FASE REGEX ESPECÍFICO DEL PROVEEDOR (si está configurado en suppliers.json)
+    if custom_regex:
+        m_custom = re.search(custom_regex, text, re.IGNORECASE)
+        if m_custom:
+            groups = [g for g in m_custom.groups() if g is not None]
+            if len(groups) >= 2:
+                pv_str, num_str = groups[0], groups[1]
+                try:
+                    pv_i, num_i = int(pv_str), int(num_str)
+                    inv_key = f"{pv_i}-{num_i}"
+                    if inv_key in _ARCA_INVOICE_INDEX:
+                        arca_info = _ARCA_INVOICE_INDEX[inv_key]
+                        pv_len = len(str(arca_info.get('pv', '4')).strip())
+                        pv_fmt = f"{pv_i:05d}" if (len(pv_str) == 5 or pv_len == 5 or pv_i > 9999) else f"{pv_i:04d}"
+                        return f"{pv_fmt}-{num_i:08d}", arca_info
+                    pv_fmt = f"{pv_i:05d}" if len(pv_str) == 5 or pv_i > 9999 else f"{pv_i:04d}"
+                    return f"{pv_fmt}-{num_i:08d}", csv_info
+                except Exception:
+                    pass
+            elif len(groups) == 1:
+                m_sub = re.search(r'(\d{4,5})[\s-]+(\d{8})', groups[0])
+                if m_sub:
+                    pv_str, num_str = m_sub.group(1), m_sub.group(2)
+                    pv_i, num_i = int(pv_str), int(num_str)
+                    inv_key = f"{pv_i}-{num_i}"
+                    if inv_key in _ARCA_INVOICE_INDEX:
+                        arca_info = _ARCA_INVOICE_INDEX[inv_key]
+                        pv_len = len(str(arca_info.get('pv', '4')).strip())
+                        pv_fmt = f"{pv_i:05d}" if (len(pv_str) == 5 or pv_len == 5 or pv_i > 9999) else f"{pv_i:04d}"
+                        return f"{pv_fmt}-{num_i:08d}", arca_info
+                    pv_fmt = f"{pv_i:05d}" if len(pv_str) == 5 or pv_i > 9999 else f"{pv_i:04d}"
+                    return f"{pv_fmt}-{num_i:08d}", csv_info
+
+    # 4. FASE CRUCE DIRECTO CON ARCA PARA EL PROVEEDOR
+    if supplier_found and _ARCA_CUIT_INVOICES:
+        sup_cuits = []
+        for kw in data.get("keywords", []):
+            d = re.sub(r'\D', '', kw)
+            if len(d) == 11:
+                sup_cuits.append(d)
+        
+        for c in sup_cuits:
+            invoices_arca = _ARCA_CUIT_INVOICES.get(c, [])
+            for inv in invoices_arca:
+                num_int = int(inv['num'])
+                num_8d = f"{num_int:08d}"
+                # Comprobar si el número de 8 dígitos figura en el texto
+                if num_8d in text:
+                    pv_int = int(inv['pv'])
+                    pv_len = len(str(inv.get('pv', '4')).strip())
+                    # Si en el texto se detecta el PV de 5 dígitos (ej 06744), usar 5 dígitos
+                    pv_5d = f"{pv_int:05d}"
+                    has_5d = pv_5d in text or pv_len == 5 or pv_int > 9999
+                    pv_fmt = pv_5d if has_5d else f"{pv_int:04d}"
+                    print(f"  [OK] Factura {pv_fmt}-{num_8d} identificada por coincidencia cruzada con ARCA CSV", flush=True)
+                    return f"{pv_fmt}-{num_8d}", inv
+
+    # 5. FASE PATRÓN ESTÁNDAR CON DELIMITADOR DE PALABRA ESTRICTO \b
+    candidates = re.findall(r'\b(\d{4,5})[\s-]+(\d{8})\b', text)
+    if candidates:
+        for pv_str, num_str in candidates:
+            pv_i, num_i = int(pv_str), int(num_str)
+            inv_key = f"{pv_i}-{num_i}"
+            if inv_key in _ARCA_INVOICE_INDEX:
+                arca_info = _ARCA_INVOICE_INDEX[inv_key]
+                pv_len = len(str(arca_info.get('pv', '4')).strip())
+                pv_fmt = f"{pv_i:05d}" if (len(pv_str) == 5 or pv_len == 5 or pv_i > 9999) else f"{pv_i:04d}"
+                return f"{pv_fmt}-{num_i:08d}", arca_info
+                
+        pv_str, num_str = candidates[0]
+        pv_i, num_i = int(pv_str), int(num_str)
+        pv_fmt = f"{pv_i:05d}" if len(pv_str) == 5 or pv_i > 9999 else f"{pv_i:04d}"
+        return f"{pv_fmt}-{num_i:08d}", csv_info
+
+    return None, csv_info
+
 def wait_for_file_ready(file_path, timeout=10):
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -658,35 +790,9 @@ def process_invoice(file_path):
 
     if supplier_found:
         data = config.SUPPLIERS.get(supplier_found, {})
-        # 1. Priorizar número de factura extraído directamente del texto del documento
-        match = re.search(data.get("invoice_regex", r"(\d{4,5}\s*-\s*\d{8})"), text)
-        if match:
-            doc_inv_num = match.group(1).replace(" ", "")
-            m_parts = re.search(r'(\d+)\s*-\s*(\d+)', doc_inv_num)
-            if m_parts:
-                pv_i = int(m_parts.group(1))
-                num_i = int(m_parts.group(2))
-                inv_key = f"{pv_i}-{num_i}"
-                if inv_key in _ARCA_INVOICE_INDEX:
-                    csv_info = _ARCA_INVOICE_INDEX[inv_key]
-                    pv_len = len(str(csv_info.get('pv', '4')))
-                    pv_fmt = f"{pv_i:05d}" if pv_len == 5 else f"{pv_i:04d}"
-                    invoice_number = f"{pv_fmt}-{num_i:08d}"
-                    print(f"  [OK] Numero de comprobante {invoice_number} validado con ARCA CSV", flush=True)
-                else:
-                    invoice_number = doc_inv_num
-            else:
-                invoice_number = doc_inv_num
-        elif match_method == "CAE" and csv_info:
-            try:
-                pv_val = int(csv_info['pv'])
-                num_val = int(csv_info['num'])
-                pv_len = len(str(csv_info.get('pv', '4')))
-                pv_fmt = f"{pv_val:05d}" if pv_len == 5 else f"{pv_val:04d}"
-                invoice_number = f"{pv_fmt}-{num_val:08d}"
-            except Exception:
-                invoice_number = f"{csv_info['pv']}-{csv_info['num']}"
-            print(f"  [OK] Numero de factura obtenido de ARCA CSV: {invoice_number}", flush=True)
+        invoice_number, csv_info = extract_invoice_number_from_text(text, supplier_found, csv_info)
+        if invoice_number:
+            print(f"  [OK] Numero de comprobante extraido: {invoice_number}", flush=True)
 
     if supplier_found:
         # Extraer la fecha de la factura para determinar el destino
@@ -1331,7 +1437,9 @@ def extract_data_via_ai(file_path):
                             data['nombre_emisor'] = arca_data.get('name') or data.get('nombre_emisor')
                             pv_i = int(arca_data['pv'])
                             num_i = int(arca_data['num'])
-                            data['numero_factura'] = f"{pv_i:04d}-{num_i:08d}"
+                            pv_len = len(str(arca_data.get('pv', '4')).strip())
+                            pv_fmt = f"{pv_i:05d}" if pv_len == 5 or pv_i > 9999 else f"{pv_i:04d}"
+                            data['numero_factura'] = f"{pv_fmt}-{num_i:08d}"
                             if arca_data.get('date'):
                                 data['fecha_emision'] = arca_data['date']
                             if arca_data.get('total'):
@@ -1440,9 +1548,9 @@ def save_ai_supplier(nombre, cuit, keywords):
 
 
 def reload_config():
-    global _CUIT_INDEX, _CAE_INDEX, _ARCA_CUIT_INDEX
+    global _CUIT_INDEX, _CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX, _ARCA_CUIT_INVOICES
     import config
     import importlib
     importlib.reload(config)
     _CUIT_INDEX = build_cuit_to_supplier_map()
-    _CAE_INDEX, _ARCA_CUIT_INDEX = load_arca_csvs()
+    _CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX, _ARCA_CUIT_INVOICES = load_arca_csvs()
