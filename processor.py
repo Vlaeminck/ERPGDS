@@ -946,20 +946,30 @@ def process_invoice(file_path):
             learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
             invoice_formatted = invoice_number.replace('-', ' - ')
             new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
+            move_to_processed(
+                file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
+                text=text, cuit=ai_data.get('cuit'), cae=ai_data.get('cae'), total=ai_data.get('total', 0)
+            )
             return
 
     if supplier_found:
         # Extraer la fecha de la factura para determinar el destino
         invoice_date = None
-        if match_method == "CAE" and csv_info and csv_info.get("date"):
-            try:
-                parsed_date = datetime.datetime.strptime(csv_info["date"], "%Y-%m-%d").date()
-                invoice_date = validate_invoice_date(parsed_date)
-                if invoice_date:
-                    print(f"  [OK] Fecha obtenida de ARCA CSV: {invoice_date}", flush=True)
-            except Exception:
-                pass
+        cae_hint = None
+        cuit_hint = None
+        total_hint = 0
+        if match_method == "CAE" and csv_info:
+            cae_hint = csv_info.get("cae")
+            cuit_hint = csv_info.get("cuit")
+            total_hint = csv_info.get("total", 0)
+            if csv_info.get("date"):
+                try:
+                    parsed_date = datetime.datetime.strptime(csv_info["date"], "%Y-%m-%d").date()
+                    invoice_date = validate_invoice_date(parsed_date)
+                    if invoice_date:
+                        print(f"  [OK] Fecha obtenida de ARCA CSV: {invoice_date}", flush=True)
+                except Exception:
+                    pass
         
         if not invoice_date:
             invoice_date = extract_date_from_text(text)
@@ -971,7 +981,10 @@ def process_invoice(file_path):
         if invoice_number:
             invoice_formatted = invoice_number.replace('-', ' - ')
             new_filename = f"{invoice_formatted}{ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
+            move_to_processed(
+                file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
+                text=text, cuit=cuit_hint, cae=cae_hint, total=total_hint
+            )
         else:
             print("  [INFO] Falló extracción de número. Intentando rescate con IA...", flush=True)
             ai_data = extract_data_via_ai(file_path)
@@ -983,7 +996,10 @@ def process_invoice(file_path):
                 learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
                 invoice_formatted = invoice_number.replace('-', ' - ')
                 new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-                move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
+                move_to_processed(
+                    file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
+                    text=text, cuit=ai_data.get('cuit'), cae=ai_data.get('cae'), total=ai_data.get('total', 0)
+                )
             else:
                 new_filename = f"{supplier_found}-sin-numero{ext}"
                 regex_used = data.get("invoice_regex", "None")
@@ -1015,7 +1031,10 @@ def process_invoice(file_path):
             learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
             invoice_formatted = invoice_number.replace('-', ' - ')
             new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
+            move_to_processed(
+                file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
+                text=text, cuit=ai_data.get('cuit'), cae=ai_data.get('cae'), total=ai_data.get('total', 0)
+            )
         else:
             diagnosis = diagnose_error(text, file_path)
             log_error_to_file(file_path, "PROVEEDOR NO RECONOCIDO", diagnosis)
@@ -1156,7 +1175,7 @@ def generate_unique_filename(destination_dir, filename):
         counter += 1
     return new_filename
 
-def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invoice_formatted=None, text=""):
+def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invoice_formatted=None, text="", cuit=None, cae=None, total=0):
     if invoice_date is None:
         invoice_date = datetime.date.today()
     year = str(invoice_date.year)
@@ -1181,6 +1200,25 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
         print(f"¡Éxito! Movido a: {dest_path}", flush=True)
         log_scan_time(file_path, dest_path, supplier, new_filename)
         
+        # Resolver CUIT y CAE si no vinieron explícitos
+        if not cuit:
+            if supplier in config.SUPPLIERS and config.SUPPLIERS[supplier].get("cuit"):
+                cuit = config.SUPPLIERS[supplier]["cuit"]
+            elif _CUIT_INDEX:
+                for c_k, s_v in _CUIT_INDEX.items():
+                    if s_v == supplier:
+                        cuit = f"{c_k[:2]}-{c_k[2:10]}-{c_k[10]}"
+                        break
+
+        if not cae and text:
+            m_cae = re.search(r'\b(?:CAE|C\.A\.E\.)[\s:]*(\d{14})\b', text, re.IGNORECASE)
+            if m_cae:
+                cae = m_cae.group(1)
+            else:
+                m_cae2 = re.search(r'\b(\d{14})\b', text)
+                if m_cae2 and 'cae' in text.lower():
+                    cae = m_cae2.group(1)
+
         try:
             import db_manager
             rel_p = os.path.relpath(dest_path, OUTPUT_FOLDER).replace('\\', '/')
@@ -1190,58 +1228,31 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
                 supplier=supplier,
                 filename=unique_filename,
                 filepath=rel_p,
-                fecha=str(invoice_date)
+                fecha=str(invoice_date),
+                cuit=cuit or '',
+                cae=cae or '',
+                total=float(total or 0),
+                arca_match=0
             )
         except Exception as ex_db:
             print(f"Error al registrar factura en BD: {ex_db}")
 
         # Auto-aprendizaje continuo de OCR para este proveedor
         try:
-            learn_from_invoice(supplier, unique_filename, invoice_formatted, text=text)
+            learn_from_invoice(supplier, unique_filename, invoice_formatted, text=text, cuit=cuit)
         except Exception as ex_learn:
             print(f"Aviso en auto-aprendizaje: {ex_learn}")
         
-        # Hook para marcar factura recibida en ARCA Compras CSV
+        # Hook para conciliación automática con ARCA Compras (Stage de Espera bidireccional)
         try:
             import db_manager
-            import datetime as dt_module
-            conn = db_manager.get_connection()
-            cursor = conn.cursor()
-            inv_clean = invoice_formatted.replace(" ", "") if invoice_formatted else ""
-            if inv_clean and '-' in inv_clean:
-                pv, comp = inv_clean.split('-', 1)
-                try:
-                    pv_int = int(pv)
-                    comp_int = int(comp)
-                    fecha_str = invoice_date.strftime('%Y-%m-%d') if invoice_date else ""
-                    now_iso = dt_module.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    cursor.execute("""
-                        UPDATE arca_compras_csv 
-                        SET factura_recibida = 1, updated_at = ?, sync_status = 0 
-                        WHERE CAST(punto_venta AS INTEGER) = ? 
-                          AND (
-                              (nro_comprobante != '' AND CAST(nro_comprobante AS INTEGER) = ?) 
-                              OR 
-                              (nro_comprobante = '' AND fecha_emision = ?)
-                          )
-                          AND (denominacion_emisor LIKE ? OR ? LIKE '%' || denominacion_emisor || '%')
-                    """, (now_iso, pv_int, comp_int, fecha_str, f"%{supplier[:10]}%", supplier))
-                    if cursor.rowcount > 0:
-                        print(f"  [ARCA] Factura {inv_clean} marcada como recibida físicamente en la DB.", flush=True)
-                    conn.commit()
-                    
-                    # Disparar sincronización inmediata a Firebase Cloud Relay
-                    try:
-                        import firebase_sync
-                        firebase_sync.sync_cycle()
-                    except Exception as e_fs:
-                        print(f"  [FirebaseSync] Aviso sincronizando escaneo: {e_fs}", flush=True)
-                except ValueError:
-                    pass
-            conn.close()
+            res_rec = db_manager.reconciliar_facturas_con_arca()
+            if res_rec.get("vinculadas_nuevas", 0) > 0:
+                print(f"  [ARCA] ¡Factura vinculada con éxito con Compras ARCA en la DB!", flush=True)
+            else:
+                print(f"  [ARCA Stage] Factura física colocada en 'Stage de Espera' (se vinculará automáticamente al sincronizar ARCA).", flush=True)
         except Exception as e_db:
-            print(f"Error marcando factura recibida en BD: {e_db}", flush=True)
+            print(f"Error en conciliación ARCA de factura escaneada: {e_db}", flush=True)
 
     except Exception as e:
         print(f"Error moviendo archivo: {e}", flush=True)

@@ -189,10 +189,18 @@ def processed_invoices():
             result = []
             for r in db_invs:
                 result.append({
+                    "id": r.get('id'),
                     "filename": r['filename'],
                     "supplier": r['supplier'],
                     "date": f"{r['month']} {r['year']}",
-                    "path": r['filepath']
+                    "path": r['filepath'],
+                    "cuit": r.get('cuit') or '',
+                    "cae": r.get('cae') or '',
+                    "total": r.get('total') or 0,
+                    "arca_match": bool(r.get('arca_match')),
+                    "arca_id": r.get('arca_id'),
+                    "match_date": r.get('match_date') or '',
+                    "match_metodo": r.get('match_metodo') or ''
                 })
             return jsonify(result)
     except Exception as ex:
@@ -2123,9 +2131,20 @@ def _import_arca_csv_to_db(csv_folder, origen='Refrescar CSV'):
     conn.commit()
     conn.close()
 
+    # Disparar conciliación retroactiva automática con facturas en Stage de Espera
+    vinculadas_rec = 0
+    try:
+        rec_res = db_manager.reconciliar_facturas_con_arca()
+        vinculadas_rec = rec_res.get("vinculadas_nuevas", 0)
+        if vinculadas_rec > 0:
+            print(f"[ARCA-IMPORT] ¡{vinculadas_rec} facturas en Stage de Espera fueron vinculadas automáticamente!", flush=True)
+    except Exception as ex_rec:
+        print(f"[ARCA-IMPORT] Error en conciliación retroactiva: {ex_rec}", flush=True)
+
     return {
         "nuevas_importadas": total_nuevos,
         "retroactivas_nuevas": retroactivas_nuevas,
+        "vinculadas_recibidas": vinculadas_rec,
         "snapshot_id": snapshot["id"]
     }
 
@@ -2288,17 +2307,31 @@ def api_arca_sync_from_csv():
         res = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER, origen='Refrescar CSV')
         n = res.get("nuevas_importadas", 0)
         r_nuevas = res.get("retroactivas_nuevas", 0)
+        v_rec = res.get("vinculadas_recibidas", 0)
         
         msg = f"{n} facturas nuevas importadas desde CSV."
         if r_nuevas > 0:
             msg += f" {r_nuevas} facturas retroactivas detectadas."
+        if v_rec > 0:
+            msg += f" {v_rec} facturas en espera vinculadas automáticamente."
             
         return jsonify({
             "success": True, 
             "importados": n, 
             "retroactivas_nuevas": r_nuevas,
+            "vinculadas_recibidas": v_rec,
             "message": msg
         })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/arca/reconciliar', methods=['POST'])
+def api_arca_reconciliar():
+    """Ejecuta la conciliación bajo demanda entre facturas escaneadas y compras ARCA."""
+    try:
+        res = db_manager.reconciliar_facturas_con_arca()
+        return jsonify({"success": True, "resultado": res})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 

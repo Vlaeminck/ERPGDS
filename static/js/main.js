@@ -892,6 +892,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRefreshProcessed = document.getElementById('btn-refresh-processed');
     const noProcessedMsg = document.getElementById('no-processed-msg');
     const processedCount = document.getElementById('processed-count');
+    const filterProcessedArca = document.getElementById('filter-processed-arca');
+    const valProcessedVinculadas = document.getElementById('val-processed-vinculadas');
+    const valProcessedEspera = document.getElementById('val-processed-espera');
+    const btnReconciliarArca = document.getElementById('btn-reconciliar-arca');
 
     let allProcessedInvoices = [];
 
@@ -899,11 +903,35 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/processed_invoices');
             allProcessedInvoices = await res.json();
-            renderProcessedTree(allProcessedInvoices);
+            filterAndRenderProcessed();
         } catch (error) {
             console.error("Error fetching processed invoices:", error);
             showToast("Error al cargar facturas procesadas", "error");
         }
+    }
+
+    function filterAndRenderProcessed() {
+        const query = searchProcessedInput ? searchProcessedInput.value.trim().toLowerCase() : '';
+        const arcaFilter = filterProcessedArca ? filterProcessedArca.value : 'all';
+
+        const totalVinculadas = allProcessedInvoices.filter(i => i.arca_match).length;
+        const totalEspera = allProcessedInvoices.length - totalVinculadas;
+        if (valProcessedVinculadas) valProcessedVinculadas.textContent = totalVinculadas;
+        if (valProcessedEspera) valProcessedEspera.textContent = totalEspera;
+
+        let filtered = allProcessedInvoices.filter(inv => {
+            const matchesQuery = !query ||
+                (inv.filename && inv.filename.toLowerCase().includes(query)) ||
+                (inv.supplier && inv.supplier.toLowerCase().includes(query)) ||
+                (inv.date && inv.date.toLowerCase().includes(query));
+            if (!matchesQuery) return false;
+
+            if (arcaFilter === 'vinculadas') return !!inv.arca_match;
+            if (arcaFilter === 'espera') return !inv.arca_match;
+            return true;
+        });
+
+        renderProcessedTree(filtered);
     }
 
     function renderProcessedTree(invoicesList) {
@@ -957,7 +985,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const rootDiv = document.createElement('div');
-        const hasSearch = searchProcessedInput.value.trim().length > 0;
 
         Object.keys(tree).sort().reverse().forEach(year => {
             const yearContent = document.createElement('div');
@@ -968,7 +995,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     tree[year][month][supplier].forEach(inv => {
                         const fileDiv = document.createElement('div');
                         fileDiv.className = 'tree-file';
-                        fileDiv.innerHTML = `<i class="fa-solid fa-file-pdf"></i> <span>${inv.filename}</span>`;
+                        fileDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; cursor: pointer; padding: 4px 8px; border-radius: 6px;';
+
+                        const arcaBadge = inv.arca_match
+                            ? `<span class="badge" style="background: rgba(16,185,129,0.12); color: #047857; border: 1px solid rgba(16,185,129,0.28); font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700; flex-shrink: 0;" title="Vinculada con ARCA (${escapeHtml(inv.match_metodo || 'Auto')})"><i class="fa-solid fa-circle-check"></i> ARCA</span>`
+                            : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #b45309; border: 1px solid rgba(245,158,11,0.35); font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700; flex-shrink: 0;" title="En Stage de Espera: Escaneada previamente a la sincronización de ARCA"><i class="fa-solid fa-clock"></i> En espera ARCA</span>`;
+
+                        fileDiv.innerHTML = `
+                            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <i class="fa-solid fa-file-pdf" style="color: #ef4444; flex-shrink: 0;"></i> 
+                                <span style="overflow: hidden; text-overflow: ellipsis;">${escapeHtml(inv.filename)}</span>
+                            </div>
+                            ${arcaBadge}
+                        `;
                         fileDiv.addEventListener('click', () => openModal(inv));
                         supplierContent.appendChild(fileDiv);
                     });
@@ -982,21 +1021,52 @@ document.addEventListener('DOMContentLoaded', () => {
         processedTreeContainer.appendChild(rootDiv);
     }
 
-    searchProcessedInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
-        const filtered = allProcessedInvoices.filter(inv => {
-            return inv.filename.toLowerCase().includes(query) ||
-                inv.supplier.toLowerCase().includes(query) ||
-                inv.date.toLowerCase().includes(query);
-        });
-        renderProcessedTree(filtered);
-    });
+    if (searchProcessedInput) {
+        searchProcessedInput.addEventListener('input', () => filterAndRenderProcessed());
+    }
 
-    btnRefreshProcessed.addEventListener('click', () => {
-        searchProcessedInput.value = '';
-        fetchProcessedInvoices();
-        showToast("Historial actualizado");
-    });
+    if (filterProcessedArca) {
+        filterProcessedArca.addEventListener('change', () => filterAndRenderProcessed());
+    }
+
+    if (btnRefreshProcessed) {
+        btnRefreshProcessed.addEventListener('click', () => {
+            if (searchProcessedInput) searchProcessedInput.value = '';
+            if (filterProcessedArca) filterProcessedArca.value = 'all';
+            fetchProcessedInvoices();
+            showToast("Historial actualizado");
+        });
+    }
+
+    if (btnReconciliarArca) {
+        btnReconciliarArca.addEventListener('click', async () => {
+            btnReconciliarArca.disabled = true;
+            const originalHtml = btnReconciliarArca.innerHTML;
+            btnReconciliarArca.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Conciliando...`;
+            try {
+                const res = await fetch('/api/arca/reconciliar', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    const nuev = data.resultado.vinculadas_nuevas || 0;
+                    if (nuev > 0) {
+                        showToast(`¡Conciliación exitosa! ${nuev} facturas vinculadas con ARCA`, 'success');
+                    } else {
+                        showToast("Conciliación al día. No hay nuevas coincidencias.", 'info');
+                    }
+                    await fetchProcessedInvoices();
+                    if (typeof fetchArcaComprasLocal === 'function') fetchArcaComprasLocal();
+                } else {
+                    showToast(`Error al conciliar: ${data.message || 'Error desconocido'}`, 'error');
+                }
+            } catch (err) {
+                console.error("Error conciliando:", err);
+                showToast("Error de conexión al conciliar con ARCA", "error");
+            } finally {
+                btnReconciliarArca.disabled = false;
+                btnReconciliarArca.innerHTML = originalHtml;
+            }
+        });
+    }
 
     // --- Remitos y Documentos No Fiscales ---
     const remitosTreeContainer = document.getElementById('remitos-tree-container');
@@ -1208,12 +1278,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const modal = document.getElementById('file-modal');
     const modalTitle = document.getElementById('modal-title');
     const modalIframe = document.getElementById('modal-iframe');
+    const modalArcaBanner = document.getElementById('modal-arca-banner');
     const closeModalBtn = document.querySelector('.close-modal');
 
     function openModal(inv, baseUrl = '/api/file/') {
         modalTitle.textContent = inv.supplier ? `${inv.supplier} - ${inv.filename}` : inv.filename;
         const encodedPath = inv.path.split('/').map(encodeURIComponent).join('/');
         modalIframe.src = `${baseUrl}${encodedPath}`;
+
+        if (modalArcaBanner) {
+            if (inv.arca_match !== undefined) {
+                modalArcaBanner.style.display = 'block';
+                if (inv.arca_match) {
+                    modalArcaBanner.innerHTML = `
+                        <div style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #047857; padding: 0.5rem 0.85rem; border-radius: 8px; font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                            <div>
+                                <strong><i class="fa-solid fa-circle-check"></i> Vinculada con Compras ARCA</strong>
+                                <span style="opacity: 0.85; margin-left: 8px;">(Método: ${escapeHtml(inv.match_metodo || 'Auto')})</span>
+                            </div>
+                            <div style="font-size: 0.78rem;">
+                                ${inv.cae ? `<span>CAE: <strong>${escapeHtml(inv.cae)}</strong></span> ` : ''}
+                                ${inv.cuit ? `<span>CUIT: <strong>${escapeHtml(inv.cuit)}</strong></span> ` : ''}
+                                ${inv.total ? `<span>Total: <strong>${formatCurrency(inv.total)}</strong></span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    modalArcaBanner.innerHTML = `
+                        <div style="background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); color: #b45309; padding: 0.5rem 0.85rem; border-radius: 8px; font-size: 0.82rem; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-clock" style="font-size: 1.1rem; flex-shrink: 0;"></i>
+                            <div>
+                                <strong>Stage de Espera ARCA:</strong> Esta factura física fue escaneada previamente a la sincronización de ARCA. Se vinculará y marcará como recibida automáticamente apenas ARCA se actualice.
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                modalArcaBanner.style.display = 'none';
+            }
+        }
+
         modal.style.display = 'flex';
         modal.classList.add('fade-in');
     }
