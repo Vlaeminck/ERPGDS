@@ -489,17 +489,31 @@ def find_supplier(text):
     longest_keyword_len = 0
     matched_keyword = ""
 
+    banned_generic = {'banco', 'buenos aires', 'la provincia', 'provincia', 'argentina', 'capital federal', 'comercial', 'transferencia', 'original', 'factura', 'total', 'iva'}
+
     for supplier_name, data in config.SUPPLIERS.items():
         for kw in data.get("keywords", []):
             kw_normalized = normalize_string(kw)
             # Evitar que los CUITs o números interfieran en el matching textual
             if kw_normalized.isdigit() or re.match(r'^\d{2}\s\d{8}\s\d$', kw_normalized):
                 continue
-            if kw_normalized in normalized_text:
-                if len(kw_normalized) > longest_keyword_len:
-                    longest_keyword_len = len(kw_normalized)
-                    best_supplier = supplier_name
-                    matched_keyword = kw_normalized
+            if kw_normalized in banned_generic:
+                continue
+            if len(kw_normalized) < 4:
+                continue
+            
+            # Para palabras de hasta 6 caracteres, requerir coincidencia como palabra completa con delimitador \b
+            if len(kw_normalized) <= 6:
+                if not re.search(r'\b' + re.escape(kw_normalized) + r'\b', normalized_text):
+                    continue
+            else:
+                if kw_normalized not in normalized_text:
+                    continue
+
+            if len(kw_normalized) > longest_keyword_len:
+                longest_keyword_len = len(kw_normalized)
+                best_supplier = supplier_name
+                matched_keyword = kw_normalized
 
     if best_supplier:
         print(f"  [OK] Proveedor identificado por keyword mas larga '{matched_keyword}' (largo={longest_keyword_len}): {best_supplier}", flush=True)
@@ -712,6 +726,74 @@ def extract_invoice_number_from_text(text, supplier_found=None, csv_info=None):
 
     return None, csv_info
 
+def learn_from_invoice(supplier_name, filename="", invoice_formatted=None, text="", cuit=None):
+    """
+    Auto-aprendizaje continuo del OCR:
+    Cada identificación exitosa de factura retroalimenta y enriquece la base de conocimiento
+    de proveedores en suppliers.json y en la base de datos SQLite para perfeccionar futuros escaneos.
+    """
+    if not supplier_name or supplier_name in ("Desconocido", "Proveedor Rescatado", "Remito / Documento No Fiscal", "Duplicada", "Error / No Reconocido"):
+        return
+
+    try:
+        from config import SUPPLIERS_FILE
+        import json, re
+
+        suppliers = {}
+        if os.path.exists(SUPPLIERS_FILE):
+            with open(SUPPLIERS_FILE, 'r', encoding='utf-8') as f:
+                suppliers = json.load(f)
+
+        target_key = None
+        for s_name in suppliers:
+            if s_name.lower().strip() == supplier_name.lower().strip():
+                target_key = s_name
+                break
+
+        if not target_key:
+            return
+
+        current_kws = list(suppliers[target_key].get("keywords", []))
+        new_kws = []
+
+        # 1. Aprender CUIT si vino en los datos
+        if cuit:
+            cuit_clean = re.sub(r'\D', '', str(cuit))
+            if len(cuit_clean) == 11:
+                cuit_fmt = f"{cuit_clean[:2]}-{cuit_clean[2:10]}-{cuit_clean[10]}"
+                if cuit_clean not in current_kws:
+                    new_kws.append(cuit_clean)
+                if cuit_fmt not in current_kws:
+                    new_kws.append(cuit_fmt)
+
+        # 2. Aprender términos distintivos observados en el documento
+        if text:
+            norm_doc = normalize_string(text)
+            # Buscar si partes de la razón social o marcas clave están en el documento
+            parts = [p for p in normalize_string(target_key).split() if len(p) >= 4 and p not in {'sociedad', 'anonima', 'responsable', 'inscripto', 'grupo', 'comercial', 'buenos', 'aires', 'banco'}]
+            for p in parts:
+                if re.search(r'\b' + re.escape(p) + r'\b', norm_doc) and p not in current_kws and p not in new_kws:
+                    new_kws.append(p)
+
+        if new_kws:
+            current_kws.extend(new_kws)
+            current_kws = list(dict.fromkeys(current_kws))
+            suppliers[target_key]["keywords"] = current_kws
+            with open(SUPPLIERS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(suppliers, f, indent=4, ensure_ascii=False)
+
+            try:
+                import db_manager
+                cuit_db = cuit or ''
+                db_manager.save_supplier(target_key, keywords=current_kws, cuit=str(cuit_db))
+            except Exception:
+                pass
+
+            print(f"  [AUTO-APRENDIZAJE OCR] Huellas enriquecidas para '{target_key}': {new_kws}", flush=True)
+            reload_config()
+    except Exception as e:
+        print(f"Aviso en auto-aprendizaje OCR: {e}", flush=True)
+
 def wait_for_file_ready(file_path, timeout=10):
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -727,6 +809,20 @@ def wait_for_file_ready(file_path, timeout=10):
 
 def process_invoice(file_path):
     print(f"\nProcesando: {file_path}", flush=True)
+
+    start_scan_ts = None
+    file_name = os.path.basename(file_path)
+    match_esc = re.search(r"Escáner_(\d{8}_\d{6})", file_name)
+    if match_esc:
+        try:
+            start_scan_ts = datetime.datetime.strptime(match_esc.group(1), "%Y%m%d_%H%M%S").timestamp()
+        except Exception:
+            pass
+    if not start_scan_ts:
+        try:
+            start_scan_ts = os.path.getctime(file_path)
+        except Exception:
+            start_scan_ts = time.time()
 
     is_ready = wait_for_file_ready(file_path)
     if not is_ready:
@@ -745,6 +841,36 @@ def process_invoice(file_path):
         print("  [REMITO] Documento detectado como Remito / Comprobante No Fiscal.", flush=True)
         move_to_remitos(file_path, os.path.basename(file_path))
         return
+
+    # CONTROL 75 SEGUNDOS: Si el proceso de digitalización y OCR superó los 75s, intervenir con IA
+    elapsed_now = time.time() - start_scan_ts
+    if elapsed_now >= 75:
+        print(f"  [RESCATE 75s] El proceso acumuló {int(elapsed_now)}s (>= 75s). Activando rescate con IA (Gemini)...", flush=True)
+        ai_data = extract_data_via_ai(file_path)
+        if ai_data and ai_data.get('numero_factura') and (ai_data.get('cuit') or ai_data.get('nombre_emisor')):
+            cuit_cleaned = re.sub(r'\D', '', str(ai_data.get('cuit', '')))
+            supplier_found = _CUIT_INDEX.get(cuit_cleaned)
+            if not supplier_found:
+                supplier_found = _ARCA_CUIT_INDEX.get(cuit_cleaned)
+            if not supplier_found:
+                supplier_found = ai_data.get('nombre_emisor', 'Proveedor Rescatado').replace('/', '-')
+            
+            invoice_number = ai_data['numero_factura']
+            invoice_date = None
+            if ai_data.get('fecha_emision'):
+                try:
+                    parsed_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
+                    invoice_date = validate_invoice_date(parsed_date)
+                except Exception:
+                    pass
+                    
+            print(f"  [OK] Rescatado por IA a los 75s: {supplier_found} - {invoice_number}", flush=True)
+            save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
+            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
+            invoice_formatted = invoice_number.replace('-', ' - ')
+            new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
+            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
+            return
 
     if not text.strip():
         print("No se encontró texto. Intentando rescate con IA (Gemini)...", flush=True)
@@ -773,9 +899,10 @@ def process_invoice(file_path):
                     
             print(f"  [OK] Rescatado por IA: {supplier_found} - {invoice_number}", flush=True)
             save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
+            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
             invoice_formatted = invoice_number.replace('-', ' - ')
             new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted)
+            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
             return
             
         print("No se encontró texto (ni con OCR ni con IA). Moviendo a no reconocidas.", flush=True)
@@ -793,6 +920,34 @@ def process_invoice(file_path):
         invoice_number, csv_info = extract_invoice_number_from_text(text, supplier_found, csv_info)
         if invoice_number:
             print(f"  [OK] Numero de comprobante extraido: {invoice_number}", flush=True)
+
+    # Si pasaron más de 75s y la coincidencia no fue validada con CUIT ni CAE (es sólo keyword)
+    elapsed_now = time.time() - start_scan_ts
+    if (elapsed_now >= 75 and match_method == "keyword") or (not supplier_found and elapsed_now >= 75):
+        print(f"  [RESCATE 75s] Coincidencia debil o incierta a los {int(elapsed_now)}s. Activando rescate con IA (Gemini)...", flush=True)
+        ai_data = extract_data_via_ai(file_path)
+        if ai_data and ai_data.get('numero_factura') and (ai_data.get('cuit') or ai_data.get('nombre_emisor')):
+            cuit_cleaned = re.sub(r'\D', '', str(ai_data.get('cuit', '')))
+            supplier_found = _CUIT_INDEX.get(cuit_cleaned)
+            if not supplier_found:
+                supplier_found = _ARCA_CUIT_INDEX.get(cuit_cleaned)
+            if not supplier_found:
+                supplier_found = ai_data.get('nombre_emisor', 'Proveedor Rescatado').replace('/', '-')
+            invoice_number = ai_data['numero_factura']
+            invoice_date = None
+            if ai_data.get('fecha_emision'):
+                try:
+                    parsed_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
+                    invoice_date = validate_invoice_date(parsed_date)
+                except Exception:
+                    pass
+            print(f"  [OK] Rescatado por IA a los 75s: {supplier_found} - {invoice_number}", flush=True)
+            save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
+            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
+            invoice_formatted = invoice_number.replace('-', ' - ')
+            new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
+            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
+            return
 
     if supplier_found:
         # Extraer la fecha de la factura para determinar el destino
@@ -816,7 +971,7 @@ def process_invoice(file_path):
         if invoice_number:
             invoice_formatted = invoice_number.replace('-', ' - ')
             new_filename = f"{invoice_formatted}{ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted)
+            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
         else:
             print("  [INFO] Falló extracción de número. Intentando rescate con IA...", flush=True)
             ai_data = extract_data_via_ai(file_path)
@@ -825,9 +980,10 @@ def process_invoice(file_path):
                 print(f"  [OK] Numero rescatado por IA: {invoice_number}", flush=True)
                 log_system_error("IA_RESCATE_EXITOSO", f"Factura {invoice_number} de {supplier_found} sin número (Original: {file_path})")
                 save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
+                learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
                 invoice_formatted = invoice_number.replace('-', ' - ')
                 new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-                move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted)
+                move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
             else:
                 new_filename = f"{supplier_found}-sin-numero{ext}"
                 regex_used = data.get("invoice_regex", "None")
@@ -856,9 +1012,10 @@ def process_invoice(file_path):
             print(f"  [OK] Rescatado por IA: {supplier_found} - {invoice_number}", flush=True)
             log_system_error("IA_RESCATE_EXITOSO", f"Proveedor no reconocido originalmente -> Factura {invoice_number} de {supplier_found} (Original: {file_path})")
             save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
+            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
             invoice_formatted = invoice_number.replace('-', ' - ')
             new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted)
+            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
         else:
             diagnosis = diagnose_error(text, file_path)
             log_error_to_file(file_path, "PROVEEDOR NO RECONOCIDO", diagnosis)
@@ -999,7 +1156,7 @@ def generate_unique_filename(destination_dir, filename):
         counter += 1
     return new_filename
 
-def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invoice_formatted=None):
+def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invoice_formatted=None, text=""):
     if invoice_date is None:
         invoice_date = datetime.date.today()
     year = str(invoice_date.year)
@@ -1037,6 +1194,12 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
             )
         except Exception as ex_db:
             print(f"Error al registrar factura en BD: {ex_db}")
+
+        # Auto-aprendizaje continuo de OCR para este proveedor
+        try:
+            learn_from_invoice(supplier, unique_filename, invoice_formatted, text=text)
+        except Exception as ex_learn:
+            print(f"Aviso en auto-aprendizaje: {ex_learn}")
         
         # Hook para marcar factura recibida en ARCA Compras CSV
         try:
