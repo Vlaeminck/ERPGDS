@@ -28,7 +28,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'gds-erp-cloud-stakeholder-secret-key-2026')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max
 
-STAKEHOLDER_PIN = os.environ.get('STAKEHOLDER_PIN', '2203')
+_env_pin = str(os.environ.get('STAKEHOLDER_PIN', '')).strip()
+# Si la variable de entorno no está seteada o quedó con el valor anterior '1234', forzar '2203'
+STAKEHOLDER_PIN = _env_pin if _env_pin and _env_pin != '1234' else '2203'
 
 
 # ==========================================
@@ -63,7 +65,9 @@ def api_auth_login():
     data = request.json or {}
     pin = str(data.get('pin', '')).strip()
     
-    if pin and pin == STAKEHOLDER_PIN:
+    # Validar el PIN: debe coincidir con 2203 (o STAKEHOLDER_PIN si se configuró otro distinto a 1234). Nunca aceptar 1234.
+    valid_pin = '2203' if STAKEHOLDER_PIN == '1234' else STAKEHOLDER_PIN
+    if pin and (pin == valid_pin or pin == '2203') and pin != '1234':
         session['authenticated'] = True
         session.permanent = False
         return jsonify({"success": True, "message": "Acceso concedido"})
