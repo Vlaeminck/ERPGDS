@@ -28,7 +28,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'gds-erp-cloud-stakeholder-secret-key-2026')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max
 
-STAKEHOLDER_PIN = os.environ.get('STAKEHOLDER_PIN', '1234')
+STAKEHOLDER_PIN = os.environ.get('STAKEHOLDER_PIN', '2203')
 
 
 # ==========================================
@@ -46,6 +46,8 @@ def login_required(f):
 
 @app.route('/')
 def index():
+    # Limpiar autenticación previa para requerir la contraseña en cada ingreso a la página
+    session.pop('authenticated', None)
     return render_template('stakeholders.html')
 
 
@@ -63,7 +65,7 @@ def api_auth_login():
     
     if pin and pin == STAKEHOLDER_PIN:
         session['authenticated'] = True
-        session.permanent = True
+        session.permanent = False
         return jsonify({"success": True, "message": "Acceso concedido"})
     return jsonify({"success": False, "message": "PIN incorrecto"}), 401
 

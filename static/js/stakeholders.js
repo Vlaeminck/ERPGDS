@@ -129,6 +129,11 @@ async function checkAuth() {
         const modal = document.getElementById('auth-modal');
         if (!data.authenticated) {
             modal.style.display = 'flex';
+            const pinInput = document.getElementById('input-pin');
+            if (pinInput) {
+                pinInput.value = '';
+                setTimeout(() => pinInput.focus(), 50);
+            }
         } else {
             modal.style.display = 'none';
             initPortal();
@@ -1740,4 +1745,10 @@ async function pollSyncStatus() {
 
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
+});
+
+window.addEventListener('pageshow', (event) => {
+    if (event.persisted) {
+        checkAuth();
+    }
 });
