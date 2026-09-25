@@ -1579,15 +1579,15 @@ function renderAliasTable(list) {
                     </select>
                 </td>
                 <td>
-                    <select id="${subcatSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 120px;">
+                    <select id="${subcatSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 120px;" onchange="onSubcategorySelectChange('${catSelectId}', '${subcatSelectId}')">
                         ${subcatOptions}
                     </select>
                 </td>
                 <td>
-                    <input type="text" id="${inputId}" class="form-control" placeholder="Nombre de fantasía" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
+                    <input type="text" id="${inputId}" class="form-control" placeholder="Nombre de fantasía" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias(${pId}, '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                 </td>
                 <td style="text-align: center;">
-                    <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 5px 12px; cursor: pointer;" onclick="saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
+                    <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 5px 12px; cursor: pointer;" onclick="saveProveedorAlias(${pId}, '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                         <i class="fa-solid fa-floppy-disk"></i> Guardar
                     </button>
                 </td>
@@ -1614,18 +1614,37 @@ function onCategorySelectChange(catSelectId, subcatSelectId) {
     }
 }
 
-async function saveProveedorAlias(nombre, inputId, btnId, catSelectId, subcatSelectId) {
+function onSubcategorySelectChange(catSelectId, subcatSelectId) {
+    const catSelect = document.getElementById(catSelectId);
+    const subcatSelect = document.getElementById(subcatSelectId);
+    if (!catSelect || !subcatSelect) return;
+
+    const selectedSubName = subcatSelect.value.trim().toLowerCase();
+    if (!selectedSubName) return;
+
+    for (const c of categoriesTree) {
+        if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === selectedSubName)) {
+            catSelect.value = c.nombre;
+            break;
+        }
+    }
+}
+
+async function saveProveedorAlias(provIdentifier, inputId, btnId, catSelectId, subcatSelectId) {
     const input = document.getElementById(inputId);
     const btn = document.getElementById(btnId);
     const catSelect = document.getElementById(catSelectId);
     const subcatSelect = document.getElementById(subcatSelectId);
     if (!input) return;
 
+    const provObj = allProveedoresList.find(p => p.id === provIdentifier || p.nombre === provIdentifier);
+    const nombre = provObj ? provObj.nombre : String(provIdentifier);
+
     const newAlias = input.value.trim();
     let categoria = catSelect ? catSelect.value.trim() : '';
     const subcategoria = subcatSelect ? subcatSelect.value.trim() : '';
 
-    // Si tiene subcategoría pero no categoría, auto-asignar categoría padre
+    // Si tiene subcategoría pero no categoría (o General), auto-asignar categoría padre
     if (subcategoria && (!categoria || categoria.toLowerCase() === 'general')) {
         for (const c of categoriesTree) {
             if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === subcategoria.toLowerCase().trim())) {
@@ -1656,7 +1675,6 @@ async function saveProveedorAlias(nombre, inputId, btnId, catSelectId, subcatSel
         if (data.success) {
             showToast(`Datos actualizados para ${nombre}`, 'success');
             aliasMap[nombre] = newAlias;
-            const provObj = allProveedoresList.find(p => p.nombre === nombre);
             if (provObj) {
                 provObj.alias = newAlias;
                 provObj.categoria = categoria;

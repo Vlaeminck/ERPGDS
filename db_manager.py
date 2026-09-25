@@ -726,16 +726,28 @@ def update_supplier_meta(nombre_or_id, alias=None, categoria=None, subcategoria=
 
     # Inferencia inteligente de categoría padre si subcategoría está presente
     if final_subcat and (not final_cat or final_cat.lower() in ('general', 'sin rubro', '')):
-        cursor.execute("""
-            SELECT p.nombre as padre_nombre
-            FROM categorias_gastos s
-            JOIN categorias_gastos p ON s.padre_id = p.id
-            WHERE LOWER(TRIM(s.nombre)) = ?
-            LIMIT 1
-        """, (final_subcat.lower(),))
-        matched_parent = cursor.fetchone()
-        if matched_parent and matched_parent['padre_nombre']:
-            final_cat = matched_parent['padre_nombre']
+        sub_l = final_subcat.lower().strip()
+        SUBCAT_MAP = {
+            'vacuno': 'Carnes', 'pescados': 'Carnes', 'fiambres': 'Carnes',
+            'alcohol': 'Bebidas', 'gaseosa': 'Bebidas',
+            'azúcar': 'Almacén', 'azucar': 'Almacén',
+            'mantenimiento': 'Servicios & Mantenimiento',
+            'operativo': 'Servicios & Mantenimiento',
+            'lavadero': 'Servicios & Mantenimiento'
+        }
+        if sub_l in SUBCAT_MAP:
+            final_cat = SUBCAT_MAP[sub_l]
+        else:
+            cursor.execute("""
+                SELECT p.nombre as padre_nombre
+                FROM categorias_gastos s
+                JOIN categorias_gastos p ON s.padre_id = p.id
+                WHERE LOWER(TRIM(s.nombre)) = ?
+                LIMIT 1
+            """, (sub_l,))
+            matched_parent = cursor.fetchone()
+            if matched_parent and matched_parent['padre_nombre']:
+                final_cat = matched_parent['padre_nombre']
 
     # Asegurar UUID determinista
     det_uuid = get_deterministic_supplier_uuid(prov_name)
@@ -985,70 +997,153 @@ def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=
 def cleanup_and_repair_categories_and_suppliers():
     """
     Repara y normaliza las tablas categorias_gastos y proveedores:
-    1. Deduplica categorías principales y re-vincula subcategorías.
-    2. Asigna UUIDs deterministas a todas las categorías y proveedores.
-    3. Asigna la categoría padre correcta a todos los proveedores que tienen subcategoría pero categoría 'General' o vacía.
+    1. Deduplica categorías principales eliminando duplicados antes de actualizar UUIDs para evitar errores de integridad.
+    2. Re-vincula subcategorías a sus categorías padre canónicas (Vacuno, Alcohol, Gaseosa, Mantenimiento, etc.).
+    3. Asigna la categoría padre correcta a todos los proveedores que tienen subcategoría o alias asignado.
+    4. Garantiza UUIDs deterministas para sincronización bidireccional limpia con Firebase.
     """
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    # 1. Deduplicar categorías principales
-    cursor.execute("SELECT * FROM categorias_gastos WHERE padre_id IS NULL ORDER BY id ASC")
+    SUBCAT_PARENT_MAP = {
+        'vacuno': 'Carnes',
+        'pescados': 'Carnes',
+        'fiambres': 'Carnes',
+        'alcohol': 'Bebidas',
+        'gaseosa': 'Bebidas',
+        'azúcar': 'Almacén',
+        'azucar': 'Almacén',
+        'mantenimiento': 'Servicios & Mantenimiento',
+        'operativo': 'Servicios & Mantenimiento',
+        'lavadero': 'Servicios & Mantenimiento'
+    }
+
+    ALIAS_MAP = {
+        'edenor': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'papelera bayres': ('Papelería & Descartables', ''),
+        'bolsas de vacio': ('Papelería & Descartables', ''),
+        'don antonio "pan miga"': ('Panadería & Harinas', ''),
+        'sueño verde': ('Verdulería', ''),
+        'ruta verde': ('Verdulería', ''),
+        'ruta verde (mercado central)': ('Verdulería', ''),
+        'mozzaré': ('Lácteos & Quesos', ''),
+        'maricre': ('Lácteos & Quesos', ''),
+        'alcohol "el burro"': ('Bebidas', 'Alcohol'),
+        'hielo san martín': ('Almacén', ''),
+        'helado "latto"': ('Lácteos & Quesos', ''),
+        'ceamse': ('Impuestos & Tasas', ''),
+        'librería "el estudio"': ('Papelería & Descartables', ''),
+        'iluminación castelar': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'pedidosya': ('Servicios & Mantenimiento', 'Operativo'),
+        'boragoshop iluminacion': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'fase electricidad': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'carnes franco': ('Carnes', 'Vacuno')
+    }
+
+    # 1. Deduplicar categorías principales de forma segura (sin violar UNIQUE constraint de uuid)
+    cursor.execute("SELECT id, nombre, color, icono FROM categorias_gastos WHERE padre_id IS NULL ORDER BY id ASC")
     main_rows = cursor.fetchall()
-    canonical_main = {}
+    canonical_main = {}       # {nombre_lower: id_canonico}
+    canonical_main_names = {} # {nombre_lower: nombre_original}
+
     for r in main_rows:
         nom_l = (r['nombre'] or '').strip().lower()
         if nom_l not in canonical_main:
             canonical_main[nom_l] = r['id']
-            det_uuid = get_deterministic_category_uuid(r['nombre'])
-            cursor.execute("UPDATE categorias_gastos SET uuid = ? WHERE id = ?", (det_uuid, r['id']))
+            canonical_main_names[nom_l] = r['nombre'].strip()
         else:
             dup_id = r['id']
             canon_id = canonical_main[nom_l]
+            # Redirigir subcategorías que apunten al duplicado hacia el ID canónico
             cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE padre_id = ?", (canon_id, dup_id))
+            # Eliminar la fila duplicada para liberar su uuid
             cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (dup_id,))
 
+    # Asegurar UUIDs deterministas en categorías principales canónicas
+    for nom_l, canon_id in canonical_main.items():
+        det_uuid = get_deterministic_category_uuid(canonical_main_names[nom_l])
+        cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, canon_id))
+
     # 2. Re-vincular y normalizar subcategorías
-    cursor.execute("SELECT s.*, p.nombre as padre_nombre FROM categorias_gastos s LEFT JOIN categorias_gastos p ON s.padre_id = p.id WHERE s.padre_id IS NOT NULL")
+    cursor.execute("SELECT id, nombre, padre_id FROM categorias_gastos WHERE padre_id IS NOT NULL")
     sub_rows = cursor.fetchall()
+    seen_subs = {} # {(sub_nom_l, padre_id): id_canonico}
+
     for s in sub_rows:
         s_id = s['id']
         s_nom = (s['nombre'] or '').strip()
-        p_nom = (s['padre_nombre'] or '').strip()
-        
-        if s_nom.lower() in ('azúcar', 'azucar'):
-            if 'almacén' in canonical_main:
-                cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (canonical_main['almacén'], s_id))
-                p_nom = 'Almacén'
-            elif 'bebidas' in canonical_main:
-                cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (canonical_main['bebidas'], s_id))
-                p_nom = 'Bebidas'
+        s_nom_l = s_nom.lower()
+        p_id = s['padre_id']
 
-        det_uuid = get_deterministic_category_uuid(s_nom, p_nom)
-        cursor.execute("UPDATE categorias_gastos SET uuid = ? WHERE id = ?", (det_uuid, s_id))
+        # Si el padre_id es huérfano o está en el mapa conocido, resolver al ID canónico
+        if s_nom_l in SUBCAT_PARENT_MAP:
+            target_parent_name_l = SUBCAT_PARENT_MAP[s_nom_l].lower()
+            if target_parent_name_l in canonical_main:
+                p_id = canonical_main[target_parent_name_l]
+                cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (p_id, s_id))
+        elif p_id not in canonical_main.values():
+            # Buscar coincidencia de nombre con alguna categoría principal
+            cursor.execute("SELECT nombre FROM categorias_gastos WHERE id = ?", (p_id,))
+            p_row = cursor.fetchone()
+            if p_row:
+                p_nom_match = (p_row['nombre'] or '').strip().lower()
+                if p_nom_match in canonical_main:
+                    p_id = canonical_main[p_nom_match]
+                    cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (p_id, s_id))
 
-    # 3. Reparar proveedores con subcategorías pero categoría 'General' o vacía
+        # Deduplicar subcategoría si ya existe una con el mismo nombre bajo el mismo padre
+        sub_key = (s_nom_l, p_id)
+        if sub_key not in seen_subs:
+            seen_subs[sub_key] = s_id
+            parent_nom = canonical_main_names.get(next((k for k, v in canonical_main.items() if v == p_id), ''), '')
+            det_uuid = get_deterministic_category_uuid(s_nom, parent_nom)
+            cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, s_id))
+        else:
+            cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (s_id,))
+
+    # 3. Reparar proveedores que tienen subcategoría pero categoría 'General' o vacía
+    for s_nom_l, p_nom in SUBCAT_PARENT_MAP.items():
+        cursor.execute("""
+            UPDATE proveedores 
+            SET categoria = ?, updated_at = ?, sync_status = 0
+            WHERE LOWER(TRIM(subcategoria)) = ?
+              AND (categoria IS NULL OR TRIM(categoria) = '' OR LOWER(TRIM(categoria)) = 'general')
+        """, (p_nom, now_iso, s_nom_l))
+
     cursor.execute("""
-        SELECT p.id, p.nombre, p.subcategoria, p.categoria, c_padre.nombre as inferred_categoria
+        SELECT p.id, p.nombre, p.subcategoria, c_padre.nombre as inferred_categoria
         FROM proveedores p
         JOIN categorias_gastos c_sub ON LOWER(TRIM(p.subcategoria)) = LOWER(TRIM(c_sub.nombre))
         JOIN categorias_gastos c_padre ON c_sub.padre_id = c_padre.id
         WHERE p.subcategoria IS NOT NULL AND TRIM(p.subcategoria) != ''
           AND (p.categoria IS NULL OR TRIM(p.categoria) = '' OR LOWER(TRIM(p.categoria)) = 'general')
     """)
-    provs_to_repair = cursor.fetchall()
-    for p in provs_to_repair:
+    for p in cursor.fetchall():
         inf_cat = p['inferred_categoria']
         if inf_cat:
+            cursor.execute("UPDATE proveedores SET categoria = ?, updated_at = ?, sync_status = 0 WHERE id = ?",
+                           (inf_cat, now_iso, p['id']))
+
+    # 4. Asignar categorías y subcategorías a proveedores con alias conocidos
+    for al, (cat, sub) in ALIAS_MAP.items():
+        if sub:
+            cursor.execute("""
+                UPDATE proveedores 
+                SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
+                WHERE LOWER(TRIM(alias)) = ?
+                  AND (categoria IS NULL OR TRIM(categoria) = '' OR LOWER(TRIM(categoria)) = 'general')
+            """, (cat, sub, now_iso, al))
+        else:
             cursor.execute("""
                 UPDATE proveedores 
                 SET categoria = ?, updated_at = ?, sync_status = 0
-                WHERE id = ?
-            """, (inf_cat, now_iso, p['id']))
+                WHERE LOWER(TRIM(alias)) = ?
+                  AND (categoria IS NULL OR TRIM(categoria) = '' OR LOWER(TRIM(categoria)) = 'general')
+            """, (cat, now_iso, al))
 
-    # 4. Asegurar que todos los proveedores tengan UUIDs deterministas
+    # 5. Asegurar que todos los proveedores tengan UUIDs deterministas
     cursor.execute("SELECT id, nombre, uuid FROM proveedores")
     all_provs = cursor.fetchall()
     for prov in all_provs:

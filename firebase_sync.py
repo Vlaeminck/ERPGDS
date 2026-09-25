@@ -279,6 +279,18 @@ def reconcile_with_firestore(table=None):
             # 2. Insertar o actualizar documentos que están en Firestore
             for r_uuid, r_data in remote_docs_map.items():
                 if r_uuid not in local_uuids:
+                    if tbl == 'proveedores':
+                        SUBCAT_PARENT_MAP = {
+                            'vacuno': 'Carnes', 'pescados': 'Carnes', 'fiambres': 'Carnes',
+                            'alcohol': 'Bebidas', 'gaseosa': 'Bebidas',
+                            'azúcar': 'Almacén', 'azucar': 'Almacén',
+                            'mantenimiento': 'Servicios & Mantenimiento',
+                            'operativo': 'Servicios & Mantenimiento',
+                            'lavadero': 'Servicios & Mantenimiento'
+                        }
+                        sub_check = str(r_data.get('subcategoria', '') or '').strip().lower()
+                        if sub_check in SUBCAT_PARENT_MAP and (not r_data.get('categoria') or r_data.get('categoria').lower() == 'general'):
+                            r_data['categoria'] = SUBCAT_PARENT_MAP[sub_check]
                     r_data['uuid'] = r_uuid
                     r_data['sync_status'] = 1
                     keys = [k for k in r_data.keys() if k != 'id' and k in valid_cols]
@@ -350,6 +362,14 @@ def pull_remote_changes(force_full=False):
 
                     if (remote_updated and remote_updated > local_updated) or force_full:
                         if table == 'proveedores':
+                            SUBCAT_PARENT_MAP = {
+                                'vacuno': 'Carnes', 'pescados': 'Carnes', 'fiambres': 'Carnes',
+                                'alcohol': 'Bebidas', 'gaseosa': 'Bebidas',
+                                'azúcar': 'Almacén', 'azucar': 'Almacén',
+                                'mantenimiento': 'Servicios & Mantenimiento',
+                                'operativo': 'Servicios & Mantenimiento',
+                                'lavadero': 'Servicios & Mantenimiento'
+                            }
                             loc_cat = str(local_row['categoria'] or '').strip()
                             rem_cat = str(data.get('categoria', '') or '').strip()
                             if loc_cat and loc_cat.lower() != 'general' and (not rem_cat or rem_cat.lower() == 'general'):
@@ -362,6 +382,9 @@ def pull_remote_changes(force_full=False):
                             rem_alias = str(data.get('alias', '') or '').strip()
                             if loc_alias and not rem_alias:
                                 data['alias'] = loc_alias
+                            sub_check = str(data.get('subcategoria', '') or '').strip().lower()
+                            if sub_check in SUBCAT_PARENT_MAP and (not data.get('categoria') or data.get('categoria').lower() == 'general'):
+                                data['categoria'] = SUBCAT_PARENT_MAP[sub_check]
 
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
@@ -398,6 +421,14 @@ def pull_remote_changes(force_full=False):
                             continue
 
                         if table == 'proveedores':
+                            SUBCAT_PARENT_MAP = {
+                                'vacuno': 'Carnes', 'pescados': 'Carnes', 'fiambres': 'Carnes',
+                                'alcohol': 'Bebidas', 'gaseosa': 'Bebidas',
+                                'azúcar': 'Almacén', 'azucar': 'Almacén',
+                                'mantenimiento': 'Servicios & Mantenimiento',
+                                'operativo': 'Servicios & Mantenimiento',
+                                'lavadero': 'Servicios & Mantenimiento'
+                            }
                             loc_cat = str(existing_match['categoria'] or '').strip()
                             rem_cat = str(data.get('categoria', '') or '').strip()
                             if loc_cat and loc_cat.lower() != 'general' and (not rem_cat or rem_cat.lower() == 'general'):
@@ -410,6 +441,9 @@ def pull_remote_changes(force_full=False):
                             rem_alias = str(data.get('alias', '') or '').strip()
                             if loc_alias and not rem_alias:
                                 data['alias'] = loc_alias
+                            sub_check = str(data.get('subcategoria', '') or '').strip().lower()
+                            if sub_check in SUBCAT_PARENT_MAP and (not data.get('categoria') or data.get('categoria').lower() == 'general'):
+                                data['categoria'] = SUBCAT_PARENT_MAP[sub_check]
 
                         set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                         if set_cols:
