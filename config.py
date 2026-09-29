@@ -81,14 +81,60 @@ import json
 
 SUPPLIERS_FILE = os.path.join(BASE_DIR, "suppliers.json")
 
-# Diccionario de Proveedores y Expresiones Regulares
-if os.path.exists(SUPPLIERS_FILE):
-    try:
-        with open(SUPPLIERS_FILE, 'r', encoding='utf-8') as f:
-            SUPPLIERS = json.load(f)
-    except Exception as e:
-        print(f"Error cargando {SUPPLIERS_FILE}: {e}")
-        SUPPLIERS = {}
-else:
-    SUPPLIERS = {}
+def load_suppliers():
+    """Carga proveedores desde suppliers.json y los complementa con la tabla SQLite proveedores."""
+    suppliers = {}
+    if os.path.exists(SUPPLIERS_FILE):
+        try:
+            with open(SUPPLIERS_FILE, 'r', encoding='utf-8') as f:
+                suppliers = json.load(f)
+        except Exception as e:
+            print(f"Error cargando {SUPPLIERS_FILE}: {e}")
+            suppliers = {}
+
+    db_path = os.path.join(REGISTROS_FOLDER, "control_interno.db")
+    if os.path.exists(db_path):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("SELECT nombre, cuit, keywords FROM proveedores WHERE is_deleted = 0 OR is_deleted IS NULL")
+            for row in c.fetchall():
+                nom, cuit, kws_json = row[0], row[1], row[2]
+                if not nom:
+                    continue
+                kws = []
+                if kws_json:
+                    try:
+                        kws = json.loads(kws_json) if isinstance(kws_json, str) else kws_json
+                    except Exception:
+                        kws = []
+                if cuit:
+                    c_clean = str(cuit).replace('-', '').strip()
+                    if c_clean and c_clean not in kws:
+                        kws.append(c_clean)
+                    if cuit not in kws:
+                        kws.append(cuit)
+                
+                if nom not in suppliers:
+                    suppliers[nom] = {
+                        "keywords": kws or [nom.lower()],
+                        "invoice_regex": r"(\d{1,5}\s*-\s*\d{5,8})"
+                    }
+                else:
+                    cur_kws = suppliers[nom].get("keywords", [])
+                    for k in kws:
+                        if k not in cur_kws:
+                            cur_kws.append(k)
+                    suppliers[nom]["keywords"] = cur_kws
+                    if "invoice_regex" not in suppliers[nom]:
+                        suppliers[nom]["invoice_regex"] = r"(\d{1,5}\s*-\s*\d{5,8})"
+            conn.close()
+        except Exception:
+            pass
+
+    return suppliers
+
+SUPPLIERS = load_suppliers()
+
 

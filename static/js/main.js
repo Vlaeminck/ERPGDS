@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (globalMonthSelect) {
         globalMonthSelect.addEventListener('change', (e) => {
             currentSelectedMonth = e.target.value;
+            isCuentasPagarExpanded = false;
             const subtitle = document.getElementById('global-month-subtitle');
             if (subtitle) subtitle.textContent = `Filtro mensual activo (${e.target.options[e.target.selectedIndex].text}). Todos los módulos muestran los registros de este período.`;
             switchTab(currentActiveTab);
@@ -85,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnMonthAll) {
         btnMonthAll.addEventListener('click', () => {
             currentSelectedMonth = 'all';
+            isCuentasPagarExpanded = false;
             const subtitle = document.getElementById('global-month-subtitle');
             if (subtitle) subtitle.textContent = `Mostrando Histórico Completo de la empresa (sin filtro de mes).`;
             switchTab(currentActiveTab);
@@ -2194,7 +2196,172 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 1. Cuentas por Pagar
+    // 1. Cuentas por Pagar (Archivos Procesados)
+    let isCuentasPagarExpanded = false;
+    let lastCuentasPagarData = null;
+
+    window.toggleCuentasPagarExpanded = function () {
+        isCuentasPagarExpanded = !isCuentasPagarExpanded;
+        if (lastCuentasPagarData) {
+            renderCuentasPorPagar(lastCuentasPagarData);
+        } else {
+            fetchCuentasPorPagar();
+        }
+    };
+
+    function renderCuentasPorPagar(data) {
+        lastCuentasPagarData = data;
+        const pendientes = (data.cuentas || []).filter(c => c.estado !== 'Pagado');
+        const tbody = document.getElementById('tbl-cuentas-pagar-body');
+        const badge = document.getElementById('cp-proveedores-badge');
+        const headerBtn = document.getElementById('btn-toggle-cp-expand');
+        const footerBanner = document.getElementById('cp-footer-banner');
+
+        if (!tbody) return;
+
+        if (!pendientes || pendientes.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">No hay facturas pendientes en cuentas por pagar</td></tr>`;
+            if (badge) badge.style.display = 'none';
+            if (headerBtn) headerBtn.style.display = 'none';
+            if (footerBanner) footerBanner.style.display = 'none';
+            return;
+        }
+
+        // Obtener lista única de proveedores preservando el orden de aparición
+        const uniqueSuppliers = [];
+        pendientes.forEach(c => {
+            const prov = (c.proveedor_nombre || 'Desconocido').trim();
+            if (!uniqueSuppliers.includes(prov)) {
+                uniqueSuppliers.push(prov);
+            }
+        });
+
+        const totalSuppliers = uniqueSuppliers.length;
+        const hasMoreThan3 = totalSuppliers > 3;
+
+        // Por defecto: mostrar colapsado a máximo 3 proveedores
+        const isCollapsed = !isCuentasPagarExpanded && hasMoreThan3;
+        const visibleSuppliers = isCollapsed ? uniqueSuppliers.slice(0, 3) : uniqueSuppliers;
+
+        const displayedInvoices = pendientes.filter(c => visibleSuppliers.includes((c.proveedor_nombre || 'Desconocido').trim()));
+        const hiddenSuppliersCount = totalSuppliers - visibleSuppliers.length;
+        const hiddenInvoicesCount = pendientes.length - displayedInvoices.length;
+
+        // Actualizar badge informativo en el encabezado
+        if (badge) {
+            badge.style.display = 'inline-flex';
+            badge.style.alignItems = 'center';
+            badge.style.gap = '6px';
+            if (hasMoreThan3) {
+                if (isCollapsed) {
+                    badge.innerHTML = `<i class="fa-solid fa-compress"></i> <span>Colapsada: 3 de ${totalSuppliers} proveedores (${displayedInvoices.length} facturas)</span>`;
+                    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+                    badge.style.color = 'var(--primary-color)';
+                    badge.style.borderColor = 'rgba(59, 130, 246, 0.25)';
+                } else {
+                    badge.innerHTML = `<i class="fa-solid fa-expand"></i> <span>Ampliada: ${totalSuppliers} proveedores (${pendientes.length} facturas)</span>`;
+                    badge.style.background = 'rgba(16, 185, 129, 0.1)';
+                    badge.style.color = '#059669';
+                    badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                }
+            } else {
+                badge.innerHTML = `<i class="fa-solid fa-layer-group"></i> <span>${totalSuppliers} ${totalSuppliers === 1 ? 'proveedor' : 'proveedores'} (${pendientes.length} facturas)</span>`;
+                badge.style.background = 'rgba(100, 116, 139, 0.1)';
+                badge.style.color = 'var(--text-primary)';
+                badge.style.borderColor = 'var(--border-color)';
+            }
+        }
+
+        // Actualizar botón de acción en el encabezado
+        if (headerBtn) {
+            if (hasMoreThan3) {
+                headerBtn.style.display = 'inline-flex';
+                headerBtn.style.alignItems = 'center';
+                headerBtn.style.gap = '6px';
+                if (isCollapsed) {
+                    headerBtn.className = 'btn btn-sm btn-outline-primary';
+                    headerBtn.style.background = 'rgba(59, 130, 246, 0.08)';
+                    headerBtn.style.color = 'var(--primary-color)';
+                    headerBtn.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+                    headerBtn.innerHTML = `<i class="fa-solid fa-chevron-down"></i> <span>Ampliar (${hiddenSuppliersCount} prov. más)</span>`;
+                    headerBtn.title = 'Mostrar todos los proveedores pendientes';
+                } else {
+                    headerBtn.className = 'btn btn-sm btn-secondary';
+                    headerBtn.style.background = 'rgba(100, 116, 139, 0.12)';
+                    headerBtn.style.color = 'var(--text-primary)';
+                    headerBtn.style.border = '1px solid var(--border-color)';
+                    headerBtn.innerHTML = `<i class="fa-solid fa-chevron-up"></i> <span>Colapsar a 3 proveedores</span>`;
+                    headerBtn.title = 'Colapsar para ver únicamente 3 proveedores';
+                }
+            } else {
+                headerBtn.style.display = 'none';
+            }
+        }
+
+        // Banner inferior explicativo y de acción
+        if (footerBanner) {
+            if (hasMoreThan3) {
+                footerBanner.style.display = 'block';
+                if (isCollapsed) {
+                    footerBanner.innerHTML = `
+                        <div style="background: rgba(59, 130, 246, 0.04); border: 1px dashed rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 10px 14px; margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <span style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">
+                                <i class="fa-solid fa-circle-info" style="color: var(--primary-color); margin-right: 4px;"></i>
+                                Vista colapsada: Mostrando primeros 3 proveedores. Hay <strong>${hiddenSuppliersCount}</strong> proveedores más con <strong>${hiddenInvoicesCount}</strong> facturas pendientes.
+                            </span>
+                            <button class="btn btn-sm btn-outline-primary" onclick="toggleCuentasPagarExpanded()" style="font-weight: 600; padding: 0.4rem 0.95rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.08); color: var(--primary-color); border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer;">
+                                <i class="fa-solid fa-chevron-down"></i> Ampliar lista completa (${totalSuppliers} proveedores)
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    footerBanner.innerHTML = `
+                        <div style="background: rgba(100, 116, 139, 0.04); border: 1px dashed var(--border-color); border-radius: 8px; padding: 10px 14px; margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <span style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">
+                                <i class="fa-solid fa-check-double" style="color: #10b981; margin-right: 4px;"></i>
+                                Vista ampliada: Mostrando la totalidad de proveedores pendientes (<strong>${totalSuppliers}</strong> proveedores, <strong>${pendientes.length}</strong> facturas).
+                            </span>
+                            <button class="btn btn-sm btn-secondary" onclick="toggleCuentasPagarExpanded()" style="font-weight: 600; padding: 0.4rem 0.95rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; background: rgba(100, 116, 139, 0.1); color: var(--text-primary); border: 1px solid var(--border-color); cursor: pointer;">
+                                <i class="fa-solid fa-chevron-up"></i> Colapsar a 3 proveedores
+                            </button>
+                        </div>
+                    `;
+                }
+            } else {
+                footerBanner.style.display = 'none';
+            }
+        }
+
+        // Renderizado de filas
+        tbody.innerHTML = displayedInvoices.map(c => {
+            let badgeClass = 'badge-pending';
+            if (c.estado === 'Pagado') badgeClass = 'badge-paid';
+            if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
+
+            const actionBtn = c.estado !== 'Pagado' ? `
+                <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                    onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
+                    <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                    <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
+                    <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
+                    <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
+                    <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
+                </select>
+            ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
+                    <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
+                    <td>${escapeHtml(c.fecha || '-')}</td>
+                    <td><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
+                    <td>${escapeHtml(c.medio_pago || '-')}</td>
+                    <td>${actionBtn}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
     async function fetchCuentasPorPagar() {
         try {
             const url = '/api/cuentas_por_pagar' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
@@ -2205,40 +2372,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
             document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
 
-            const pendientes = data.cuentas.filter(c => c.estado !== 'Pagado');
-            const tbody = document.getElementById('tbl-cuentas-pagar-body');
-            if (!pendientes || pendientes.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary);">No hay facturas pendientes en cuentas por pagar</td></tr>`;
-                return;
-            }
-
-            tbody.innerHTML = pendientes.map(c => {
-                let badgeClass = 'badge-pending';
-                if (c.estado === 'Pagado') badgeClass = 'badge-paid';
-                if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
-
-                const actionBtn = c.estado !== 'Pagado' ? `
-                    <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
-                        onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
-                        <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
-                        <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
-                        <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
-                        <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
-                        <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
-                    </select>
-                ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
-
-                return `
-                    <tr>
-                        <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
-                        <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
-                        <td>${escapeHtml(c.fecha || '-')}</td>
-                        <td><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
-                        <td>${escapeHtml(c.medio_pago || '-')}</td>
-                        <td>${actionBtn}</td>
-                    </tr>
-                `;
-            }).join('');
+            renderCuentasPorPagar(data);
         } catch (e) {
             console.error("Error cargando cuentas por pagar:", e);
         }
@@ -3690,6 +3824,466 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchArcaCompras();
         } catch (e) { showToast('Error', 'error'); }
     };
+
+
+    // ==========================================
+    // MODAL: PATRONES DIARIOS DE COMPRAS & FACTURACIÓN (ARCA)
+    // ==========================================
+    let chartPatronesArcaInst = null;
+    let currentPatronChartMode = 'count'; // 'count', 'amount', 'weekday'
+
+    window.abrirModalGraficoComprasArca = async function () {
+        const modal = document.getElementById('modal-patrones-arca');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+
+        // Si aún no tenemos datos de compras cargados, obtenerlos
+        if (!arcaData || arcaData.length === 0) {
+            await fetchArcaCompras();
+        }
+
+        renderPatronesChart();
+    };
+
+    window.cerrarModalPatronesCompras = function () {
+        const modal = document.getElementById('modal-patrones-arca');
+        if (modal) modal.style.display = 'none';
+        document.body.style.overflow = '';
+    };
+
+    // Cerrar al hacer clic en el backdrop
+    const modalPatronesEl = document.getElementById('modal-patrones-arca');
+    if (modalPatronesEl) {
+        modalPatronesEl.addEventListener('click', (e) => {
+            if (e.target === modalPatronesEl) cerrarModalPatronesCompras();
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const m = document.getElementById('modal-patrones-arca');
+            if (m && m.style.display === 'flex') {
+                cerrarModalPatronesCompras();
+            }
+        }
+    });
+
+    window.setPatronChartMode = function (mode) {
+        currentPatronChartMode = mode;
+
+        // Actualizar estilos de botones
+        const modes = ['count', 'amount', 'weekday'];
+        modes.forEach(m => {
+            const btn = document.getElementById(`btn-patron-mode-${m}`);
+            if (btn) {
+                if (m === mode) {
+                    btn.style.background = 'rgba(79, 70, 229, 0.15)';
+                    btn.style.color = '#4338ca';
+                    btn.style.border = '1px solid rgba(79, 70, 229, 0.35)';
+                    btn.style.fontWeight = '700';
+                } else {
+                    btn.style.background = '#ffffff';
+                    btn.style.color = 'var(--text-primary)';
+                    btn.style.border = '1px solid var(--border-color)';
+                    btn.style.fontWeight = '600';
+                }
+            }
+        });
+
+        renderPatronesChart();
+    };
+
+    function parseFechaEmisionArca(fStr) {
+        if (!fStr) return null;
+        const s = String(fStr).trim();
+        // YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+            const parts = s.split('-');
+            const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+            return isNaN(d.getTime()) ? null : d;
+        }
+        // DD/MM/YYYY
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(s)) {
+            const parts = s.split('/');
+            const d = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+            return isNaN(d.getTime()) ? null : d;
+        }
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    async function renderPatronesChart() {
+        await waitForChart();
+        const canvas = document.getElementById('chartPatronesArca');
+        if (!canvas) return;
+
+        const DIAS_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+        const DIAS_ES_CAP = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+        // Actualizar período en badge
+        const periodoBadge = document.getElementById('patron-periodo-badge');
+        if (periodoBadge) {
+            periodoBadge.textContent = currentSelectedMonth && currentSelectedMonth !== 'all' ? `Mes: ${currentSelectedMonth}` : 'Histórico Completo';
+        }
+
+        if (!arcaData || arcaData.length === 0) {
+            const diaEl = document.getElementById('patron-kpi-dia-max');
+            if (diaEl) diaEl.textContent = 'Sin datos';
+            const semEl = document.getElementById('patron-kpi-dia-semana');
+            if (semEl) semEl.textContent = 'Sin datos';
+            const totEl = document.getElementById('patron-kpi-total-facturas');
+            if (totEl) totEl.textContent = '0';
+            const promEl = document.getElementById('patron-kpi-promedio-diario');
+            if (promEl) promEl.textContent = '0';
+            const insEl = document.getElementById('patron-insight-text');
+            if (insEl) insEl.textContent = 'No hay comprobantes cargados en ARCA para el período seleccionado.';
+            const tbodyTop = document.getElementById('tbl-patron-top-dias');
+            if (tbodyTop) tbodyTop.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 1rem;">Sin comprobantes</td></tr>`;
+            if (chartPatronesArcaInst) {
+                chartPatronesArcaInst.destroy();
+                chartPatronesArcaInst = null;
+            }
+            return;
+        }
+
+        // Agrupar compras por fecha
+        const dailyMap = {};
+        const weekdayMap = { 0: { count: 0, amount: 0 }, 1: { count: 0, amount: 0 }, 2: { count: 0, amount: 0 }, 3: { count: 0, amount: 0 }, 4: { count: 0, amount: 0 }, 5: { count: 0, amount: 0 }, 6: { count: 0, amount: 0 } };
+
+        let totalFacturas = 0;
+        let totalMonto = 0;
+
+        arcaData.forEach(inv => {
+            const d = parseFechaEmisionArca(inv.fecha_emision);
+            if (!d) return;
+
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dayNum = String(d.getDate()).padStart(2, '0');
+            const key = `${y}-${m}-${dayNum}`;
+            const amount = parseFloat(inv.imp_total || 0);
+
+            if (!dailyMap[key]) {
+                dailyMap[key] = {
+                    dateKey: key,
+                    dateObj: d,
+                    dayOfWeek: d.getDay(),
+                    dayName: DIAS_ES[d.getDay()],
+                    dayNameCap: DIAS_ES_CAP[d.getDay()],
+                    dayNum: d.getDate(),
+                    count: 0,
+                    totalAmount: 0
+                };
+            }
+            dailyMap[key].count += 1;
+            dailyMap[key].totalAmount += amount;
+
+            weekdayMap[d.getDay()].count += 1;
+            weekdayMap[d.getDay()].amount += amount;
+
+            totalFacturas += 1;
+            totalMonto += amount;
+        });
+
+        // Identificar día pico y día de semana más activo
+        let maxDay = null;
+        Object.values(dailyMap).forEach(item => {
+            if (!maxDay || item.count > maxDay.count || (item.count === maxDay.count && item.totalAmount > maxDay.totalAmount)) {
+                maxDay = item;
+            }
+        });
+
+        let topWeekdayIdx = 1;
+        let maxWeekdayCount = -1;
+        // Orden lógico de lunes (1) a domingo (0)
+        [1, 2, 3, 4, 5, 6, 0].forEach(idx => {
+            if (weekdayMap[idx].count > maxWeekdayCount) {
+                maxWeekdayCount = weekdayMap[idx].count;
+                topWeekdayIdx = idx;
+            }
+        });
+
+        const activeDaysCount = Object.keys(dailyMap).length || 1;
+        const avgDailyCount = totalFacturas / activeDaysCount;
+        const avgDailyAmount = totalMonto / activeDaysCount;
+
+        // Actualizar KPIs en la cabecera del modal
+        if (maxDay) {
+            const diaEl = document.getElementById('patron-kpi-dia-max');
+            if (diaEl) diaEl.textContent = `${maxDay.dayNameCap} ${maxDay.dayNum}`;
+            const diaSub = document.getElementById('patron-kpi-dia-max-sub');
+            if (diaSub) diaSub.textContent = `${maxDay.count} facturas (${formatCurrency(maxDay.totalAmount)})`;
+        }
+
+        const topWName = DIAS_ES_CAP[topWeekdayIdx];
+        const topWPct = totalFacturas > 0 ? Math.round((maxWeekdayCount / totalFacturas) * 100) : 0;
+        const semEl = document.getElementById('patron-kpi-dia-semana');
+        if (semEl) semEl.textContent = `${topWName}`;
+        const semSub = document.getElementById('patron-kpi-dia-semana-sub');
+        if (semSub) semSub.textContent = `${maxWeekdayCount} facturas (${topWPct}% del período)`;
+
+        const totFacEl = document.getElementById('patron-kpi-total-facturas');
+        if (totFacEl) totFacEl.textContent = `${totalFacturas} facturas`;
+        const totMontoEl = document.getElementById('patron-kpi-total-monto');
+        if (totMontoEl) totMontoEl.textContent = `Total: ${formatCurrency(totalMonto)}`;
+
+        const promEl = document.getElementById('patron-kpi-promedio-diario');
+        if (promEl) promEl.textContent = `${avgDailyCount.toFixed(1)} facturas / día`;
+        const promSub = document.getElementById('patron-kpi-promedio-sub');
+        if (promSub) promSub.textContent = `Promedio: ${formatCurrency(avgDailyAmount)}/día activo`;
+
+        // Top 5 días tabla
+        const sortedDays = Object.values(dailyMap).sort((a, b) => b.count - a.count || b.totalAmount - a.totalAmount);
+        const top5 = sortedDays.slice(0, 5);
+        const tblTop = document.getElementById('tbl-patron-top-dias');
+        if (tblTop) {
+            tblTop.innerHTML = top5.map(td => `
+                <tr>
+                    <td><strong>${escapeHtml(td.dateKey)}</strong></td>
+                    <td><span class="badge" style="background: rgba(37,99,235,0.08); color: #2563eb; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;">${escapeHtml(td.dayNameCap)}</span></td>
+                    <td style="text-align: center;"><strong style="color: #0f172a; font-size: 0.95rem;">${td.count}</strong></td>
+                    <td style="text-align: right; font-weight: 600;">${formatCurrency(td.totalAmount)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Diagnóstico inteligente
+        const insightEl = document.getElementById('patron-insight-text');
+        if (insightEl && maxDay) {
+            insightEl.innerHTML = `Los días <strong>${topWName}</strong> registran la mayor concentración de comprobantes (${topWPct}% del volumen del período). El día pico fue el <strong>${maxDay.dayNameCap} ${maxDay.dateKey}</strong> con <strong>${maxDay.count} facturas</strong> (${formatCurrency(maxDay.totalAmount)}). El promedio diario durante los días activos es de <strong>${avgDailyCount.toFixed(1)} facturas</strong>.`;
+        }
+
+        // Preparar datasets para Chart.js
+        let chartLabels = [];
+        let datasets = [];
+
+        if (currentPatronChartMode === 'weekday') {
+            // Modo Día de Semana (Lun a Dom)
+            const weekdaysOrder = [1, 2, 3, 4, 5, 6, 0];
+            chartLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+            const counts = weekdaysOrder.map(idx => weekdayMap[idx].count);
+            const amounts = weekdaysOrder.map(idx => weekdayMap[idx].amount);
+
+            datasets = [
+                {
+                    type: 'bar',
+                    label: 'Cantidad de Facturas',
+                    data: counts,
+                    backgroundColor: 'rgba(79, 70, 229, 0.7)',
+                    borderColor: '#4f46e5',
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    yAxisID: 'y'
+                },
+                {
+                    type: 'line',
+                    label: 'Monto Total ($)',
+                    data: amounts,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2.5,
+                    pointRadius: 5,
+                    pointBackgroundColor: '#f59e0b',
+                    tension: 0.3,
+                    yAxisID: 'y1'
+                }
+            ];
+        } else {
+            // Modo Cronológico Diario (Estilo idéntico a la imagen de referencia)
+            let dayTimeline = [];
+            if (currentSelectedMonth && /^\d{4}-\d{2}$/.test(currentSelectedMonth)) {
+                const parts = currentSelectedMonth.split('-');
+                const y = parseInt(parts[0], 10);
+                const m = parseInt(parts[1], 10);
+                const daysInM = new Date(y, m, 0).getDate();
+
+                for (let d = 1; d <= daysInM; d++) {
+                    const key = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    if (dailyMap[key]) {
+                        dayTimeline.push(dailyMap[key]);
+                    } else {
+                        const dateObj = new Date(y, m - 1, d);
+                        dayTimeline.push({
+                            dateKey: key,
+                            dateObj: dateObj,
+                            dayOfWeek: dateObj.getDay(),
+                            dayName: DIAS_ES[dateObj.getDay()],
+                            dayNameCap: DIAS_ES_CAP[dateObj.getDay()],
+                            dayNum: d,
+                            count: 0,
+                            totalAmount: 0
+                        });
+                    }
+                }
+            } else {
+                const sortedKeys = Object.keys(dailyMap).sort();
+                dayTimeline = sortedKeys.map(k => dailyMap[k]);
+            }
+
+            chartLabels = dayTimeline.map(item => `${item.dayName} ${String(item.dayNum).padStart(2, '0')}`);
+            const mainValues = dayTimeline.map(item => currentPatronChartMode === 'count' ? item.count : item.totalAmount);
+
+            // 1. Línea de tendencia (Promedio horizontal, idéntico a la línea naranja de la imagen)
+            const sumValues = mainValues.reduce((a, b) => a + b, 0);
+            const meanValue = dayTimeline.length > 0 ? (sumValues / dayTimeline.length) : 0;
+            const trendData = mainValues.map(() => meanValue);
+
+            // 2. Línea de proyección / promedio móvil (idéntico a la línea verde punteada de la imagen)
+            const rollingData = mainValues.map((val, idx, arr) => {
+                const start = Math.max(0, idx - 1);
+                const end = Math.min(arr.length - 1, idx + 1);
+                let s = 0, c = 0;
+                for (let k = start; k <= end; k++) {
+                    s += arr[k];
+                    c++;
+                }
+                return c > 0 ? (s / c) : val;
+            });
+
+            const metricTitle = currentPatronChartMode === 'count' ? 'FACTURAS INGRESADAS' : 'MONTO FACTURADO';
+            const meanFormatted = currentPatronChartMode === 'count' ? `${meanValue.toFixed(1)} facturas` : formatCurrency(meanValue);
+
+            datasets = [
+                {
+                    label: `TOTAL (${metricTitle})`,
+                    data: mainValues,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                    borderWidth: 2.5,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#2563eb',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2
+                },
+                {
+                    label: `Línea de tendencia (Promedio: ${meanFormatted})`,
+                    data: trendData,
+                    borderColor: '#f59e0b',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: false
+                },
+                {
+                    label: `PROYECCIÓN / TENDENCIA MÓVIL`,
+                    data: rollingData,
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    borderDash: [4, 4],
+                    pointRadius: 3,
+                    pointBackgroundColor: '#10b981',
+                    tension: 0.35,
+                    fill: false
+                }
+            ];
+        }
+
+        if (chartPatronesArcaInst) {
+            chartPatronesArcaInst.destroy();
+            chartPatronesArcaInst = null;
+        }
+
+        const ctx = canvas.getContext('2d');
+        const scalesConfig = currentPatronChartMode === 'weekday' ? {
+            x: {
+                grid: { display: false },
+                ticks: { color: '#475569', font: { size: 12, weight: '600' } }
+            },
+            y: {
+                beginAtZero: true,
+                position: 'left',
+                title: { display: true, text: 'Cantidad Facturas', color: '#4f46e5', font: { weight: '700' } },
+                grid: { color: '#f1f5f9' },
+                ticks: { color: '#475569' }
+            },
+            y1: {
+                beginAtZero: true,
+                position: 'right',
+                title: { display: true, text: 'Monto Total ($)', color: '#d97706', font: { weight: '700' } },
+                grid: { display: false },
+                ticks: {
+                    color: '#64748b',
+                    callback: val => formatCurrency(val)
+                }
+            }
+        } : {
+            x: {
+                grid: { display: false },
+                ticks: {
+                    maxRotation: 45,
+                    minRotation: 45,
+                    color: '#475569',
+                    font: { size: 11, weight: '600' }
+                }
+            },
+            y: {
+                beginAtZero: true,
+                grid: { color: '#f1f5f9' },
+                ticks: {
+                    color: '#64748b',
+                    callback: function (val) {
+                        if (currentPatronChartMode === 'amount') {
+                            if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
+                            if (val >= 1000) return '$' + (val / 1000).toFixed(0) + 'k';
+                            return '$' + val;
+                        }
+                        return Number.isInteger(val) ? val : '';
+                    }
+                }
+            }
+        };
+
+        chartPatronesArcaInst = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartLabels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: '#1e293b',
+                            font: { size: 12, weight: '600' },
+                            usePointStyle: true,
+                            boxWidth: 8
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        padding: 10,
+                        callbacks: {
+                            label: function (context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed.y !== null) {
+                                    if (currentPatronChartMode === 'amount' || context.dataset.yAxisID === 'y1') {
+                                        label += formatCurrency(context.parsed.y);
+                                    } else {
+                                        label += `${context.parsed.y.toFixed(context.parsed.y % 1 === 0 ? 0 : 1)} comprobantes`;
+                                    }
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: scalesConfig
+            }
+        });
+    }
 
 
     // ==========================================

@@ -16,6 +16,10 @@ class InvoiceHandler(FileSystemEventHandler):
             
         _, ext = os.path.splitext(file_path)
         if ext.lower() in ALLOWED_EXTENSIONS:
+            from processor import is_file_processing
+            if is_file_processing(file_path):
+                print(f"[Vigía] Omitiendo {os.path.basename(file_path)}: gestionado activamente por escáner/otro hilo.", flush=True)
+                return
             self.watcher_manager.update_activity()
             print(f"Nuevo archivo detectado: {file_path}", flush=True)
             try:
@@ -73,6 +77,9 @@ class WatcherManager:
         self.total_files_to_process = len(files_to_process)
         
         for file_path in files_to_process:
+            from processor import is_file_processing
+            if is_file_processing(file_path):
+                continue
             self.update_activity()
             print(f"Archivo existente encontrado: {file_path}", flush=True)
             try:

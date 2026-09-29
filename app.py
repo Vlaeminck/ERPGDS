@@ -679,6 +679,10 @@ def open_scanner():
         filename = f"Escáner_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
         output_path = os.path.join(INPUT_FOLDER, filename)
         
+        # Reservar inmediatamente el archivo en el registro de concurrencia para que el vigía lo ignore
+        from processor import mark_file_processing, unmark_file_processing
+        mark_file_processing(output_path)
+
         naps2_path = r"C:\Program Files\NAPS2\NAPS2.Console.exe"
         
         # Iniciar el vigía si no estaba corriendo (durará 5 min sin actividad)
@@ -726,9 +730,11 @@ def open_scanner():
                     SCANNER_STATE["progress"] = 85
                     SCANNER_STATE["message"] = "Procesando documento (OCR / CAE / IA)..."
                     
-                    from processor import process_invoice, get_user_history
-                    time.sleep(0.6)
+                    from processor import process_invoice, get_user_history, unmark_file_processing
+                    time.sleep(0.5)
                     if os.path.exists(output_path):
+                        # Liberar reserva previa para que process_invoice tome el lock interno
+                        unmark_file_processing(output_path)
                         process_invoice(output_path)
                         
                     # Buscar el resultado en el historial
@@ -765,8 +771,16 @@ def open_scanner():
                 SCANNER_STATE["can_open_lid"] = True
                 SCANNER_STATE["progress"] = 100
                 SCANNER_STATE["active"] = False
-                SCANNER_STATE["message"] = f"Error en el escaneo: {e}"
+                SCANNER_STATE["message"] = f"Error al escanear: {str(e)}"
                 SCANNER_STATE["error"] = str(e)
+                if scanning_lock.locked():
+                    scanning_lock.release()
+            finally:
+                try:
+                    from processor import unmark_file_processing
+                    unmark_file_processing(output_path)
+                except Exception:
+                    pass
                 if scanning_lock.locked():
                     scanning_lock.release()
                 

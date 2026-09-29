@@ -4,11 +4,54 @@ import json
 import shutil
 import time
 import datetime
+import threading
 import pdfplumber
 import pypdfium2 as pdfium
 from PIL import Image
 from config import OUTPUT_FOLDER, UNRECOGNIZED_FOLDER
 import config
+
+# ---------------------------------------------------------------------------
+# Sincronización Thread-Safe de Archivos en Proceso (Prevención de Carreras)
+# ---------------------------------------------------------------------------
+_active_files_lock = threading.Lock()
+_active_processing_files = set()
+
+def mark_file_processing(file_path):
+    if not file_path:
+        return
+    with _active_files_lock:
+        _active_processing_files.add(os.path.abspath(file_path).lower())
+
+def unmark_file_processing(file_path):
+    if not file_path:
+        return
+    with _active_files_lock:
+        _active_processing_files.discard(os.path.abspath(file_path).lower())
+
+def is_file_processing(file_path):
+    if not file_path:
+        return False
+    with _active_files_lock:
+        return os.path.abspath(file_path).lower() in _active_processing_files
+
+def safe_move_file(src, dst, max_retries=5, delay=0.4):
+    """
+    Mueve un archivo en Windows de manera segura, reintentando si
+    algún lector o subproceso mantiene un lock temporal.
+    """
+    for attempt in range(max_retries):
+        try:
+            if not os.path.exists(src):
+                raise FileNotFoundError(f"Archivo origen no encontrado: {src}")
+            ensure_dir(os.path.dirname(dst))
+            shutil.move(src, dst)
+            return True
+        except (PermissionError, OSError) as e:
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            else:
+                raise e
 
 MONTHS_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
@@ -252,84 +295,50 @@ def extract_cuits_from_text(text):
 
 def load_arca_csvs():
     """
-    Lee todos los archivos CSV en la carpeta CSV ARCA y construye un índice por CAE, por CUIT, por número de factura (PV-NUM) y lista de comprobantes por CUIT.
+    Construye índices de compras ARCA consultando primero la base de datos SQLite
+    (Única Fuente de Verdad) y suplementando con archivos CSV de la carpeta CSV ARCA si existen.
     """
     cae_index = {}
     arca_cuit_index = {}
     arca_invoice_index = {}
     arca_cuit_invoices = {}
-    from config import BASE_DIR
-    csv_folder = os.path.join(BASE_DIR, "CSV ARCA")
-    if not os.path.exists(csv_folder):
-        return cae_index, arca_cuit_index, arca_invoice_index, arca_cuit_invoices
 
-    import csv
-    import io
-
-    csv_files = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
-    for file_path in csv_files:
-        try:
-            # Leer archivo de forma segura con varias codificaciones
-            content = None
-            encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig']
-            for encoding in encodings:
-                try:
-                    with open(file_path, mode='r', encoding=encoding) as f:
-                        content = f.read()
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if content is None:
-                continue
-
-            reader = csv.reader(io.StringIO(content), delimiter=';')
-            rows = list(reader)
-            if not rows:
-                continue
-
-            header = [col.strip().replace('"', '') for col in rows[0]]
-            
-            try:
-                cuit_idx = header.index("Nro. Doc. Emisor")
-                name_idx = header.index("Denominación Emisor")
-                cae_idx = header.index("Cód. Autorización")
-                pv_idx = header.index("Punto de Venta")
-                num_idx = header.index("Número Desde")
-                total_idx = header.index("Imp. Total")
-                date_idx = header.index("Fecha de Emisión")
-            except ValueError:
-                cuit_idx = 7
-                name_idx = 8
-                cae_idx = 5
-                pv_idx = 2
-                num_idx = 3
-                total_idx = 29
-                date_idx = 0
-
-            for row in rows[1:]:
-                if len(row) <= max(cuit_idx, name_idx, cae_idx, pv_idx, num_idx, total_idx, date_idx):
-                    continue
-                
-                cuit = re.sub(r'\D', '', row[cuit_idx].strip().replace('"', ''))
-                name = row[name_idx].strip().replace('"', '')
-                cae = row[cae_idx].strip().replace('"', '')
-                pv = row[pv_idx].strip().replace('"', '')
-                num = row[num_idx].strip().replace('"', '')
-                total = row[total_idx].strip().replace('"', '')
-                date_val = row[date_idx].strip().replace('"', '') if len(row) > date_idx else None
+    # 1. Cargar desde la base de datos SQLite (control_interno.db)
+    try:
+        from config import REGISTROS_FOLDER
+        db_path = os.path.join(REGISTROS_FOLDER, "control_interno.db")
+        if os.path.exists(db_path):
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, fecha_emision, punto_venta, nro_comprobante, nro_doc_emisor, 
+                       denominacion_emisor, imp_total, cae, factura_recibida 
+                FROM arca_compras_csv
+            """)
+            for row in cur.fetchall():
+                cuit = re.sub(r'\D', '', str(row['nro_doc_emisor'] or ''))
+                name = str(row['denominacion_emisor'] or '').strip()
+                cae = str(row['cae'] or '').strip()
+                pv = str(row['punto_venta'] or '').strip()
+                num = str(row['nro_comprobante'] or '').strip()
+                total = row['imp_total']
+                date_val = str(row['fecha_emision'] or '').strip()
 
                 info_dict = {
+                    "id": row['id'],
                     "cuit": cuit,
                     "name": name,
                     "pv": pv,
                     "num": num,
                     "total": total,
                     "date": date_val,
-                    "cae": cae
+                    "cae": cae,
+                    "recibida": row['factura_recibida']
                 }
 
-                if cae:
+                if cae and len(cae) >= 10:
                     if cae not in cae_index:
                         cae_index[cae] = []
                     cae_index[cae].append(info_dict)
@@ -345,8 +354,97 @@ def load_arca_csvs():
                         arca_invoice_index[inv_key] = info_dict
                     except Exception:
                         pass
-        except Exception as e:
-            print(f"Error procesando CSV {os.path.basename(file_path)}: {e}", flush=True)
+            conn.close()
+    except Exception as e_db:
+        print(f"Aviso al cargar arca desde DB en processor: {e_db}", flush=True)
+
+    # 2. Suplementar desde archivos CSV si existen comprobantes no sincronizados en DB
+    from config import BASE_DIR
+    csv_folder = os.path.join(BASE_DIR, "CSV ARCA")
+    if os.path.exists(csv_folder):
+        import csv
+        import io
+
+        csv_files = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.lower().endswith('.csv')]
+        for file_path in csv_files:
+            try:
+                content = None
+                encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig']
+                for encoding in encodings:
+                    try:
+                        with open(file_path, mode='r', encoding=encoding) as f:
+                            content = f.read()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if content is None:
+                    continue
+
+                reader = csv.reader(io.StringIO(content), delimiter=';')
+                rows = list(reader)
+                if not rows:
+                    continue
+
+                header = [col.strip().replace('"', '') for col in rows[0]]
+                try:
+                    cuit_idx = header.index("Nro. Doc. Emisor")
+                    name_idx = header.index("Denominación Emisor")
+                    cae_idx = header.index("Cód. Autorización")
+                    pv_idx = header.index("Punto de Venta")
+                    num_idx = header.index("Número Desde")
+                    total_idx = header.index("Imp. Total")
+                    date_idx = header.index("Fecha de Emisión")
+                except ValueError:
+                    cuit_idx = 7
+                    name_idx = 8
+                    cae_idx = 5
+                    pv_idx = 2
+                    num_idx = 3
+                    total_idx = 29
+                    date_idx = 0
+
+                for row in rows[1:]:
+                    if len(row) <= max(cuit_idx, name_idx, cae_idx, pv_idx, num_idx, total_idx, date_idx):
+                        continue
+                    
+                    cuit = re.sub(r'\D', '', row[cuit_idx].strip().replace('"', ''))
+                    name = row[name_idx].strip().replace('"', '')
+                    cae = row[cae_idx].strip().replace('"', '')
+                    pv = row[pv_idx].strip().replace('"', '')
+                    num = row[num_idx].strip().replace('"', '')
+                    total = row[total_idx].strip().replace('"', '')
+                    date_val = row[date_idx].strip().replace('"', '') if len(row) > date_idx else None
+
+                    info_dict = {
+                        "cuit": cuit,
+                        "name": name,
+                        "pv": pv,
+                        "num": num,
+                        "total": total,
+                        "date": date_val,
+                        "cae": cae
+                    }
+
+                    if cae:
+                        if cae not in cae_index:
+                            cae_index[cae] = []
+                        cae_index[cae].append(info_dict)
+                    if cuit and name and cuit not in arca_cuit_index:
+                        arca_cuit_index[cuit] = name
+                    if cuit:
+                        if cuit not in arca_cuit_invoices:
+                            arca_cuit_invoices[cuit] = []
+                        arca_cuit_invoices[cuit].append(info_dict)
+                    if pv and num:
+                        try:
+                            inv_key = f"{int(pv)}-{int(num)}"
+                            if inv_key not in arca_invoice_index:
+                                arca_invoice_index[inv_key] = info_dict
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"Error procesando CSV {os.path.basename(file_path)}: {e}", flush=True)
 
     return cae_index, arca_cuit_index, arca_invoice_index, arca_cuit_invoices
 
@@ -359,20 +457,50 @@ def normalize_string(s):
 
 def build_cuit_to_supplier_map():
     """
-    Construye un mapa {cuit_digits: supplier_name_in_config} buscando:
-    1. En los keywords de SUPPLIERS.
-    2. En los CSVs de ARCA (cruzando el nombre del emisor del CSV con los keywords/nombres de SUPPLIERS).
+    Construye un mapa {cuit_digits: supplier_name} consultando:
+    1. La tabla proveedores en SQLite (400+ proveedores oficiales).
+    2. Los keywords configurados en suppliers.json.
+    3. Los CSVs de ARCA cruzando denominación con proveedores.
     """
     cuit_map = {}
-    
-    # 1. Primero, mapear por los CUITs declarados explícitamente en keywords
+
+    # 1. Cargar desde la tabla proveedores de SQLite
+    try:
+        from config import REGISTROS_FOLDER
+        db_path = os.path.join(REGISTROS_FOLDER, "control_interno.db")
+        if os.path.exists(db_path):
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT nombre, cuit, keywords FROM proveedores")
+            for row in cur.fetchall():
+                name = str(row['nombre'] or '').strip()
+                cuit = re.sub(r'\D', '', str(row['cuit'] or ''))
+                if len(cuit) == 11 and name:
+                    cuit_map[cuit] = name
+                kw_raw = row['keywords']
+                if kw_raw:
+                    try:
+                        kws = json.loads(kw_raw) if isinstance(kw_raw, str) else kw_raw
+                        for kw in kws:
+                            d = re.sub(r'\D', '', str(kw))
+                            if len(d) == 11 and d not in cuit_map:
+                                cuit_map[d] = name
+                    except Exception:
+                        pass
+            conn.close()
+    except Exception as e_db:
+        print(f"Aviso al cargar proveedores desde DB en processor: {e_db}", flush=True)
+
+    # 2. Cargar CUITs declarados explícitamente en config.SUPPLIERS
     for supplier_name, data in config.SUPPLIERS.items():
         for kw in data.get("keywords", []):
             digits = re.sub(r'\D', '', kw)
-            if len(digits) == 11:
+            if len(digits) == 11 and digits not in cuit_map:
                 cuit_map[digits] = supplier_name
 
-    # 2. Segundo, leer los CSV de ARCA y cruzar por nombre
+    # 3. Cruzar con nombres de proveedores existentes
     kw_to_supplier = {}
     for supplier_name, data in config.SUPPLIERS.items():
         kw_to_supplier[normalize_string(supplier_name)] = supplier_name
@@ -434,9 +562,15 @@ def build_cuit_to_supplier_map():
                 
     return cuit_map
 
-# Índices globales construidos una sola vez
+# Índices globales construidos al importar
 _CUIT_INDEX = build_cuit_to_supplier_map()
 _CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX, _ARCA_CUIT_INVOICES = load_arca_csvs()
+
+def reload_indices():
+    """Recarga todos los índices en memoria desde la base de datos."""
+    global _CUIT_INDEX, _CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX, _ARCA_CUIT_INVOICES
+    _CUIT_INDEX = build_cuit_to_supplier_map()
+    _CAE_INDEX, _ARCA_CUIT_INDEX, _ARCA_INVOICE_INDEX, _ARCA_CUIT_INVOICES = load_arca_csvs()
 
 def find_supplier(text):
     """
@@ -810,6 +944,20 @@ def wait_for_file_ready(file_path, timeout=10):
 def process_invoice(file_path):
     print(f"\nProcesando: {file_path}", flush=True)
 
+    norm_path = os.path.abspath(file_path).lower()
+    with _active_files_lock:
+        if norm_path in _active_processing_files:
+            print(f"  [CONCURRENCIA] El archivo {os.path.basename(file_path)} ya está siendo procesado por otro hilo. Saltando ejecución duplicada.", flush=True)
+            return
+        _active_processing_files.add(norm_path)
+
+    try:
+        _process_invoice_internal(file_path)
+    finally:
+        with _active_files_lock:
+            _active_processing_files.discard(norm_path)
+
+def _process_invoice_internal(file_path):
     start_scan_ts = None
     file_name = os.path.basename(file_path)
     match_esc = re.search(r"Escáner_(\d{8}_\d{6})", file_name)
@@ -842,106 +990,27 @@ def process_invoice(file_path):
         move_to_remitos(file_path, os.path.basename(file_path))
         return
 
-    # CONTROL 75 SEGUNDOS: Si el proceso de digitalización y OCR superó los 75s, intervenir con IA
-    elapsed_now = time.time() - start_scan_ts
-    if elapsed_now >= 75:
-        print(f"  [RESCATE 75s] El proceso acumuló {int(elapsed_now)}s (>= 75s). Activando rescate con IA (Gemini)...", flush=True)
-        ai_data = extract_data_via_ai(file_path)
-        if ai_data and ai_data.get('numero_factura') and (ai_data.get('cuit') or ai_data.get('nombre_emisor')):
-            cuit_cleaned = re.sub(r'\D', '', str(ai_data.get('cuit', '')))
-            supplier_found = _CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = _ARCA_CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = ai_data.get('nombre_emisor', 'Proveedor Rescatado').replace('/', '-')
-            
-            invoice_number = ai_data['numero_factura']
-            invoice_date = None
-            if ai_data.get('fecha_emision'):
-                try:
-                    parsed_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
-                    invoice_date = validate_invoice_date(parsed_date)
-                except Exception:
-                    pass
-                    
-            print(f"  [OK] Rescatado por IA a los 75s: {supplier_found} - {invoice_number}", flush=True)
-            save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
-            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
-            invoice_formatted = invoice_number.replace('-', ' - ')
-            new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
-            return
-
-    if not text.strip():
-        print("No se encontró texto. Intentando rescate con IA (Gemini)...", flush=True)
+    # Si no se extrajo texto o es demasiado corto (<50 caracteres), activar IA directamente
+    if not text.strip() or len(text.strip()) < 50:
+        print("Texto insuficiente extraído por OCR. Activando rescate con IA (Gemini)...", flush=True)
         ai_data = extract_data_via_ai(file_path)
         if ai_data and ai_data.get('es_documento_no_fiscal'):
             print("  [REMITO] Documento clasificado por IA como Remito / Comprobante No Fiscal.", flush=True)
             move_to_remitos(file_path, os.path.basename(file_path))
             return
 
-        if ai_data and ai_data.get('cuit') and ai_data.get('numero_factura'):
-            cuit_cleaned = re.sub(r'\D', '', str(ai_data.get('cuit', '')))
-            supplier_found = _CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = _ARCA_CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = ai_data.get('nombre_emisor', 'Proveedor Rescatado').replace('/', '-')
-            
-            invoice_number = ai_data.get('numero_factura')
-            invoice_date = None
-            if ai_data.get('fecha_emision'):
-                try:
-                    parsed_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
-                    invoice_date = validate_invoice_date(parsed_date)
-                except Exception:
-                    pass
-                    
-            print(f"  [OK] Rescatado por IA: {supplier_found} - {invoice_number}", flush=True)
-            save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
-            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
-            invoice_formatted = invoice_number.replace('-', ' - ')
-            new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(file_path, supplier_found, new_filename, invoice_date, invoice_formatted, text=text)
-            return
-            
-        print("No se encontró texto (ni con OCR ni con IA). Moviendo a no reconocidas.", flush=True)
-        log_error_to_file(file_path, "SIN TEXTO", "El archivo no contiene capa de texto ni se pudo extraer texto mediante OCR o IA.")
-        move_to_unrecognized(file_path, f"Desconocido-sin-texto{ext}")
-        return
-
-    print(f"--- Texto detectado (primeros 200 caracteres) ---\n{text[:200]}...", flush=True)
-
-    supplier_found, match_method, csv_info = find_supplier(text)
-    invoice_number = None
-
-    if supplier_found:
-        data = config.SUPPLIERS.get(supplier_found, {})
-        invoice_number, csv_info = extract_invoice_number_from_text(text, supplier_found, csv_info)
-        if invoice_number:
-            print(f"  [OK] Numero de comprobante extraido: {invoice_number}", flush=True)
-
-    # Si pasaron más de 75s y la coincidencia no fue validada con CUIT ni CAE (es sólo keyword)
-    elapsed_now = time.time() - start_scan_ts
-    if (elapsed_now >= 75 and match_method == "keyword") or (not supplier_found and elapsed_now >= 75):
-        print(f"  [RESCATE 75s] Coincidencia debil o incierta a los {int(elapsed_now)}s. Activando rescate con IA (Gemini)...", flush=True)
-        ai_data = extract_data_via_ai(file_path)
-        if ai_data and ai_data.get('numero_factura') and (ai_data.get('cuit') or ai_data.get('nombre_emisor')):
-            cuit_cleaned = re.sub(r'\D', '', str(ai_data.get('cuit', '')))
-            supplier_found = _CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = _ARCA_CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = ai_data.get('nombre_emisor', 'Proveedor Rescatado').replace('/', '-')
+        if ai_data and ai_data.get('supplier') and ai_data.get('numero_factura'):
+            supplier_found = ai_data['supplier']
             invoice_number = ai_data['numero_factura']
             invoice_date = None
             if ai_data.get('fecha_emision'):
                 try:
-                    parsed_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
-                    invoice_date = validate_invoice_date(parsed_date)
+                    p_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
+                    invoice_date = validate_invoice_date(p_date)
                 except Exception:
                     pass
-            print(f"  [OK] Rescatado por IA a los 75s: {supplier_found} - {invoice_number}", flush=True)
+            print(f"  [OK] Rescatado por IA con texto escaso: {supplier_found} - {invoice_number}", flush=True)
+            log_system_error("IA_RESCATE_EXITOSO", f"Factura {invoice_number} de {supplier_found} (Original: {file_path})")
             save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
             learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
             invoice_formatted = invoice_number.replace('-', ' - ')
@@ -951,9 +1020,58 @@ def process_invoice(file_path):
                 text=text, cuit=ai_data.get('cuit'), cae=ai_data.get('cae'), total=ai_data.get('total', 0)
             )
             return
+        else:
+            context_err = {
+                "ocr_len": len(text),
+                "ocr_snippet": text[:300],
+                "ai_attempted": True,
+                "ai_result": str(ai_data) if ai_data else "Sin respuesta"
+            }
+            log_error_to_file(file_path, "SIN TEXTO / ILEGIBLE", "No se pudo extraer texto legible ni rescatar información con IA.", context=context_err)
+            move_to_unrecognized(file_path, f"Desconocido-sin-texto{ext}")
+            return
+
+    print(f"--- Texto detectado (primeros 200 caracteres) ---\n{text[:200]}...", flush=True)
+
+    supplier_found, match_method, csv_info = find_supplier(text)
+    invoice_number = None
 
     if supplier_found:
-        # Extraer la fecha de la factura para determinar el destino
+        invoice_number, csv_info = extract_invoice_number_from_text(text, supplier_found, csv_info)
+        if invoice_number:
+            print(f"  [OK] Numero de comprobante extraido: {invoice_number}", flush=True)
+
+    # Si falta el proveedor O falta el número de factura: no dejar pasar al error, intervenir con IA
+    if not supplier_found or not invoice_number:
+        print(f"  [INFO] Identificación incompleta (Proveedor: '{supplier_found}', Nro: '{invoice_number}'). Activando rescate con IA (Gemini)...", flush=True)
+        ai_data = extract_data_via_ai(file_path)
+        if ai_data and ai_data.get('supplier') and ai_data.get('numero_factura'):
+            supplier_found = ai_data['supplier']
+            invoice_number = ai_data['numero_factura']
+            cuit_hint = ai_data.get('cuit')
+            cae_hint = ai_data.get('cae')
+            total_hint = ai_data.get('total', 0)
+            invoice_date = None
+            if ai_data.get('fecha_emision'):
+                try:
+                    p_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
+                    invoice_date = validate_invoice_date(p_date)
+                except Exception:
+                    pass
+            print(f"  [OK] ¡Rescate exitoso por IA!: {supplier_found} - {invoice_number}", flush=True)
+            log_system_error("IA_RESCATE_EXITOSO", f"Factura {invoice_number} de {supplier_found} (Original: {file_path})")
+            save_ai_supplier(supplier_found, cuit_hint, ai_data.get('keywords_optimizadas'))
+            learn_from_invoice(supplier_found, file_name, invoice_number, text, cuit_hint)
+            invoice_formatted = invoice_number.replace('-', ' - ')
+            new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
+            move_to_processed(
+                file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
+                text=text, cuit=cuit_hint, cae=cae_hint, total=total_hint
+            )
+            return
+
+    # Si tenemos ambos datos (ya sea por OCR local o resueltos)
+    if supplier_found and invoice_number:
         invoice_date = None
         cae_hint = None
         cuit_hint = None
@@ -978,67 +1096,31 @@ def process_invoice(file_path):
             else:
                 print(f"  [ADVERTENCIA] No se pudo extraer la fecha. Usando fecha actual.", flush=True)
 
-        if invoice_number:
-            invoice_formatted = invoice_number.replace('-', ' - ')
-            new_filename = f"{invoice_formatted}{ext}"
-            move_to_processed(
-                file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
-                text=text, cuit=cuit_hint, cae=cae_hint, total=total_hint
-            )
-        else:
-            print("  [INFO] Falló extracción de número. Intentando rescate con IA...", flush=True)
-            ai_data = extract_data_via_ai(file_path)
-            if ai_data and ai_data.get('numero_factura'):
-                invoice_number = ai_data['numero_factura']
-                print(f"  [OK] Numero rescatado por IA: {invoice_number}", flush=True)
-                log_system_error("IA_RESCATE_EXITOSO", f"Factura {invoice_number} de {supplier_found} sin número (Original: {file_path})")
-                save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
-                learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
-                invoice_formatted = invoice_number.replace('-', ' - ')
-                new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-                move_to_processed(
-                    file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
-                    text=text, cuit=ai_data.get('cuit'), cae=ai_data.get('cae'), total=ai_data.get('total', 0)
-                )
-            else:
-                new_filename = f"{supplier_found}-sin-numero{ext}"
-                regex_used = data.get("invoice_regex", "None")
-                diagnosis = diagnose_error(text, file_path, supplier_found, regex_used)
-                log_error_to_file(file_path, "SIN NUMERO DE FACTURA", diagnosis)
-                move_to_unrecognized(file_path, new_filename)
-    else:
-        print("  [INFO] Falló identificación de proveedor. Intentando rescate con IA...", flush=True)
-        ai_data = extract_data_via_ai(file_path)
-        if ai_data and ai_data.get('cuit') and ai_data.get('numero_factura'):
-            cuit_cleaned = re.sub(r'\D', '', str(ai_data['cuit']))
-            supplier_found = _CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = _ARCA_CUIT_INDEX.get(cuit_cleaned)
-            if not supplier_found:
-                supplier_found = ai_data.get('nombre_emisor', 'Proveedor Rescatado').replace('/', '-')
-                
-            invoice_number = ai_data['numero_factura']
-            invoice_date = None
-            if ai_data.get('fecha_emision'):
-                try:
-                    parsed_date = datetime.datetime.strptime(ai_data['fecha_emision'], "%Y-%m-%d").date()
-                    invoice_date = validate_invoice_date(parsed_date)
-                except Exception:
-                    pass
-            print(f"  [OK] Rescatado por IA: {supplier_found} - {invoice_number}", flush=True)
-            log_system_error("IA_RESCATE_EXITOSO", f"Proveedor no reconocido originalmente -> Factura {invoice_number} de {supplier_found} (Original: {file_path})")
-            save_ai_supplier(supplier_found, ai_data.get('cuit'), ai_data.get('keywords_optimizadas'))
-            learn_from_invoice(supplier_found, file_name, invoice_number, text, ai_data.get('cuit'))
-            invoice_formatted = invoice_number.replace('-', ' - ')
-            new_filename = f"{invoice_formatted} (Rescatado IA){ext}"
-            move_to_processed(
-                file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
-                text=text, cuit=ai_data.get('cuit'), cae=ai_data.get('cae'), total=ai_data.get('total', 0)
-            )
-        else:
-            diagnosis = diagnose_error(text, file_path)
-            log_error_to_file(file_path, "PROVEEDOR NO RECONOCIDO", diagnosis)
-            move_to_unrecognized(file_path, f"Desconocido-sin-reconocer{ext}")
+        invoice_formatted = invoice_number.replace('-', ' - ')
+        new_filename = f"{invoice_formatted}{ext}"
+        move_to_processed(
+            file_path, supplier_found, new_filename, invoice_date, invoice_formatted,
+            text=text, cuit=cuit_hint, cae=cae_hint, total=total_hint
+        )
+        return
+
+    # Si falló completamente tras intentar OCR local e IA: registrar diagnóstico detallado
+    error_type = "SIN NUMERO DE FACTURA" if supplier_found else "PROVEEDOR NO RECONOCIDO"
+    new_filename = f"{supplier_found or 'Desconocido'}-sin-reconocer{ext}"
+    context_diag = {
+        "ocr_len": len(text),
+        "ocr_snippet": text[:300],
+        "supplier_candidate": supplier_found,
+        "match_method": match_method if 'match_method' in locals() else "N/A",
+        "detected_cuits": extract_cuits_from_text(text),
+        "invoice_number_attempt": invoice_number,
+        "ai_attempted": True,
+        "ai_result": "No se obtuvieron campos completos",
+        "arca_status": "Verificado contra base de datos ARCA"
+    }
+    diagnosis = diagnose_error(text, file_path, supplier_found)
+    log_error_to_file(file_path, error_type, details=diagnosis, context=context_diag)
+    move_to_unrecognized(file_path, new_filename)
 
 def diagnose_error(text, file_path, supplier_found=None, regex_used=None):
     if not text.strip():
@@ -1139,18 +1221,44 @@ def log_system_error(context, exception_details):
     except:
         pass
 
-def log_error_to_file(file_path, error_type, details=None):
+def log_error_to_file(file_path, error_type, details=None, context=None):
     from config import REGISTROS_FOLDER
     ensure_dir(REGISTROS_FOLDER)
     log_path = os.path.join(REGISTROS_FOLDER, "errores_debug.txt")
     
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    file_name = os.path.basename(file_path)
+    file_name = os.path.basename(file_path) if file_path else "Desconocido"
     
     log_entry = f"=========================================\n"
     log_entry += f"Fecha/Hora: {timestamp}\n"
     log_entry += f"Archivo: {file_name}\n"
-    log_entry += f"Tipo de Error: {error_type}\n"
+    if file_path:
+        log_entry += f"Ruta origen: {file_path}\n"
+    log_entry += f"Tipo de Evento/Error: {error_type}\n"
+    
+    if context and isinstance(context, dict):
+        log_entry += "\n--- DIAGNÓSTICO DETALLADO DEL SISTEMA ---\n"
+        if "ocr_len" in context:
+            log_entry += f"  * Longitud texto extraído: {context['ocr_len']} caracteres\n"
+        if "ocr_snippet" in context and context["ocr_snippet"]:
+            snip = str(context['ocr_snippet']).replace('\n', ' ')[:250]
+            log_entry += f"  * Muestra texto OCR: \"{snip}...\"\n"
+        if "supplier_candidate" in context and context["supplier_candidate"]:
+            log_entry += f"  * Proveedor candidato: {context['supplier_candidate']} (Método: {context.get('match_method', 'N/A')})\n"
+        if "detected_cuits" in context and context["detected_cuits"]:
+            log_entry += f"  * CUITs detectados: {context['detected_cuits']}\n"
+        if "invoice_number_attempt" in context and context["invoice_number_attempt"]:
+            log_entry += f"  * Comprobante intentado: {context['invoice_number_attempt']}\n"
+        if "ai_attempted" in context:
+            log_entry += f"  * Rescate IA (Gemini): {'Sí' if context['ai_attempted'] else 'No'}\n"
+        if "ai_result" in context and context["ai_result"]:
+            log_entry += f"  * Datos obtenidos por IA: {context['ai_result']}\n"
+        if "arca_status" in context and context["arca_status"]:
+            log_entry += f"  * Estado en ARCA Compras: {context['arca_status']}\n"
+        if "existing_file" in context and context["existing_file"]:
+            log_entry += f"  * Archivo previo existente: {context['existing_file']}\n"
+        log_entry += "----------------------------------------\n\n"
+
     if details:
         log_entry += f"Detalles:\n{details}\n"
     log_entry += f"=========================================\n\n"
@@ -1158,7 +1266,7 @@ def log_error_to_file(file_path, error_type, details=None):
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_entry)
-        print(f"  [LOG] Error registrado en: {log_path}", flush=True)
+        print(f"  [LOG] Registro guardado en: {log_path}", flush=True)
     except Exception as e:
         print(f"Error escribiendo en el log de errores: {e}", flush=True)
 
@@ -1187,16 +1295,47 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
     if invoice_formatted:
         for existing_file in os.listdir(supplier_dir):
             if existing_file.startswith(invoice_formatted):
-                print(f"  [AVISO] Factura duplicada detectada: {invoice_formatted}. Se moverá a No Reconocidas.", flush=True)
-                log_error_to_file(file_path, "FACTURA DUPLICADA", f"La factura {invoice_formatted} ya fue procesada anteriormente para el proveedor '{supplier}'.")
-                move_to_unrecognized(file_path, f"DUPLICADA-{new_filename}")
+                print(f"  [AVISO] Factura ya registrada detectada: {invoice_formatted}. Se confirmará en ARCA.", flush=True)
+                m_pv_num = re.search(r'(\d{1,5})\s*-\s*(\d{1,8})', invoice_formatted)
+                pv_int = int(m_pv_num.group(1)) if m_pv_num else None
+                num_int = int(m_pv_num.group(2)) if m_pv_num else None
+                
+                # Marcar factura como RECIBIDA en ARCA y asegurar registro en facturas_procesadas
+                import db_manager
+                rec_res = db_manager.marcar_factura_recibida_directa(
+                    supplier_name=supplier, pv=pv_int, num=num_int, cae=cae, cuit=cuit,
+                    total=total, fecha=str(invoice_date), filename=existing_file
+                )
+                
+                dup_filename = f"DUPLICADA-{new_filename}"
+                ensure_dir(UNRECOGNIZED_FOLDER)
+                dest_dup = os.path.join(UNRECOGNIZED_FOLDER, generate_unique_filename(UNRECOGNIZED_FOLDER, dup_filename))
+                try:
+                    safe_move_file(file_path, dest_dup)
+                except Exception as e_mv:
+                    print(f"Aviso al mover archivo duplicado: {e_mv}", flush=True)
+                
+                msg_ok = f"Factura {invoice_formatted} ya existía en el archivo. Se confirmó y marcó como RECIBIDA en ARCA."
+                log_scan_time(file_path, dest_dup, supplier, dup_filename, is_duplicate=True, message=msg_ok)
+                
+                log_error_to_file(
+                    file_path, "FACTURA YA EXISTENTE (RECEPCIÓN CONFIRMADA EN ARCA)",
+                    f"La factura {invoice_formatted} ya se encontraba procesada para '{supplier}'. "
+                    f"Se confirmó su recepción física y se marcó automáticamente como RECIBIDA en ARCA (Resultado DB: {rec_res.get('rule', 'OK')}).",
+                    context={
+                        "supplier_candidate": supplier,
+                        "invoice_number_attempt": invoice_formatted,
+                        "arca_status": f"Recibida = 1 (ID ARCA: {rec_res.get('arca_id', 'Vinculado')})",
+                        "existing_file": existing_file
+                    }
+                )
                 return
 
     unique_filename = generate_unique_filename(supplier_dir, new_filename)
     dest_path = os.path.join(supplier_dir, unique_filename)
 
     try:
-        shutil.move(file_path, dest_path)
+        safe_move_file(file_path, dest_path)
         print(f"¡Éxito! Movido a: {dest_path}", flush=True)
         log_scan_time(file_path, dest_path, supplier, new_filename)
         
@@ -1257,7 +1396,7 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
     except Exception as e:
         print(f"Error moviendo archivo: {e}", flush=True)
 
-def log_scan_time(original_file_path, dest_path, supplier_name, new_filename):
+def log_scan_time(original_file_path, dest_path, supplier_name, new_filename, is_duplicate=False, message=None):
     try:
         import os, datetime, re
         file_name = os.path.basename(original_file_path)
@@ -1294,11 +1433,16 @@ def log_scan_time(original_file_path, dest_path, supplier_name, new_filename):
         with open(os.path.join(REGISTROS_FOLDER, "tiempos_escaneo.txt"), "a", encoding="utf-8") as f:
             f.write(log_line)
             
-        status_code = "error" if ("No Reconocido" in supplier_name or "Duplicada" in supplier_name or "Error" in supplier_name) else ("remito" if "Remito" in supplier_name else "ok")
-        status_text = "No Reconocida" if status_code == "error" else ("Remito" if status_code == "remito" else ("Procesada (IA)" if used_ai else "Procesada"))
+        if is_duplicate:
+            status_code = "ok"
+            status_text = "Recibida (Ya escaneada)"
+        else:
+            status_code = "error" if ("No Reconocido" in supplier_name or "Duplicada" in supplier_name or "Error" in supplier_name) else ("remito" if "Remito" in supplier_name else "ok")
+            status_text = "No Reconocida" if status_code == "error" else ("Remito" if status_code == "remito" else ("Procesada (IA)" if used_ai else "Procesada"))
+        
         clean_inv_num = os.path.splitext(new_filename)[0].replace(" (Rescatado IA)", "").replace("DUPLICADA-", "")
         
-        record_user_history(original_file_path, supplier_name, clean_inv_num, status_text, status_code, used_ai, duration)
+        record_user_history(original_file_path, supplier_name, clean_inv_num, status_text, status_code, used_ai, duration, message=message)
     except Exception as e:
         # Emergency log to root dir so we can see what failed
         try:
@@ -1313,9 +1457,8 @@ def move_to_unrecognized(file_path, new_filename):
     dest_path = os.path.join(UNRECOGNIZED_FOLDER, unique_filename)
 
     try:
-        shutil.move(file_path, dest_path)
+        safe_move_file(file_path, dest_path)
         print(f"No reconocido. Movido a: {dest_path}", flush=True)
-        # Determinar un nombre de proveedor para el log basado en el prefijo
         proveedor_log = "Error / No Reconocido"
         if new_filename.startswith("DUPLICADA-"):
             proveedor_log = "Duplicada"
@@ -1328,7 +1471,7 @@ def move_to_unrecognized(file_path, new_filename):
 # Historial Simplificado de Procesamiento para el Usuario
 # ---------------------------------------------------------------------------
 
-def record_user_history(filename, supplier, invoice_number, status, status_code, used_ai, elapsed_seconds):
+def record_user_history(filename, supplier, invoice_number, status, status_code, used_ai, elapsed_seconds, message=None):
     """
     Registra una entrada simplificada en el historial de usuario en registros/user_history.json.
     """
@@ -1347,6 +1490,8 @@ def record_user_history(filename, supplier, invoice_number, status, status_code,
             "used_ai": bool(used_ai),
             "elapsed_seconds": round(float(elapsed_seconds), 1)
         }
+        if message:
+            entry["message"] = message
 
         history = get_user_history()
         history.insert(0, entry)
@@ -1482,6 +1627,143 @@ def clear_user_history():
         print(f"Error limpiando historial de usuario: {e}", flush=True)
         return False
 
+def resolve_ai_data_with_arca_and_db(data, file_path=None, text=""):
+    """
+    Cruza exhaustivamente la información retornada por Gemini con la base de datos de ARCA y Proveedores:
+    - Normaliza PV y Número de Comprobante (ej: '10-93032' -> '0010-00093032')
+    - Resuelve el Proveedor oficial a partir de CUIT, Nombre o CAE
+    - Recupera Número de Comprobante desde ARCA si la IA detectó CUIT e Importe/Fecha
+    - Recupera Proveedor y CUIT desde ARCA si la IA detectó el Número de Comprobante
+    """
+    if not data or not isinstance(data, dict):
+        return None
+
+    cuit_raw = re.sub(r'\D', '', str(data.get('cuit') or ''))
+    cae_raw = re.sub(r'\D', '', str(data.get('cae_o_caea') or ''))
+    nombre_raw = str(data.get('nombre_emisor') or '').strip()
+    inv_raw = str(data.get('numero_factura') or '').strip()
+    total_val = float(data.get('monto_total') or 0)
+    fecha_val = str(data.get('fecha_emision') or '').strip()
+
+    # Ignorar CUIT propio (de la empresa receptora) si Gemini lo tomó por error
+    from config import MY_CUIT
+    my_cuit_digits = re.sub(r'\D', '', MY_CUIT) if MY_CUIT else ""
+    if cuit_raw and cuit_raw == my_cuit_digits:
+        cuit_raw = ""
+
+    # 1. Cruzar por CAE si está presente
+    if cae_raw and len(cae_raw) >= 10 and cae_raw in _CAE_INDEX:
+        arca_cands = _CAE_INDEX[cae_raw]
+        arca_info = arca_cands[0]
+        cuit_raw = cuit_raw or arca_info.get('cuit')
+        nombre_raw = arca_info.get('name') or nombre_raw
+        if not inv_raw:
+            try:
+                pv_i = int(arca_info['pv'])
+                num_i = int(arca_info['num'])
+                pv_len = len(str(arca_info.get('pv', '4')).strip())
+                pv_fmt = f"{pv_i:05d}" if pv_len == 5 or pv_i > 9999 else f"{pv_i:04d}"
+                inv_raw = f"{pv_fmt}-{num_i:08d}"
+            except Exception:
+                pass
+        fecha_val = fecha_val or arca_info.get('date')
+        if not total_val and arca_info.get('total'):
+            try:
+                total_val = float(str(arca_info['total']).replace(',', '.'))
+            except Exception:
+                pass
+
+    # 2. Formatear y verificar inv_raw
+    parsed_pv, parsed_num = None, None
+    if inv_raw:
+        m = re.search(r'(\d{1,5})\s*[-/]\s*(\d{1,8})', inv_raw)
+        if m:
+            parsed_pv = int(m.group(1))
+            parsed_num = int(m.group(2))
+        else:
+            m_single = re.search(r'\b(\d{5,8})\b', inv_raw)
+            if m_single:
+                parsed_num = int(m_single.group(1))
+
+    # 3. Si tenemos parsed_pv y parsed_num, buscar en _ARCA_INVOICE_INDEX
+    if parsed_pv is not None and parsed_num is not None:
+        inv_key = f"{parsed_pv}-{parsed_num}"
+        if inv_key in _ARCA_INVOICE_INDEX:
+            arca_info = _ARCA_INVOICE_INDEX[inv_key]
+            cuit_raw = cuit_raw or arca_info.get('cuit')
+            nombre_raw = arca_info.get('name') or nombre_raw
+            cae_raw = cae_raw or arca_info.get('cae')
+            fecha_val = fecha_val or arca_info.get('date')
+            if not total_val and arca_info.get('total'):
+                try:
+                    total_val = float(str(arca_info['total']).replace(',', '.'))
+                except Exception:
+                    pass
+
+    # 4. Resolver Proveedor oficial a partir de CUIT o Nombre
+    resolved_supplier = None
+    if cuit_raw and cuit_raw in _CUIT_INDEX:
+        resolved_supplier = _CUIT_INDEX[cuit_raw]
+    elif cuit_raw and cuit_raw in _ARCA_CUIT_INDEX:
+        resolved_supplier = _ARCA_CUIT_INDEX[cuit_raw]
+
+    if not resolved_supplier and nombre_raw:
+        norm_nom = normalize_string(nombre_raw)
+        for c_k, s_name in _CUIT_INDEX.items():
+            norm_s = normalize_string(s_name)
+            if norm_nom == norm_s or (len(norm_nom) > 4 and (norm_nom in norm_s or norm_s in norm_nom)):
+                resolved_supplier = s_name
+                cuit_raw = cuit_raw or c_k
+                break
+        if not resolved_supplier:
+            for s_name in config.SUPPLIERS.keys():
+                norm_s = normalize_string(s_name)
+                if norm_nom == norm_s or (len(norm_nom) > 4 and (norm_nom in norm_s or norm_s in norm_nom)):
+                    resolved_supplier = s_name
+                    break
+
+    if not resolved_supplier and nombre_raw:
+        resolved_supplier = nombre_raw.replace('/', '-')
+
+    # 5. Si no tenemos número de factura pero tenemos CUIT, buscar en facturas ARCA de ese CUIT
+    if (parsed_num is None or parsed_pv is None) and cuit_raw and cuit_raw in _ARCA_CUIT_INVOICES:
+        cands = _ARCA_CUIT_INVOICES[cuit_raw]
+        for cand in cands:
+            c_date = str(cand.get('date') or '').strip()
+            c_tot = float(cand.get('total') or 0)
+            if (fecha_val and c_date and fecha_val == c_date) or (total_val > 0 and c_tot > 0 and abs(total_val - c_tot) <= 0.5):
+                parsed_pv = int(cand['pv'])
+                parsed_num = int(cand['num'])
+                cae_raw = cae_raw or cand.get('cae')
+                fecha_val = fecha_val or c_date
+                total_val = total_val or c_tot
+                break
+        if parsed_num is None and len(cands) == 1:
+            cand = cands[0]
+            parsed_pv = int(cand['pv'])
+            parsed_num = int(cand['num'])
+            cae_raw = cae_raw or cand.get('cae')
+            fecha_val = fecha_val or str(cand.get('date') or '')
+            total_val = total_val or float(cand.get('total') or 0)
+
+    # 6. Formatear número final
+    final_inv_number = None
+    if parsed_pv is not None and parsed_num is not None:
+        pv_fmt = f"{parsed_pv:05d}" if parsed_pv > 9999 else f"{parsed_pv:04d}"
+        final_inv_number = f"{pv_fmt}-{parsed_num:08d}"
+
+    return {
+        "es_documento_no_fiscal": data.get('es_documento_no_fiscal', False),
+        "supplier": resolved_supplier,
+        "nombre_emisor": resolved_supplier or nombre_raw,
+        "numero_factura": final_inv_number,
+        "cuit": cuit_raw,
+        "cae": cae_raw,
+        "fecha_emision": fecha_val,
+        "total": total_val,
+        "keywords_optimizadas": data.get('keywords_optimizadas', [])
+    }
+
 def extract_data_via_ai(file_path):
     from config import AI_API_KEY
     import json
@@ -1529,7 +1811,6 @@ def extract_data_via_ai(file_path):
         today_obj = datetime.date.today()
         today_str = today_obj.strftime('%Y-%m-%d')
         current_year = today_obj.year
-        min_year = current_year - 5
         
         prompt = f"""
         Eres un asistente experto en analizar documentos comerciales y facturas de Argentina. La fecha actual es {today_str} (Año actual: {current_year}).
@@ -1538,7 +1819,7 @@ def extract_data_via_ai(file_path):
             "es_documento_no_fiscal": false,
             "cuit": "el CUIT del EMISOR/VENDEDOR que emite la factura (11 digitos sin guiones)",
             "nombre_emisor": "el nombre o razón social del emisor",
-            "numero_factura": "el número COMPLETO de la factura, incluyendo el Punto de Venta (4 o 5 dígitos) y el Número de Comprobante (8 dígitos), unidos por un guion. Ejemplo: 0611-00307609",
+            "numero_factura": "el número COMPLETO de la factura, incluyendo el Punto de Venta (4 o 5 dígitos) y el Número de Comprobante (8 dígitos), unidos por un guion. Ejemplo: 0611-00307609 o 0010-00093032",
             "fecha_emision": "la fecha de emisión en formato YYYY-MM-DD",
             "cae_o_caea": "el código de autorización de 14 dígitos CAE o CAEA si figura en el comprobante",
             "monto_total": "el importe total final a pagar en número flotante o null",
@@ -1558,76 +1839,35 @@ def extract_data_via_ai(file_path):
            - Si el documento indica "FACTURA A", "FACTURA B", "FACTURA C", "FACTURA M", "LIQUIDACIÓN", o contiene "C.A.E." / "C.A.E.A." o "IVA Responsable Inscripto", ES UN COMPROBANTE FISCAL VÁLIDO -> "es_documento_no_fiscal" DEBE SER false.
            - Solo coloca true si es explícitamente un remito de entrega, presupuesto, orden de compra o comprobante sin valor fiscal.
         4. NÚMERO DE FACTURA:
-           - Extrae el Punto de Venta exacto (ej. 0611 o 0002) y el Número correlativo (ej. 00307609).
-
-        KEYWORDS OPTIMIZADAS:
-        - Extrae ENTRE 3 y 6 PALABRAS CLAVE distintivas del proveedor emisor (nombres comerciales, marcas, dominios web).
+           - Extrae el Punto de Venta exacto (ej. 0611, 0010 o 0002) y el Número correlativo (ej. 00307609 o 00093032).
         NO devuelvas explicaciones, texto extra ni bloques markdown, ÚNICAMENTE el JSON en texto plano.
         """
         contents.append(prompt)
         
         response = model.generate_content(contents)
-        text = response.text
+        raw_text = response.text.strip()
         
-        text = text.replace("```json", "").replace("```", "").strip()
-        data = json.loads(text)
+        # Extracción segura de JSON
+        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(0))
+        else:
+            clean_text = raw_text.replace("```json", "").replace("```", "").strip()
+            data = json.loads(clean_text)
         
         if isinstance(data, dict):
             raw_str = json.dumps(data).lower()
             if any(re.search(pat, raw_str) for pat in [r'\biva\s+responsable\s+inscripto\b', r'\bresponsable\s+inscripto\b', r'\bresp\.?\s*inscripto\b', r'\bcaea?\b', r'\bfactura\b']):
                 data['es_documento_no_fiscal'] = False
                 
-            # Si Gemini detectó el CUIT propio o del receptor, intentar corregir con ARCA o CAE
-            from config import MY_CUIT
-            my_cuit_digits = re.sub(r'\D', '', MY_CUIT) if MY_CUIT else ""
-            cuit_extracted = re.sub(r'\D', '', str(data.get('cuit') or ''))
-            cae_extracted = re.sub(r'\D', '', str(data.get('cae_o_caea') or ''))
+            resolved = resolve_ai_data_with_arca_and_db(data, file_path=file_path)
+            return resolved
             
-            if cae_extracted and cae_extracted in _CAE_INDEX:
-                arca_data = _CAE_INDEX[cae_extracted]
-                data['cuit'] = arca_data.get('cuit')
-                data['nombre_emisor'] = arca_data.get('name') or data.get('nombre_emisor')
-                try:
-                    pv_i = int(arca_data['pv'])
-                    num_i = int(arca_data['num'])
-                    data['numero_factura'] = f"{pv_i:04d}-{num_i:08d}"
-                except Exception:
-                    pass
-                if arca_data.get('date'):
-                    data['fecha_emision'] = arca_data['date']
-                if arca_data.get('total'):
-                    try:
-                        data['monto_total'] = float(str(arca_data['total']).replace(',', '.'))
-                    except Exception:
-                        pass
-            elif data.get('numero_factura'):
-                inv_match = re.search(r'(\d+)\s*-\s*(\d+)', str(data['numero_factura']))
-                if inv_match:
-                    try:
-                        inv_key = f"{int(inv_match.group(1))}-{int(inv_match.group(2))}"
-                        if inv_key in _ARCA_INVOICE_INDEX:
-                            arca_data = _ARCA_INVOICE_INDEX[inv_key]
-                            data['cuit'] = arca_data.get('cuit')
-                            data['nombre_emisor'] = arca_data.get('name') or data.get('nombre_emisor')
-                            pv_i = int(arca_data['pv'])
-                            num_i = int(arca_data['num'])
-                            pv_len = len(str(arca_data.get('pv', '4')).strip())
-                            pv_fmt = f"{pv_i:05d}" if pv_len == 5 or pv_i > 9999 else f"{pv_i:04d}"
-                            data['numero_factura'] = f"{pv_fmt}-{num_i:08d}"
-                            if arca_data.get('date'):
-                                data['fecha_emision'] = arca_data['date']
-                            if arca_data.get('total'):
-                                data['monto_total'] = float(str(arca_data['total']).replace(',', '.'))
-                    except Exception:
-                        pass
-            elif cuit_extracted and cuit_extracted == my_cuit_digits:
-                # El CUIT extraído fue el del cliente receptor, intentar buscar CUIT alternativo
-                pass
-        
-        return data
+        return None
             
     except Exception as e:
         print(f"Error usando IA de Gemini: {e}", flush=True)
+        log_system_error(f"Llamada Gemini falló en {os.path.basename(file_path)}", str(e))
     finally:
         if watcher_manager:
             watcher_manager.is_ai_processing = False

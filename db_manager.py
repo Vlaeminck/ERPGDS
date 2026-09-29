@@ -874,6 +874,202 @@ def save_processed_invoice(year, month, supplier, filename, filepath, total=0, c
     conn.commit()
     conn.close()
 
+def marcar_factura_recibida_directa(supplier_name='', pv=None, num=None, cae=None, cuit=None, total=None, fecha=None, filename='', filepath='', conn=None):
+    """
+    Marca directamente como recibida una factura en arca_compras_csv y asegura que
+    esté vinculada o registrada en facturas_procesadas.
+    Ideal para comprobantes duplicados, re-escaneados o confirmación manual/automática.
+    """
+    import re
+    import datetime as dt_module
+
+    close_at_end = False
+    if conn is None:
+        conn = get_connection()
+        close_at_end = True
+
+    try:
+        cursor = conn.cursor()
+        now_iso = dt_module.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        def clean_digits(val):
+            return re.sub(r'\D', '', str(val or ''))
+
+        def normalize_name(val):
+            if not val:
+                return ""
+            s = str(val).lower()
+            for ch in ['.', ',', '-', '/', '(', ')', '"', "'", 's.a.', 'sa', 's.r.l.', 'srl', 's.c.a.', 'sca']:
+                s = s.replace(ch, ' ')
+            return ' '.join(s.split())
+
+        cae_clean = clean_digits(cae)
+        cuit_clean = clean_digits(cuit)
+        pv_int = int(pv) if pv is not None and str(pv).strip().isdigit() else None
+        num_int = int(num) if num is not None and str(num).strip().isdigit() else None
+        norm_supp = normalize_name(supplier_name)
+        total_float = float(total or 0)
+        fecha_str = (fecha or '').strip()[:10]
+
+        matched_arca = None
+        match_rule = ""
+
+        # 1. Búsqueda por CAE
+        if cae_clean and len(cae_clean) >= 10:
+            cursor.execute("""
+                SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
+                FROM arca_compras_csv 
+                WHERE cae = ?
+                LIMIT 1
+            """, (cae_clean,))
+            r = cursor.fetchone()
+            if r:
+                matched_arca = dict(r)
+                match_rule = "CAE"
+
+        # 2. Búsqueda por Punto de Venta + Número de Comprobante
+        if not matched_arca and pv_int is not None and num_int is not None:
+            cursor.execute("""
+                SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
+                FROM arca_compras_csv 
+                WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
+            """, (pv_int, num_int))
+            cands = [dict(row) for row in cursor.fetchall()]
+            if len(cands) == 1:
+                matched_arca = cands[0]
+                match_rule = "PV_COMP_EXACT"
+            elif len(cands) > 1:
+                for cand in cands:
+                    cand_cuit = clean_digits(cand.get('nro_doc_emisor'))
+                    cand_denom = normalize_name(cand.get('denominacion_emisor'))
+                    if cuit_clean and cand_cuit and cuit_clean == cand_cuit:
+                        matched_arca = cand
+                        match_rule = "PV_COMP_CUIT"
+                        break
+                    first_w = norm_supp.split()[0] if norm_supp else ""
+                    if first_w and (first_w in cand_denom or cand_denom in norm_supp):
+                        matched_arca = cand
+                        match_rule = "PV_COMP_PROV"
+                        break
+                if not matched_arca:
+                    matched_arca = cands[0]
+                    match_rule = "PV_COMP_DEFAULT"
+
+        # 3. Búsqueda por Proveedor (CUIT o Nombre) + Fecha + Total
+        if not matched_arca and total_float > 0 and (fecha_str or norm_supp):
+            if cuit_clean:
+                cursor.execute("""
+                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
+                    FROM arca_compras_csv 
+                    WHERE nro_doc_emisor = ? AND ABS(imp_total - ?) <= 0.5
+                """, (cuit_clean, total_float))
+                cands = [dict(row) for row in cursor.fetchall()]
+                if cands:
+                    matched_arca = cands[0]
+                    match_rule = "CUIT_TOTAL"
+            
+            if not matched_arca and fecha_str:
+                cursor.execute("""
+                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
+                    FROM arca_compras_csv 
+                    WHERE fecha_emision = ? AND ABS(imp_total - ?) <= 0.5
+                """, (fecha_str, total_float))
+                cands = [dict(row) for row in cursor.fetchall()]
+                for cand in cands:
+                    cand_denom = normalize_name(cand.get('denominacion_emisor'))
+                    first_w = norm_supp.split()[0] if norm_supp else ""
+                    if first_w and (first_w in cand_denom or cand_denom in norm_supp):
+                        matched_arca = cand
+                        match_rule = "PROV_FECHA_TOTAL"
+                        break
+
+        arca_id = None
+        if matched_arca:
+            arca_id = matched_arca['id']
+            # Marcar factura_recibida = 1 en ARCA
+            cursor.execute("""
+                UPDATE arca_compras_csv 
+                SET factura_recibida = 1, updated_at = ?, sync_status = 0 
+                WHERE id = ?
+            """, (now_iso, arca_id))
+
+        # Verificar / Actualizar facturas_procesadas
+        final_pv = pv_int or (int(matched_arca['punto_venta']) if matched_arca and str(matched_arca.get('punto_venta', '')).strip().isdigit() else None)
+        final_num = num_int or (int(matched_arca['nro_comprobante']) if matched_arca and str(matched_arca.get('nro_comprobante', '')).strip().isdigit() else None)
+        final_cae = cae_clean or (matched_arca.get('cae') if matched_arca else '')
+        final_cuit = cuit_clean or (matched_arca.get('nro_doc_emisor') if matched_arca else '')
+        final_total = total_float if total_float > 0 else (float(matched_arca.get('imp_total') or 0) if matched_arca else 0)
+        final_fecha = fecha_str or (matched_arca.get('fecha_emision') if matched_arca else now_iso[:10])
+
+        # Buscar si ya existe en facturas_procesadas
+        inv_proc = None
+        if arca_id:
+            cursor.execute("SELECT id FROM facturas_procesadas WHERE arca_id = ? LIMIT 1", (arca_id,))
+            r = cursor.fetchone()
+            if r:
+                inv_proc = dict(r)
+        
+        if not inv_proc and filename:
+            cursor.execute("SELECT id FROM facturas_procesadas WHERE filename = ? AND supplier = ? LIMIT 1", (filename, supplier_name))
+            r = cursor.fetchone()
+            if r:
+                inv_proc = dict(r)
+
+        if not inv_proc and final_pv is not None and final_num is not None:
+            pat_f = f"%{final_pv:04d}%{final_num:08d}%"
+            pat_f5 = f"%{final_pv:05d}%{final_num:08d}%"
+            cursor.execute("SELECT id FROM facturas_procesadas WHERE (filename LIKE ? OR filename LIKE ?) AND supplier = ? LIMIT 1", (pat_f, pat_f5, supplier_name))
+            r = cursor.fetchone()
+            if r:
+                inv_proc = dict(r)
+
+        if inv_proc:
+            cursor.execute("""
+                UPDATE facturas_procesadas 
+                SET arca_match = CASE WHEN ? IS NOT NULL THEN 1 ELSE arca_match END,
+                    arca_id = COALESCE(?, arca_id),
+                    match_metodo = CASE WHEN ? != '' THEN ? ELSE match_metodo END,
+                    match_date = CASE WHEN ? IS NOT NULL THEN ? ELSE match_date END,
+                    cae = COALESCE(NULLIF(cae, ''), ?),
+                    cuit = COALESCE(NULLIF(cuit, ''), ?),
+                    total = CASE WHEN total = 0 THEN ? ELSE total END,
+                    updated_at = ?,
+                    sync_status = 0
+                WHERE id = ?
+            """, (arca_id, arca_id, match_rule, match_rule, arca_id, now_iso, final_cae, final_cuit, final_total, now_iso, inv_proc['id']))
+        else:
+            y_str = final_fecha[:4] if len(final_fecha) >= 4 else now_iso[:4]
+            m_num = int(final_fecha[5:7]) if len(final_fecha) >= 7 and final_fecha[5:7].isdigit() else int(now_iso[5:7])
+            m_es_map = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"}
+            m_str = m_es_map.get(m_num, "Septiembre")
+            f_name = filename or (f"{final_pv:04d} - {final_num:08d}.pdf" if final_pv and final_num else "comprobante.pdf")
+            f_path = filepath or f"{y_str}/{m_str}/{supplier_name}/{f_name}"
+            cursor.execute("""
+                INSERT INTO facturas_procesadas (
+                    year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado,
+                    arca_match, arca_id, match_metodo, match_date, updated_at, sync_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            """, (
+                y_str, m_str, supplier_name, f_name, f_path, final_total,
+                final_cuit, final_cae, final_fecha, now_iso,
+                1 if arca_id else 0, arca_id, match_rule, now_iso if arca_id else '', now_iso
+            ))
+
+        conn.commit()
+        return {
+            "success": True,
+            "arca_id": arca_id,
+            "matched_arca": matched_arca is not None,
+            "rule": match_rule,
+            "emisor": matched_arca.get('denominacion_emisor') if matched_arca else supplier_name
+        }
+    except Exception as e:
+        print(f"Error en marcar_factura_recibida_directa: {e}", flush=True)
+        return {"success": False, "error": str(e)}
+    finally:
+        if close_at_end:
+            conn.close()
+
 def reconciliar_facturas_con_arca(conn=None):
     """
     Motor de conciliación retroactiva automática entre facturas físicas escaneadas (facturas_procesadas)
