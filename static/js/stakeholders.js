@@ -254,14 +254,52 @@ async function fetchArcaComprasCloud() {
 
         // Actualizar KPIs
         const resStats = data.resumen || {};
-        document.getElementById('kpi-total-facturado').textContent = formatCurrency(resStats.total_importe || 0);
+        const netVal = resStats.total_neto !== undefined ? resStats.total_neto : (resStats.total_importe || 0);
+        const brutoVal = resStats.total_bruto !== undefined ? resStats.total_bruto : netVal;
+        const ncVal = resStats.total_nc || 0;
+
+        document.getElementById('kpi-total-facturado').textContent = formatCurrency(netVal);
+        
+        const subDetailsEl = document.getElementById('kpi-facturado-sub-details');
+        if (subDetailsEl) {
+            if (ncVal > 0) {
+                subDetailsEl.innerHTML = `<span style="color: #475569;">Bruto: ${formatCurrency(brutoVal)}</span> <span style="color: #94a3b8; margin: 0 4px;">•</span> <span style="color: #dc2626; font-weight: 700;">NC: -${formatCurrency(ncVal)}</span>`;
+                subDetailsEl.style.display = 'block';
+            } else {
+                subDetailsEl.textContent = '';
+                subDetailsEl.style.display = 'none';
+            }
+        }
         document.getElementById('kpi-count-facturas').textContent = `${resStats.total_compras || 0} comprobantes emitidos`;
 
-        const pendienteImp = (resStats.total_importe || 0) - (resStats.pagados_total || 0);
+        const pendienteImp = resStats.pendientes_total !== undefined ? resStats.pendientes_total : ((resStats.total_importe || 0) - (resStats.pagados_total || 0));
         document.getElementById('kpi-total-pendiente').textContent = formatCurrency(pendienteImp > 0 ? pendienteImp : 0);
+        
+        const pendSubEl = document.getElementById('kpi-pendiente-sub-details');
+        if (pendSubEl) {
+            if (resStats.pendientes_nc && resStats.pendientes_nc > 0) {
+                pendSubEl.innerHTML = `<span style="color: #475569;">Bruto: ${formatCurrency(resStats.pendientes_bruto || 0)}</span> <span style="color: #94a3b8; margin: 0 4px;">•</span> <span style="color: #dc2626; font-weight: 700;">NC: -${formatCurrency(resStats.pendientes_nc)}</span>`;
+                pendSubEl.style.display = 'block';
+            } else {
+                pendSubEl.textContent = '';
+                pendSubEl.style.display = 'none';
+            }
+        }
         document.getElementById('kpi-count-pendientes').textContent = `${resStats.pendientes || 0} facturas por pagar`;
 
-        document.getElementById('kpi-total-pagado').textContent = formatCurrency(resStats.pagados_total || 0);
+        const pagadoImp = resStats.pagados_total !== undefined ? resStats.pagados_total : 0;
+        document.getElementById('kpi-total-pagado').textContent = formatCurrency(pagadoImp);
+        
+        const pagSubEl = document.getElementById('kpi-pagado-sub-details');
+        if (pagSubEl) {
+            if (resStats.pagados_nc && resStats.pagados_nc > 0) {
+                pagSubEl.innerHTML = `<span style="color: #475569;">Bruto: ${formatCurrency(resStats.pagados_bruto || 0)}</span> <span style="color: #94a3b8; margin: 0 4px;">•</span> <span style="color: #dc2626; font-weight: 700;">NC: -${formatCurrency(resStats.pagados_nc)}</span>`;
+                pagSubEl.style.display = 'block';
+            } else {
+                pagSubEl.textContent = '';
+                pagSubEl.style.display = 'none';
+            }
+        }
         document.getElementById('kpi-count-pagados').textContent = `${resStats.pagados || 0} facturas abonadas`;
 
         document.getElementById('kpi-count-nc-retro').textContent = `${resStats.notas_credito || 0} NC / ${resStats.retroactivas || 0} Retros`;
@@ -948,7 +986,12 @@ function renderDashboardCharts(data) {
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                return context.dataset.label + ': ' + formatCurrency(context.raw);
+                                const idx = context.dataIndex;
+                                let txt = context.dataset.label + ': ' + formatCurrency(context.raw);
+                                if (context.dataset.label === 'Total Facturado' && evData.nc && evData.nc[idx] > 0) {
+                                    txt += ` (Bruto: ${formatCurrency(evData.bruto[idx])} | NC: -${formatCurrency(evData.nc[idx])})`;
+                                }
+                                return txt;
                             }
                         }
                     }
@@ -1280,8 +1323,13 @@ function renderRankingTable() {
                         ${p.comprobantes_count}
                     </span>
                 </td>
-                <td style="text-align: right; font-weight: 800; color: #0f172a; font-size: 0.95rem;">
-                    ${formatCurrency(p.total)}
+                <td style="text-align: right; font-weight: 800; color: #0f172a; font-size: 0.95rem; vertical-align: middle;">
+                    <div>${formatCurrency(p.total_neto !== undefined ? p.total_neto : p.total)}</div>
+                    ${(p.total_nc && p.total_nc > 0) ? `
+                        <div style="font-size: 0.74rem; color: #64748b; font-weight: 600; margin-top: 2px;" title="Facturado Bruto: ${formatCurrency(p.total_bruto)} | Notas de Crédito: -${formatCurrency(p.total_nc)}">
+                            Bruto: ${formatCurrency(p.total_bruto)}
+                        </div>
+                    ` : ''}
                 </td>
                 <td>
                     <div style="display: flex; align-items: center; gap: 8px;">

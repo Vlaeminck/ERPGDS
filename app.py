@@ -1232,17 +1232,19 @@ def api_cuentas_por_pagar():
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
         raw_rows = [dict(r) for r in cursor.fetchall()]
         
-        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
+        SQL_IS_NC = "(tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(tipo_comprobante) LIKE '%credito%' OR LOWER(tipo_comprobante) LIKE '%nota%cr%' OR LOWER(tipo_comprobante) = 'nc')"
+        cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv WHERE mes = ?", (mes,))
         tot_fact = cursor.fetchone()[0] or 0
-        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ? AND estado = 'Pagado'", (mes,))
+        cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv WHERE mes = ? AND estado = 'Pagado'", (mes,))
         tot_pag = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
         raw_rows = [dict(r) for r in cursor.fetchall()]
         
-        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv")
+        SQL_IS_NC = "(tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(tipo_comprobante) LIKE '%credito%' OR LOWER(tipo_comprobante) LIKE '%nota%cr%' OR LOWER(tipo_comprobante) = 'nc')"
+        cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv")
         tot_fact = cursor.fetchone()[0] or 0
-        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE estado = 'Pagado'")
+        cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv WHERE estado = 'Pagado'")
         tot_pag = cursor.fetchone()[0] or 0
         
     pendiente = tot_fact - tot_pag
@@ -1437,15 +1439,14 @@ def api_dashboard_empresa():
 
     # EGRESOS
     cursor.execute(f"SELECT SUM(monto_mensual) FROM gastos_fijos {filter_gf}", param_gf)
-    egreso_fijos = cursor.fetchone()[0] or 0
-    
-    cursor.execute(f"SELECT SUM(imp_total) FROM arca_compras_csv {filter_arca}", param_arca)
+    SQL_IS_NC = "(tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(tipo_comprobante) LIKE '%credito%' OR LOWER(tipo_comprobante) LIKE '%nota%cr%' OR LOWER(tipo_comprobante) = 'nc')"
+    cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv {filter_arca}", param_arca)
     egreso_arca = cursor.fetchone()[0] or 0
     
     if filter_arca:
-        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ? AND estado != 'Pagado'", (mes,))
+        cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv WHERE mes = ? AND estado != 'Pagado'", (mes,))
     else:
-        cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE estado != 'Pagado'")
+        cursor.execute(f"SELECT SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) FROM arca_compras_csv WHERE estado != 'Pagado'")
     pendiente_proveedores = cursor.fetchone()[0] or 0
     
     cursor.execute(f"SELECT SUM(monto_retirado) FROM caja_chica_movimientos {filter_caja}", param_caja)
@@ -1794,7 +1795,7 @@ def api_arca_compras():
     tot_imp = tot_imp or 0
     tot_iva = tot_iva or 0
     
-    AFIP_NC_CODES = {'3', '8', '13', '15', '53', '03', '08', '003', '008', '013', '053'}
+    AFIP_NC_CODES = {'3', '8', '13', '53', '03', '08', '013', '053', '112', '113', '114'}
     def _is_nc(tipo):
         t = str(tipo or '').strip().lower()
         return t in AFIP_NC_CODES or ('nota' in t and ('cr' in t or 'credito' in t)) or t == 'nc'
@@ -1802,25 +1803,73 @@ def api_arca_compras():
     for r in rows:
         r['is_nc'] = _is_nc(r.get('tipo_comprobante'))
 
-    # Contar pendientes, pagados, retroactivas y notas de crédito
+    # Totales Neto, Bruto y Notas de Crédito
+    total_bruto = sum(float(r.get('imp_total') or 0) for r in rows if not r.get('is_nc'))
+    total_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('is_nc'))
+    total_neto = total_bruto - total_nc
+
+    total_iva_bruto = sum(float(r.get('total_iva') or 0) for r in rows if not r.get('is_nc'))
+    total_iva_nc = sum(float(r.get('total_iva') or 0) for r in rows if r.get('is_nc'))
+    total_iva_neto = total_iva_bruto - total_iva_nc
+
+    # Contar pendientes, pagados, retroactivas y notas de crédito (netos de NC)
     pendientes = sum(1 for r in rows if r.get('estado') == 'Pendiente')
     pagados_count = sum(1 for r in rows if r.get('estado') == 'Pagado')
-    pagados_total = sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado')
+    
+    pagados_bruto = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') == 'Pagado' and not r.get('is_nc'))
+    pagados_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') == 'Pagado' and r.get('is_nc'))
+    pagados_total = pagados_bruto - pagados_nc
+
+    pendientes_bruto = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') != 'Pagado' and not r.get('is_nc'))
+    pendientes_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') != 'Pagado' and r.get('is_nc'))
+    pendientes_total = pendientes_bruto - pendientes_nc
+
     retroactivas_count = sum(1 for r in rows if r.get('es_retroactiva') == 1)
     nc_count = sum(1 for r in rows if r.get('is_nc'))
 
+    # Métricas por método de pago para stakeholders
+    pagos_por_metodo = {
+        "Efectivo": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Efectivo' in str(r.get('metodo_pago', ''))),
+        "Galicia": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Galicia' in str(r.get('metodo_pago', ''))),
+        "Mercado Pago": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Mercado' in str(r.get('metodo_pago', ''))),
+        "Tarjeta crédito": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Tarjeta' in str(r.get('metodo_pago', '')))
+    }
+
+    # Métricas por categoría de pago
+    pagos_por_categoria = {
+        "Pinamar": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Pinamar'),
+        "Leloir": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Leloir'),
+        "Socios": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Socios'),
+        "Sin Categorizar": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and not r.get('categoria_pago'))
+    }
+
+    alias_map = db_manager.get_suppliers_alias_map()
     conn.close()
     return jsonify({
         "compras": rows,
+        "alias_map": alias_map,
         "resumen": {
             "total_compras": len(rows),
-            "total_importe": tot_imp,
-            "total_iva": tot_iva,
+            "total_importe": round(total_neto, 2),
+            "total_neto": round(total_neto, 2),
+            "total_bruto": round(total_bruto, 2),
+            "total_nc": round(total_nc, 2),
+            "total_iva": round(total_iva_neto, 2),
+            "total_iva_neto": round(total_iva_neto, 2),
+            "total_iva_bruto": round(total_iva_bruto, 2),
+            "total_iva_nc": round(total_iva_nc, 2),
             "pendientes": pendientes,
+            "pendientes_total": round(pendientes_total, 2),
+            "pendientes_bruto": round(pendientes_bruto, 2),
+            "pendientes_nc": round(pendientes_nc, 2),
             "pagados": pagados_count,
-            "pagados_total": pagados_total,
+            "pagados_total": round(pagados_total, 2),
+            "pagados_bruto": round(pagados_bruto, 2),
+            "pagados_nc": round(pagados_nc, 2),
             "retroactivas": retroactivas_count,
-            "notas_credito": nc_count
+            "notas_credito": nc_count,
+            "pagos_por_metodo": pagos_por_metodo,
+            "pagos_por_categoria": pagos_por_categoria
         }
     })
 
@@ -2499,11 +2548,16 @@ def api_dashboard_stats():
     conn = db_manager.get_connection()
     cursor = conn.cursor()
 
-    cursor.execute('''
+    SQL_IS_NC_C = "(c.tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(c.tipo_comprobante) LIKE '%credito%' OR LOWER(c.tipo_comprobante) LIKE '%nota%cr%' OR LOWER(c.tipo_comprobante) = 'nc')"
+    SQL_IS_NC = "(tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(tipo_comprobante) LIKE '%credito%' OR LOWER(tipo_comprobante) LIKE '%nota%cr%' OR LOWER(tipo_comprobante) = 'nc')"
+
+    cursor.execute(f'''
         SELECT mes, 
-               SUM(imp_total) as total_facturado,
-               SUM(CASE WHEN estado = 'Pagado' THEN imp_total ELSE 0 END) as total_pagado,
-               SUM(CASE WHEN estado != 'Pagado' THEN imp_total ELSE 0 END) as total_pendiente
+               SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) as total_facturado,
+               SUM(CASE WHEN NOT {SQL_IS_NC} THEN imp_total ELSE 0 END) as total_bruto,
+               SUM(CASE WHEN {SQL_IS_NC} THEN imp_total ELSE 0 END) as total_nc,
+               SUM(CASE WHEN estado = 'Pagado' THEN (CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN estado != 'Pagado' THEN (CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) ELSE 0 END) as total_pendiente
         FROM arca_compras_csv
         WHERE mes IS NOT NULL AND mes != ''
         GROUP BY mes
@@ -2513,6 +2567,8 @@ def api_dashboard_stats():
     evolucion_mensual = {
         "meses": [r['mes'] for r in evolucion_rows],
         "facturado": [round(float(r['total_facturado'] or 0), 2) for r in evolucion_rows],
+        "bruto": [round(float(r['total_bruto'] or 0), 2) for r in evolucion_rows],
+        "nc": [round(float(r['total_nc'] or 0), 2) for r in evolucion_rows],
         "pagado": [round(float(r['total_pagado'] or 0), 2) for r in evolucion_rows],
         "pendiente": [round(float(r['total_pendiente'] or 0), 2) for r in evolucion_rows]
     }
@@ -2548,7 +2604,7 @@ def api_dashboard_stats():
 
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') as rubro,
-               SUM(c.imp_total) as total,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total,
                COUNT(c.id) as comprobantes_count
         FROM arca_compras_csv c
         LEFT JOIN proveedores p ON (
@@ -2568,7 +2624,7 @@ def api_dashboard_stats():
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') as rubro,
                COALESCE(NULLIF(TRIM(p.subcategoria), ''), 'Sin Subcategoría') as subrubro,
-               SUM(c.imp_total) as total,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total,
                COUNT(c.id) as comprobantes_count
         FROM arca_compras_csv c
         LEFT JOIN proveedores p ON (
@@ -2587,7 +2643,7 @@ def api_dashboard_stats():
 
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(c.categoria_pago, ''), 'Sin Categorizar') as cat,
-               SUM(c.imp_total) as total
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total
         FROM arca_compras_csv c
         LEFT JOIN proveedores p ON (
             (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
@@ -2601,7 +2657,7 @@ def api_dashboard_stats():
 
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(c.metodo_pago, ''), 'Sin Definir') as metodo,
-               SUM(c.imp_total) as total
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total
         FROM arca_compras_csv c
         LEFT JOIN proveedores p ON (
             (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
@@ -2614,9 +2670,11 @@ def api_dashboard_stats():
     gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
 
     cursor.execute(f'''
-        SELECT SUM(c.imp_total) as gran_total,
-               SUM(CASE WHEN c.estado = 'Pagado' THEN c.imp_total ELSE 0 END) as total_pagado,
-               SUM(CASE WHEN c.estado != 'Pagado' THEN c.imp_total ELSE 0 END) as total_pendiente,
+        SELECT SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as gran_total,
+               SUM(CASE WHEN NOT {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_bruto,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_nc,
+               SUM(CASE WHEN c.estado = 'Pagado' THEN (CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN c.estado != 'Pagado' THEN (CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) ELSE 0 END) as total_pendiente,
                COUNT(c.id) as total_comprobantes,
                COUNT(DISTINCT c.denominacion_emisor) as total_proveedores
         FROM arca_compras_csv c
@@ -2628,6 +2686,8 @@ def api_dashboard_stats():
     ''', params)
     tot_row = cursor.fetchone()
     gran_total = float(tot_row['gran_total'] or 0)
+    total_bruto = float(tot_row['total_bruto'] or 0)
+    total_nc = float(tot_row['total_nc'] or 0)
     total_pagado = float(tot_row['total_pagado'] or 0)
     total_pendiente = float(tot_row['total_pendiente'] or 0)
     total_comprobantes = int(tot_row['total_comprobantes'] or 0)
@@ -2640,7 +2700,9 @@ def api_dashboard_stats():
                MAX(p.alias) as prov_alias,
                COALESCE(NULLIF(MAX(p.categoria), ''), 'General') as categoria,
                COALESCE(NULLIF(MAX(p.subcategoria), ''), '') as subcategoria,
-               SUM(c.imp_total) as total,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total,
+               SUM(CASE WHEN NOT {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_bruto,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_nc,
                COUNT(c.id) as comprobantes_count
         FROM arca_compras_csv c
         LEFT JOIN proveedores p ON (
@@ -2658,8 +2720,10 @@ def api_dashboard_stats():
         razon = r['denominacion_emisor'] or 'Desconocido'
         alias = (r['prov_alias'] or '').strip()
         cuit = r['nro_doc_emisor'] or ''
-        monto = round(float(r['total'] or 0), 2)
-        pct = round((monto / gran_total * 100), 1) if gran_total > 0 else 0.0
+        monto_neto = round(float(r['total'] or 0), 2)
+        monto_bruto = round(float(r['total_bruto'] or 0), 2)
+        monto_nc = round(float(r['total_nc'] or 0), 2)
+        pct = round((monto_neto / gran_total * 100), 1) if gran_total > 0 and monto_neto > 0 else 0.0
 
         ranking_completo.append({
             "rank": idx + 1,
@@ -2669,7 +2733,10 @@ def api_dashboard_stats():
             "display_name": alias if alias else razon,
             "categoria": r['categoria'],
             "subcategoria": r['subcategoria'],
-            "total": monto,
+            "total": monto_neto,
+            "total_neto": monto_neto,
+            "total_bruto": monto_bruto,
+            "total_nc": monto_nc,
             "comprobantes_count": int(r['comprobantes_count'] or 0),
             "porcentaje": pct
         })
@@ -2688,6 +2755,9 @@ def api_dashboard_stats():
         "ranking_proveedores": ranking_completo,
         "resumen": {
             "total_facturado": round(gran_total, 2),
+            "total_neto": round(gran_total, 2),
+            "total_bruto": round(total_bruto, 2),
+            "total_nc": round(total_nc, 2),
             "total_pagado": round(total_pagado, 2),
             "total_pendiente": round(total_pendiente, 2),
             "total_comprobantes": total_comprobantes,

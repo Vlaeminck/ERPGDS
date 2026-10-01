@@ -3291,9 +3291,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const el_nc_cnt = document.getElementById('arca-count-nc');
             const el_nc_badge = document.getElementById('arca-badge-nc');
 
+            const netTot = data.resumen.total_neto !== undefined ? data.resumen.total_neto : (data.resumen.total_importe || 0);
+            const brutoTot = data.resumen.total_bruto !== undefined ? data.resumen.total_bruto : netTot;
+            const ncTot = data.resumen.total_nc || 0;
+
             if (el_pend) el_pend.textContent = data.resumen.pendientes || 0;
             if (el_pag) el_pag.innerHTML = `${data.resumen.pagados || 0} (<span style="color:var(--text-secondary); font-size:0.85em;">${formatCurrency(data.resumen.pagados_total || 0)}</span>)`;
-            if (el_tot) el_tot.textContent = formatCurrency(data.resumen.total_importe || 0);
+            if (el_tot) {
+                if (ncTot > 0) {
+                    el_tot.innerHTML = `${formatCurrency(netTot)} <span style="font-size:0.75rem; font-weight:600; opacity:0.85; margin-left:4px;" title="Facturado Bruto: ${formatCurrency(brutoTot)} | NCs: -${formatCurrency(ncTot)}">(Bruto: ${formatCurrency(brutoTot)})</span>`;
+                } else {
+                    el_tot.textContent = formatCurrency(netTot);
+                }
+            }
 
             if (el_retro_cnt && el_retro_badge) {
                 const retroCnt = data.resumen.retroactivas || 0;
