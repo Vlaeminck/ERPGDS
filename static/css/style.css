@@ -1446,3 +1446,39 @@ input[type="number"] {
     gap: 0.75rem;
     margin-top: 1.5rem;
 }
+
+/* ==========================================
+   MODO PRIVACIDAD (Ocultar Montos con Asteriscos)
+   ========================================== */
+.btn-privacy-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 0.82rem;
+    padding: 0.5rem 0.85rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-privacy-toggle:hover {
+    border-color: #6366f1;
+    color: #4f46e5;
+}
+
+.btn-privacy-toggle.active {
+    background: rgba(99, 102, 241, 0.12) !important;
+    color: #4f46e5 !important;
+    border-color: rgba(99, 102, 241, 0.35) !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+}
+
+body.privacy-mode .privacy-maskable {
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 1px;
+}
+

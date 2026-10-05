@@ -19,14 +19,12 @@ echo ===================================================
 echo [VERIFICACION] CSV ARCA
 echo ===================================================
 if not exist "CSV ARCA\*.csv" (
-    echo [ADVERTENCIA] No se encontro ningun archivo .csv en la carpeta "CSV ARCA".
-    echo El ejecutable se compilara, pero no tendra datos pre-cargados de ARCA.
-    echo Asegurese de anadirlos en la carpeta "CSV ARCA" final si es necesario.
-    pause
+    echo [INFO] Carpeta "CSV ARCA" limpia (compilacion en blanco sin comprobantes pre-cargados).
 ) else (
-    echo [OK] Archivos CSV encontrados.
+    echo [OK] Archivos CSV encontrados en la carpeta local.
 )
 echo.
+
 
 echo [1/1] Ejecutando compilador automatizado (build.py)...
 python build.py

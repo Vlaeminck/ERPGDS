@@ -67,9 +67,12 @@ print("\n--- 2. Eliminando archivos de configuracion y credenciales ---")
 files_to_remove = [
     "suppliers.json",
     "arca_credentials.json",
+    "firebase_credentials.json",
     "api_key.txt",
     "my_cuit.txt",
+    "cuit.txt",
     "sys_config.dat",
+    "base_gds.db",
     "test.txt",
     "Pruebaupdate.txt"
 ]
@@ -85,13 +88,15 @@ for fname in files_to_remove:
     else:
         print(f"[-] Archivo '{fname}' no existia.")
 
-# 3. Vaciar y Reinicializar Base de Datos SQLite (100% Vacia)
+# 3. Vaciar y Reinicializar Base de Datos SQLite (100% Vacia con esquema listo)
 print("\n--- 3. Restableciendo base de datos SQLite (control_interno.db) ---")
 try:
     import db_manager
-    db_manager.reset_db()
+    db_manager.init_db(seed_samples=False)
+    db_manager.reset_db(keep_base_categories=True)
 except Exception as e:
     print(f"[!] Error restableciendo la base de datos: {e}")
+
 
 # 4. Resetear variables en config.py
 print("\n--- 4. Reseteando configuracion en config.py ---")

@@ -157,8 +157,16 @@
                         style="font-size: 0.8rem; padding: 0.5rem 0.8rem;">
                         <i class="fa-solid fa-layer-group"></i> Ver Histórico Completo
                     </button>
+                    <button class="btn btn-secondary btn-sm btn-privacy-toggle" id="btn-privacy-toggle"
+                        onclick="togglePrivacyMode()"
+                        title="Modo Privacidad: Ocultar o mostrar montos con asteriscos para demostraciones"
+                        style="font-size: 0.8rem; padding: 0.5rem 0.85rem;">
+                        <i class="fa-solid fa-eye-slash" id="privacy-icon"></i>
+                        <span id="privacy-text">Ocultar Montos</span>
+                    </button>
                 </div>
             </div>
+
 
             <!-- Tab: Dashboard Empresa -->
             <section id="tab-empresa" class="tab-pane active fade-in">

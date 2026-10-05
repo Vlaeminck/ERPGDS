@@ -319,7 +319,14 @@
                 <span id="cloud-sync-text">Cloud Sync Activo</span>
             </div>
 
+            <!-- Botón de Modo Privacidad -->
+            <button class="btn btn-sm" id="btn-privacy-toggle" onclick="togglePrivacyMode()" title="Modo Privacidad: Ocultar o mostrar montos con asteriscos" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-eye-slash" id="privacy-icon"></i>
+                <span id="privacy-text" style="font-size: 0.8rem;">Ocultar</span>
+            </button>
+
             <button class="btn btn-sm" onclick="triggerManualSync()" title="Forzar sincronización inmediata y reconciliación" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer;">
+
                 <i class="fa-solid fa-arrows-rotate"></i>
             </button>
 

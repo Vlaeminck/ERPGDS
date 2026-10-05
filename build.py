@@ -48,6 +48,8 @@ pyinstaller_cmd = [
     "--collect-all=openpyxl",
     "--add-data=templates;templates",
     "--add-data=static;static",
+    "--hidden-import=dotenv",
+    "--hidden-import=rarfile",
     "--hidden-import=firebase_admin",
     "--hidden-import=firebase_admin.credentials",
     "--hidden-import=firebase_admin.firestore",
@@ -61,6 +63,7 @@ pyinstaller_cmd = [
     "--hidden-import=selenium.webdriver.chrome.webdriver",
     "app.py"
 ]
+
 
 if os.path.exists(os.path.join(ROOT_DIR, "version.txt")):
     pyinstaller_cmd.insert(6, "--version-file=version.txt")
@@ -97,15 +100,16 @@ for folder in required_folders:
     os.makedirs(target_path, exist_ok=True)
     print(f"  [OK] Carpeta de entorno lista: {folder}")
 
-# Copiar base de datos inicial si existe
-registros_src = os.path.join(ROOT_DIR, "registros")
+# Asegurar que la carpeta registros esté limpia y lista para una nueva empresa
+# (La aplicación inicializará una base de datos limpia de 0 registros en el primer arranque)
 registros_dist = os.path.join(DIST_DIR, "registros")
-if os.path.exists(registros_src):
-    for f in os.listdir(registros_src):
-        src_f = os.path.join(registros_src, f)
-        dst_f = os.path.join(registros_dist, f)
-        if os.path.isfile(src_f) and not os.path.exists(dst_f):
-            shutil.copy2(src_f, dst_f)
+os.makedirs(registros_dist, exist_ok=True)
+gitkeep_path = os.path.join(registros_dist, ".gitkeep")
+if not os.path.exists(gitkeep_path):
+    with open(gitkeep_path, "w") as f:
+        pass
+print("  [OK] Carpeta registros configurada para inicialización limpia (0 registros).")
+
 
 print()
 print("===================================================")

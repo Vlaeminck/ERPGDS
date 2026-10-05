@@ -25,10 +25,47 @@ const METODOS_PAGO = [
     { key: 'Tarjeta crédito', label: '🟪 Tarjeta crédito', bg: '#faf5ff', color: '#6d28d9', border: '#e9d5ff' }
 ];
 
+// --- Privacy Mode (Ocultar Montos con Asteriscos) ---
+function isPrivacyMode() {
+    return localStorage.getItem('erp_privacy_mode') === 'true';
+}
+
+function togglePrivacyMode() {
+    const next = !isPrivacyMode();
+    localStorage.setItem('erp_privacy_mode', next ? 'true' : 'false');
+    updatePrivacyModeUI();
+    if (typeof fetchAllData === 'function') {
+        fetchAllData();
+    }
+    showToast(next ? 'Modo Privacidad activado: Montos protegidos con asteriscos' : 'Modo Privacidad desactivado: Montos visibles', 'info');
+}
+
+function updatePrivacyModeUI() {
+    const active = isPrivacyMode();
+    document.body.classList.toggle('privacy-mode', active);
+    const btn = document.getElementById('btn-privacy-toggle');
+    const icon = document.getElementById('privacy-icon');
+    const text = document.getElementById('privacy-text');
+    if (btn) {
+        btn.classList.toggle('active', active);
+        btn.style.background = active ? 'rgba(99, 102, 241, 0.15)' : '#f1f5f9';
+        btn.style.color = active ? '#4f46e5' : '#334155';
+        btn.style.borderColor = active ? 'rgba(99, 102, 241, 0.4)' : '#cbd5e1';
+    }
+    if (icon) {
+        icon.className = active ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+    }
+    if (text) {
+        text.textContent = active ? 'Mostrar' : 'Ocultar';
+    }
+}
+
 function formatCurrency(num) {
+    if (isPrivacyMode()) return '$ ***.***';
     if (num === null || num === undefined || isNaN(num)) return '$ 0';
     return '$ ' + Math.round(Number(num)).toLocaleString('es-AR');
 }
+
 
 function escapeHtml(str) {
     if (!str) return '';
@@ -185,6 +222,7 @@ async function handleLogout() {
 // ==========================================
 
 async function initPortal() {
+    updatePrivacyModeUI();
     await loadMonths();
     await loadCategories();
     await fetchAllData();
@@ -192,6 +230,7 @@ async function initPortal() {
     pollSyncStatus();
     setInterval(pollSyncStatus, 5000);
 }
+
 
 async function loadMonths() {
     try {

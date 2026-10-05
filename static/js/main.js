@@ -2153,17 +2153,57 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- Utility: Privacy Mode (Ocultar Montos / Asteriscos) ---
+    window.isPrivacyMode = function () {
+        return localStorage.getItem('erp_privacy_mode') === 'true';
+    };
+
+    window.togglePrivacyMode = function () {
+        const next = !window.isPrivacyMode();
+        localStorage.setItem('erp_privacy_mode', next ? 'true' : 'false');
+        updatePrivacyModeUI();
+        if (typeof switchTab === 'function') {
+            switchTab(currentActiveTab);
+        }
+        if (typeof showToast === 'function') {
+            showToast(next ? 'Modo Privacidad activado: Montos protegidos con asteriscos' : 'Modo Privacidad desactivado: Montos visibles', 'info');
+        }
+    };
+
+    function updatePrivacyModeUI() {
+        const active = window.isPrivacyMode();
+        document.body.classList.toggle('privacy-mode', active);
+        const btn = document.getElementById('btn-privacy-toggle');
+        const icon = document.getElementById('privacy-icon');
+        const text = document.getElementById('privacy-text');
+        if (btn) {
+            btn.classList.toggle('active', active);
+        }
+        if (icon) {
+            icon.className = active ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+        }
+        if (text) {
+            text.textContent = active ? 'Mostrar Montos' : 'Ocultar Montos';
+        }
+    }
+
+    // Inicializar estado visual de privacidad al cargar
+    setTimeout(updatePrivacyModeUI, 50);
+
     // --- Utility: Format Currency ---
     function formatCurrency(val) {
+        if (window.isPrivacyMode && window.isPrivacyMode()) return '$ ***.***';
         if (val === null || val === undefined || isNaN(val)) return '$0';
         return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(val);
     }
 
     function renderDiffTag(diff) {
+        if (window.isPrivacyMode && window.isPrivacyMode()) return `<span class="diff-tag zero">$ ***</span>`;
         if (!diff || diff === 0) return `<span class="diff-tag zero">$0</span>`;
         if (diff > 0) return `<span class="diff-tag positive">+${formatCurrency(diff)}</span>`;
         return `<span class="diff-tag negative">${formatCurrency(diff)}</span>`;
     }
+
 
     // Chart instances
     let chartRecaudacionInst = null;

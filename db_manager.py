@@ -421,8 +421,88 @@ def init_db(seed_samples=False):
 
     conn.commit()
     conn.close()
+
     if seed_samples:
         seed_initial_data()
+
+
+def reset_db(keep_base_categories=True):
+    """
+    Vacía por completo todas las tablas operativas de la base de datos (0 registros),
+    dejando el esquema 100% limpio y listo para una nueva empresa.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    tablas_a_vaciar = [
+        'recaudacion_diaria',
+        'estacionamiento_diario',
+        'estacionamiento_gastos',
+        'caja_chica_movimientos',
+        'caja_chica_arqueo',
+        'gastos_fijos',
+        'arca_compras_csv',
+        'arca_compras_snapshots',
+        'proveedores_cuentas_pagar',
+        'proveedores',
+        'facturas_procesadas',
+        'retiros_recaudacion',
+        'configuraciones'
+    ]
+
+    for tabla in tablas_a_vaciar:
+        try:
+            cursor.execute(f"DELETE FROM {tabla}")
+            cursor.execute(f"DELETE FROM sqlite_sequence WHERE name=?", (tabla,))
+        except Exception:
+            pass
+
+    # Mantener o recrear categorías base estándar si se solicita
+    if keep_base_categories:
+        try:
+            cursor.execute("DELETE FROM categorias_gastos")
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='categorias_gastos'")
+        except Exception:
+            pass
+
+        import hashlib
+        import datetime as dt_mod
+        now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        default_cats = [
+            ("Carnes", None, "fa-drumstick-bite", "#ef4444"),
+            ("Verdulería", None, "fa-carrot", "#10b981"),
+            ("Limpieza", None, "fa-pump-soap", "#06b6d4"),
+            ("Papelería & Descartables", None, "fa-box-open", "#8b5cf6"),
+            ("Bebidas", None, "fa-wine-bottle", "#ec4899"),
+            ("Lácteos & Quesos", None, "fa-cheese", "#f59e0b"),
+            ("Panadería & Harinas", None, "fa-bread-slice", "#d97706"),
+            ("Servicios & Mantenimiento", None, "fa-wrench", "#6366f1"),
+            ("Impuestos & Tasas", None, "fa-landmark", "#64748b"),
+            ("General", None, "fa-tags", "#94a3b8")
+        ]
+        for cat_nom, p_id, icon, clr in default_cats:
+            det_uuid = hashlib.md5(f"{cat_nom.strip().lower()}:{p_id or ''}".encode()).hexdigest()
+            cursor.execute('''
+                INSERT OR IGNORE INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+            ''', (cat_nom, p_id, icon, clr, det_uuid, now_iso))
+    else:
+        try:
+            cursor.execute("DELETE FROM categorias_gastos")
+        except Exception:
+            pass
+
+    conn.commit()
+    conn.close()
+
+    try:
+        conn = get_connection()
+        conn.execute("VACUUM")
+        conn.close()
+    except Exception:
+        pass
+    print("[db_manager] Base de datos restablecida a 0 registros con éxito.")
+
 
 def seed_initial_data():
     conn = get_connection()
@@ -1275,12 +1355,3 @@ def get_processed_invoices_from_db():
     conn.close()
     return [dict(r) for r in rows]
 
-def reset_db():
-    if os.path.exists(DB_PATH):
-        try:
-            os.remove(DB_PATH)
-            print(f"[OK] Base de datos '{DB_PATH}' eliminada.")
-        except Exception as e:
-            print(f"[!] Error eliminando base de datos: {e}")
-    init_db(seed_samples=False)
-    print("[OK] Base de datos reinicializada sin datos de muestra (100% vacía).")
