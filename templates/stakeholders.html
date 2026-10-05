@@ -319,7 +319,15 @@
                 <span id="cloud-sync-text">Cloud Sync Activo</span>
             </div>
 
+            <!-- Botón de Modo Privacidad -->
+            <button class="btn btn-sm" id="btn-privacy-toggle" onclick="togglePrivacyMode()" title="Modo Privacidad: Ocultar o mostrar montos con asteriscos" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+
+                <i class="fa-solid fa-eye-slash" id="privacy-icon"></i>
+                <span id="privacy-text" style="font-size: 0.8rem;">Ocultar Montos</span>
+            </button>
+
             <button class="btn btn-sm" onclick="triggerManualSync()" title="Forzar sincronización inmediata y reconciliación" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer;">
+
                 <i class="fa-solid fa-arrows-rotate"></i>
             </button>
 
@@ -400,6 +408,11 @@
                             <option value="recibida">Recibidas Físicas</option>
                             <option value="no_recibida">Faltantes Físicas</option>
                         </select>
+
+                        <div style="position: relative; width: 240px;">
+                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.8rem; pointer-events: none;"></i>
+                            <input type="text" id="arca-cloud-search-provider" class="form-control" placeholder="Buscar proveedor / alias..." oninput="renderArcaCloudTable()" style="width: 100%; padding: 0.42rem 0.6rem 0.42rem 2rem; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: 1px solid #cbd5e1;">
+                        </div>
                     </div>
 
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -443,7 +456,14 @@
         <!-- TAB 2: CUENTAS POR PAGAR -->
         <section id="tab-cuentas" class="tab-content" style="display: none;">
             <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
-                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Cuentas por Pagar a Proveedores</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0;">Cuentas por Pagar a Proveedores</h3>
+                    <div style="position: relative; width: 260px;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.82rem; pointer-events: none;"></i>
+                        <input type="text" id="cuentas-cloud-search-provider" class="form-control" placeholder="Buscar proveedor..." oninput="filterCuentasPagarCloud(this.value)" style="width: 100%; padding: 0.45rem 0.75rem 0.45rem 2rem; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: 1px solid #cbd5e1;">
+                    </div>
+                </div>
+
                 <div style="max-height: 480px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
                     <table class="data-table" style="width: 100%; border-collapse: collapse;">
                         <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">

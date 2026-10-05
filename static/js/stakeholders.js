@@ -2,6 +2,7 @@
 
 let currentMonth = '';
 let arcaData = [];
+let cuentasPagarData = { proveedores: [], cuentas: [] };
 let aliasMap = {};
 let allProveedoresList = [];
 let arcaSortKey = 'fecha_emision';
@@ -25,10 +26,45 @@ const METODOS_PAGO = [
     { key: 'Tarjeta crédito', label: '🟪 Tarjeta crédito', bg: '#faf5ff', color: '#6d28d9', border: '#e9d5ff' }
 ];
 
+// --- Privacy Mode (Ocultar Montos con Asteriscos) ---
+function isPrivacyMode() {
+    return localStorage.getItem('erp_privacy_mode') === 'true';
+}
+
+function togglePrivacyMode() {
+    const next = !isPrivacyMode();
+    localStorage.setItem('erp_privacy_mode', next ? 'true' : 'false');
+    updatePrivacyModeUI();
+    fetchAllData();
+    showToast(next ? 'Modo Privacidad activado: Montos protegidos con asteriscos' : 'Modo Privacidad desactivado: Montos visibles', 'info');
+}
+
+function updatePrivacyModeUI() {
+    const active = isPrivacyMode();
+    document.body.classList.toggle('privacy-mode', active);
+    const btn = document.getElementById('btn-privacy-toggle');
+    const icon = document.getElementById('privacy-icon');
+    const text = document.getElementById('privacy-text');
+    if (btn) {
+        btn.classList.toggle('active', active);
+        btn.style.background = active ? 'rgba(99, 102, 241, 0.15)' : '#f1f5f9';
+        btn.style.color = active ? '#4f46e5' : '#334155';
+        btn.style.borderColor = active ? 'rgba(99, 102, 241, 0.4)' : '#cbd5e1';
+    }
+    if (icon) {
+        icon.className = active ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+    }
+    if (text) {
+        text.textContent = active ? 'Mostrar Montos' : 'Ocultar Montos';
+    }
+}
+
 function formatCurrency(num) {
+    if (isPrivacyMode()) return '$ ***.***';
     if (num === null || num === undefined || isNaN(num)) return '$ 0';
     return '$ ' + Math.round(Number(num)).toLocaleString('es-AR');
 }
+
 
 function escapeHtml(str) {
     if (!str) return '';
@@ -190,6 +226,7 @@ async function handleLogout() {
 // ==========================================
 
 async function initPortal() {
+    updatePrivacyModeUI();
     await loadMonths();
     await loadCategories();
     await fetchAllData();
@@ -197,6 +234,7 @@ async function initPortal() {
     pollSyncStatus();
     setInterval(pollSyncStatus, 15000);
 }
+
 
 async function loadMonths() {
     try {
@@ -348,7 +386,8 @@ function renderArcaCloudTable() {
     const tbody = document.getElementById('tbl-arca-cloud-body');
     if (!tbody) return;
 
-    const filterVal = document.getElementById('arca-cloud-filter').value;
+    const filterVal = document.getElementById('arca-cloud-filter')?.value || 'all';
+    const searchProv = (document.getElementById('arca-cloud-search-provider')?.value || '').toLowerCase().trim();
     let filtered = [...arcaData];
 
     if (filterVal === 'recibida') filtered = filtered.filter(c => c.factura_recibida);
@@ -357,6 +396,17 @@ function renderArcaCloudTable() {
     if (filterVal === 'pagado') filtered = filtered.filter(c => c.estado === 'Pagado');
     if (filterVal === 'nc') filtered = filtered.filter(c => checkIsNC(c));
     if (filterVal === 'retroactiva') filtered = filtered.filter(c => c.es_retroactiva == 1);
+
+    if (searchProv) {
+        filtered = filtered.filter(c => {
+            const razon = String(c.denominacion_emisor || '').toLowerCase();
+            const alias = (aliasMap[c.denominacion_emisor] || aliasMap[c.denominacion_emisor?.toUpperCase()] || '').toLowerCase();
+            const cuit = String(c.nro_doc_emisor || '').toLowerCase();
+            const comp = String(c.nro_comprobante || '').toLowerCase();
+            return razon.includes(searchProv) || alias.includes(searchProv) || cuit.includes(searchProv) || comp.includes(searchProv);
+        });
+    }
+
 
     if (arcaSortKey) {
         filtered.sort((a, b) => {
@@ -655,135 +705,171 @@ async function fetchCuentasPagarCloud() {
         const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
         const res = await fetch('/api/cuentas_por_pagar' + param);
         const data = await res.json();
-
-        const tbody = document.getElementById('tbl-cuentas-cloud-body');
-        const proveedores = data.proveedores || [];
-        const rawCuentas = data.cuentas || [];
-
-        if (proveedores.length === 0 && rawCuentas.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #64748b; padding: 2rem;">No hay cuentas por pagar registradas</td></tr>`;
-            return;
-        }
-
-        // Si tenemos la estructura agrupada por proveedor
-        if (proveedores.length > 0) {
-            tbody.innerHTML = proveedores.map((p, idx) => {
-                const isPagado = p.estado === 'Pagado';
-                const isParcial = p.estado === 'Parcial';
-                let estadoBadge = '';
-                if (isPagado) {
-                    estadoBadge = `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
-                } else if (isParcial) {
-                    estadoBadge = `<span style="color: #2563eb; font-weight: 700;"><i class="fa-solid fa-circle-half-stroke"></i> Parcial</span>`;
-                } else {
-                    estadoBadge = `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
-                }
-
-                // ID representativo o primera factura pendiente
-                const firstPending = p.facturas.find(f => f.estado !== 'Pagado') || p.facturas[0];
-                const actionBtn = isPagado
-                    ? `<span style="color: #059669; font-size: 0.82rem; font-weight: 700;"><i class="fa-solid fa-check-double"></i> Al día</span>`
-                    : `<button class="btn btn-sm" style="background: var(--primary-accent, #2563eb); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 4px 12px; cursor: pointer;" onclick="event.stopPropagation(); openModalPagarCuenta(${firstPending.id}, '${escapeHtml(p.proveedor_nombre || '')}', ${p.total_pendiente})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
-
-                const supplierHtml = formatSupplierCell(p.proveedor_nombre);
-                const catBadge = getCategoryBadge(p.categoria_pago);
-                const totalFormateado = formatCurrency(p.total_acumulado);
-
-                return `
-                    <tr style="cursor: pointer; transition: background 0.15s; background: #ffffff;" onclick="toggleDesgloseCuentaCloud(${idx})" title="Click para ver desglose de facturas">
-                        <td style="font-family: monospace; font-size: 0.82rem; white-space: nowrap;">
-                            <i class="fa-solid fa-chevron-right" id="breakdown-icon-cloud-${idx}" style="margin-right: 6px; font-size: 0.75rem; color: #64748b; transition: transform 0.2s;"></i>
-                            ${escapeHtml(p.fecha || '-')}
-                        </td>
-                        <td>
-                            ${supplierHtml}
-                            <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">
-                                ${p.cantidad_facturas} ${p.cantidad_facturas === 1 ? 'factura' : 'facturas'}
-                            </span>
-                        </td>
-                        <td>
-                            <span style="font-size: 0.8rem; color: #475569; font-family: monospace;">
-                                <i class="fa-solid fa-list-check" style="color: #3b82f6; margin-right: 4px;"></i>
-                                ${p.cantidad_facturas} comprobante${p.cantidad_facturas === 1 ? '' : 's'} (Ver desglose)
-                            </span>
-                        </td>
-                        <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: #0f172a;">
-                            ${totalFormateado}
-                        </td>
-                        <td style="text-align: center;">${catBadge}</td>
-                        <td style="text-align: center;">${estadoBadge}</td>
-                        <td style="text-align: center;" onclick="event.stopPropagation();">${actionBtn}</td>
-                    </tr>
-                    <tr id="breakdown-row-cloud-${idx}" style="display: none; background: #f8fafc;">
-                        <td colspan="7" style="padding: 0.8rem 1.2rem; border-bottom: 2px solid #e2e8f0;">
-                            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                                <div style="font-weight: 700; font-size: 0.85rem; color: #334155; margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
-                                    <span><i class="fa-solid fa-receipt" style="color: #2563eb; margin-right: 6px;"></i> Desglose de Facturas (${p.cantidad_facturas}) — <strong>${escapeHtml(p.proveedor_nombre)}</strong></span>
-                                    <span style="color: #0f172a; font-weight: 800;">Total Acumulado: ${totalFormateado}</span>
-                                </div>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
-                                    <thead>
-                                        <tr style="border-bottom: 1px solid #e2e8f0; color: #64748b; background: #f8fafc;">
-                                            <th style="text-align: left; padding: 6px 10px;">N° Comprobante / Archivo</th>
-                                            <th style="text-align: center; padding: 6px 10px;">Fecha</th>
-                                            <th style="text-align: right; padding: 6px 10px;">Monto Total</th>
-                                            <th style="text-align: center; padding: 6px 10px;">Estado</th>
-                                            <th style="text-align: center; padding: 6px 10px;">Medio de Pago</th>
-                                            <th style="text-align: center; padding: 6px 10px;">Acción</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${p.facturas.map(f => `
-                                            <tr style="border-bottom: 1px solid #f1f5f9;">
-                                                <td style="padding: 6px 10px; font-family: monospace; font-weight: 600; color: #1e293b;">
-                                                    <i class="fa-solid fa-file-invoice" style="color: #94a3b8; margin-right: 6px;"></i>
-                                                    ${escapeHtml(f.factura_numero || '-')}
-                                                </td>
-                                                <td style="padding: 6px 10px; text-align: center; color: #64748b; font-family: monospace;">${escapeHtml(f.fecha || '-')}</td>
-                                                <td style="padding: 6px 10px; text-align: right; font-weight: 800; color: #0f172a;">${formatCurrency(f.monto_total)}</td>
-                                                <td style="padding: 6px 10px; text-align: center;">
-                                                    ${f.estado === 'Pagado' ? '<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>' : '<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>'}
-                                                </td>
-                                                <td style="padding: 6px 10px; text-align: center; color: #64748b;">${escapeHtml(f.medio_pago || '-')}</td>
-                                                <td style="padding: 6px 10px; text-align: center;">
-                                                    ${f.estado !== 'Pagado' ? `<button class="btn btn-sm" style="background: var(--primary-accent, #2563eb); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;" onclick="event.stopPropagation(); openModalPagarCuenta(${f.id}, '${escapeHtml(p.proveedor_nombre)} (${escapeHtml(f.factura_numero)})', ${f.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar</button>` : '<span style="color: #059669; font-size: 0.75rem;"><i class="fa-solid fa-check"></i></span>'}
-                                                </td>
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        } else {
-            // Fallback directo a lista plana
-            tbody.innerHTML = rawCuentas.map(r => {
-                const isPagado = r.estado === 'Pagado';
-                const estadoBadge = isPagado
-                    ? `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`
-                    : `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
-
-                const actionBtn = isPagado
-                    ? `<span style="color: #64748b; font-size: 0.8rem;">${escapeHtml(r.medio_pago || 'Abonado')}</span>`
-                    : `<button class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 3px 10px; cursor: pointer;" onclick="openModalPagarCuenta(${r.id}, '${escapeHtml(r.proveedor_nombre || '')}', ${r.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
-
-                return `
-                    <tr>
-                        <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(r.fecha || '-')}</td>
-                        <td>${formatSupplierCell(r.proveedor_nombre)}</td>
-                        <td><small style="color: #64748b;">${escapeHtml(r.factura_numero || '-')}</small></td>
-                        <td style="text-align: right; font-weight: 800;">${formatCurrency(r.monto_total)}</td>
-                        <td style="text-align: center;">${getCategoryBadge(r.categoria_pago)}</td>
-                        <td style="text-align: center;">${estadoBadge}</td>
-                        <td style="text-align: center;">${actionBtn}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
+        cuentasPagarData = data || { proveedores: [], cuentas: [] };
+        renderCuentasPagarCloud();
     } catch (e) {
         console.error("Error cargando cuentas por pagar:", e);
+    }
+}
+
+function filterCuentasPagarCloud(val) {
+    renderCuentasPagarCloud();
+}
+
+function renderCuentasPagarCloud() {
+    const tbody = document.getElementById('tbl-cuentas-cloud-body');
+    if (!tbody) return;
+
+    let proveedores = [...((cuentasPagarData && cuentasPagarData.proveedores) || [])];
+    let rawCuentas = [...((cuentasPagarData && cuentasPagarData.cuentas) || [])];
+
+    const searchTerm = (document.getElementById('cuentas-cloud-search-provider')?.value || '').toLowerCase().trim();
+
+    if (searchTerm) {
+        proveedores = proveedores.filter(p => {
+            const nom = String(p.proveedor_nombre || '').toLowerCase();
+            const alias = (aliasMap[p.proveedor_nombre] || aliasMap[p.proveedor_nombre?.toUpperCase()] || '').toLowerCase();
+            const cuit = String(p.cuit || '').toLowerCase();
+            const hasFactura = (p.facturas || []).some(f => 
+                String(f.factura_numero || '').toLowerCase().includes(searchTerm) ||
+                String(f.medio_pago || '').toLowerCase().includes(searchTerm)
+            );
+            return nom.includes(searchTerm) || alias.includes(searchTerm) || cuit.includes(searchTerm) || hasFactura;
+        });
+
+        rawCuentas = rawCuentas.filter(r => {
+            const nom = String(r.proveedor_nombre || '').toLowerCase();
+            const alias = (aliasMap[r.proveedor_nombre] || aliasMap[r.proveedor_nombre?.toUpperCase()] || '').toLowerCase();
+            const fac = String(r.factura_numero || '').toLowerCase();
+            const cuit = String(r.cuit || '').toLowerCase();
+            return nom.includes(searchTerm) || alias.includes(searchTerm) || fac.includes(searchTerm) || cuit.includes(searchTerm);
+        });
+    }
+
+    if (proveedores.length === 0 && rawCuentas.length === 0) {
+        const msg = searchTerm 
+            ? `No se encontraron cuentas por pagar para "${escapeHtml(searchTerm)}"`
+            : 'No hay cuentas por pagar registradas';
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #64748b; padding: 2rem;">${msg}</td></tr>`;
+        return;
+    }
+
+    // Si tenemos la estructura agrupada por proveedor
+    if (proveedores.length > 0) {
+        tbody.innerHTML = proveedores.map((p, idx) => {
+            const isPagado = p.estado === 'Pagado';
+            const isParcial = p.estado === 'Parcial';
+            let estadoBadge = '';
+            if (isPagado) {
+                estadoBadge = `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+            } else if (isParcial) {
+                estadoBadge = `<span style="color: #2563eb; font-weight: 700;"><i class="fa-solid fa-circle-half-stroke"></i> Parcial</span>`;
+            } else {
+                estadoBadge = `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
+            }
+
+            // ID representativo o primera factura pendiente
+            const firstPending = p.facturas.find(f => f.estado !== 'Pagado') || p.facturas[0];
+            const actionBtn = isPagado
+                ? `<span style="color: #059669; font-size: 0.82rem; font-weight: 700;"><i class="fa-solid fa-check-double"></i> Al día</span>`
+                : `<button class="btn btn-sm" style="background: var(--primary-accent, #2563eb); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 4px 12px; cursor: pointer;" onclick="event.stopPropagation(); openModalPagarCuenta(${firstPending.id}, '${escapeHtml(p.proveedor_nombre || '')}', ${p.total_pendiente})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
+
+            const supplierHtml = formatSupplierCell(p.proveedor_nombre);
+            const catBadge = getCategoryBadge(p.categoria_pago);
+            const totalFormateado = formatCurrency(p.total_acumulado);
+
+            return `
+                <tr style="cursor: pointer; transition: background 0.15s; background: #ffffff;" onclick="toggleDesgloseCuentaCloud(${idx})" title="Click para ver desglose de facturas">
+                    <td style="font-family: monospace; font-size: 0.82rem; white-space: nowrap;">
+                        <i class="fa-solid fa-chevron-right" id="breakdown-icon-cloud-${idx}" style="margin-right: 6px; font-size: 0.75rem; color: #64748b; transition: transform 0.2s;"></i>
+                        ${escapeHtml(p.fecha || '-')}
+                    </td>
+                    <td>
+                        ${supplierHtml}
+                        <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">
+                            ${p.cantidad_facturas} ${p.cantidad_facturas === 1 ? 'factura' : 'facturas'}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-size: 0.8rem; color: #475569; font-family: monospace;">
+                            <i class="fa-solid fa-list-check" style="color: #3b82f6; margin-right: 4px;"></i>
+                            ${p.cantidad_facturas} comprobante${p.cantidad_facturas === 1 ? '' : 's'} (Ver desglose)
+                        </span>
+                    </td>
+                    <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: #0f172a;">
+                        ${totalFormateado}
+                    </td>
+                    <td style="text-align: center;">${catBadge}</td>
+                    <td style="text-align: center;">${estadoBadge}</td>
+                    <td style="text-align: center;" onclick="event.stopPropagation();">${actionBtn}</td>
+                </tr>
+                <tr id="breakdown-row-cloud-${idx}" style="display: none; background: #f8fafc;">
+                    <td colspan="7" style="padding: 0.8rem 1.2rem; border-bottom: 2px solid #e2e8f0;">
+                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                            <div style="font-weight: 700; font-size: 0.85rem; color: #334155; margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
+                                <span><i class="fa-solid fa-receipt" style="color: #2563eb; margin-right: 6px;"></i> Desglose de Facturas (${p.cantidad_facturas}) — <strong>${escapeHtml(p.proveedor_nombre)}</strong></span>
+                                <span style="color: #0f172a; font-weight: 800;">Total Acumulado: ${totalFormateado}</span>
+                            </div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid #e2e8f0; color: #64748b; background: #f8fafc;">
+                                        <th style="text-align: left; padding: 6px 10px;">N° Comprobante / Archivo</th>
+                                        <th style="text-align: center; padding: 6px 10px;">Fecha</th>
+                                        <th style="text-align: right; padding: 6px 10px;">Monto Total</th>
+                                        <th style="text-align: center; padding: 6px 10px;">Estado</th>
+                                        <th style="text-align: center; padding: 6px 10px;">Medio de Pago</th>
+                                        <th style="text-align: center; padding: 6px 10px;">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${p.facturas.map(f => `
+                                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                                            <td style="padding: 6px 10px; font-family: monospace; font-weight: 600; color: #1e293b;">
+                                                <i class="fa-solid fa-file-invoice" style="color: #94a3b8; margin-right: 6px;"></i>
+                                                ${escapeHtml(f.factura_numero || '-')}
+                                            </td>
+                                            <td style="padding: 6px 10px; text-align: center; color: #64748b; font-family: monospace;">${escapeHtml(f.fecha || '-')}</td>
+                                            <td style="padding: 6px 10px; text-align: right; font-weight: 800; color: #0f172a;">${formatCurrency(f.monto_total)}</td>
+                                            <td style="padding: 6px 10px; text-align: center;">
+                                                ${f.estado === 'Pagado' ? '<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>' : '<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>'}
+                                            </td>
+                                            <td style="padding: 6px 10px; text-align: center; color: #64748b;">${escapeHtml(f.medio_pago || '-')}</td>
+                                            <td style="padding: 6px 10px; text-align: center;">
+                                                ${f.estado !== 'Pagado' ? `<button class="btn btn-sm" style="background: var(--primary-accent, #2563eb); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;" onclick="event.stopPropagation(); openModalPagarCuenta(${f.id}, '${escapeHtml(p.proveedor_nombre)} (${escapeHtml(f.factura_numero)})', ${f.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar</button>` : '<span style="color: #059669; font-size: 0.75rem;"><i class="fa-solid fa-check"></i></span>'}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } else {
+        // Fallback directo a lista plana
+        tbody.innerHTML = rawCuentas.map(r => {
+            const isPagado = r.estado === 'Pagado';
+            const estadoBadge = isPagado
+                ? `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`
+                : `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
+
+            const actionBtn = isPagado
+                ? `<span style="color: #64748b; font-size: 0.8rem;">${escapeHtml(r.medio_pago || 'Abonado')}</span>`
+                : `<button class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 3px 10px; cursor: pointer;" onclick="openModalPagarCuenta(${r.id}, '${escapeHtml(r.proveedor_nombre || '')}', ${r.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
+
+            return `
+                <tr>
+                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(r.fecha || '-')}</td>
+                    <td>${formatSupplierCell(r.proveedor_nombre)}</td>
+                    <td><small style="color: #64748b;">${escapeHtml(r.factura_numero || '-')}</small></td>
+                    <td style="text-align: right; font-weight: 800;">${formatCurrency(r.monto_total)}</td>
+                    <td style="text-align: center;">${getCategoryBadge(r.categoria_pago)}</td>
+                    <td style="text-align: center;">${estadoBadge}</td>
+                    <td style="text-align: center;">${actionBtn}</td>
+                </tr>
+            `;
+        }).join('');
     }
 }
 
@@ -999,7 +1085,7 @@ function renderDashboardCharts(data) {
                 scales: {
                     y: {
                         ticks: {
-                            callback: val => '$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val))
+                            callback: val => isPrivacyMode() ? '***' : ('$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val)))
                         },
                         grid: { color: 'rgba(226, 232, 240, 0.6)' }
                     },
@@ -1133,7 +1219,7 @@ function renderDashboardCharts(data) {
                 scales: {
                     x: {
                         ticks: {
-                            callback: val => '$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val))
+                            callback: val => isPrivacyMode() ? '***' : ('$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val)))
                         },
                         grid: { color: 'rgba(226, 232, 240, 0.6)' }
                     },

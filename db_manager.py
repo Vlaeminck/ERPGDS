@@ -1067,24 +1067,23 @@ def cleanup_and_repair_categories_and_suppliers():
         cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, canon_id))
 
     # 2. Re-vincular y normalizar subcategorías
-    cursor.execute("SELECT id, nombre, padre_id FROM categorias_gastos WHERE padre_id IS NOT NULL")
+    cursor.execute("SELECT id, nombre, padre_id, uuid FROM categorias_gastos WHERE padre_id IS NOT NULL")
     sub_rows = cursor.fetchall()
-    seen_subs = {} # {(sub_nom_l, padre_id): id_canonico}
 
+    # Paso A: Resolver padre_id canónico para cada subcategoría
+    resolved_subs = []
     for s in sub_rows:
         s_id = s['id']
         s_nom = (s['nombre'] or '').strip()
         s_nom_l = s_nom.lower()
         p_id = s['padre_id']
 
-        # Si el padre_id es huérfano o está en el mapa conocido, resolver al ID canónico
         if s_nom_l in SUBCAT_PARENT_MAP:
             target_parent_name_l = SUBCAT_PARENT_MAP[s_nom_l].lower()
             if target_parent_name_l in canonical_main:
                 p_id = canonical_main[target_parent_name_l]
                 cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (p_id, s_id))
         elif p_id not in canonical_main.values():
-            # Buscar coincidencia de nombre con alguna categoría principal
             cursor.execute("SELECT nombre FROM categorias_gastos WHERE id = ?", (p_id,))
             p_row = cursor.fetchone()
             if p_row:
@@ -1092,16 +1091,31 @@ def cleanup_and_repair_categories_and_suppliers():
                 if p_nom_match in canonical_main:
                     p_id = canonical_main[p_nom_match]
                     cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (p_id, s_id))
+        resolved_subs.append({'id': s_id, 'nombre': s_nom, 'nombre_l': s_nom_l, 'padre_id': p_id, 'uuid': s['uuid']})
 
-        # Deduplicar subcategoría si ya existe una con el mismo nombre bajo el mismo padre
-        sub_key = (s_nom_l, p_id)
-        if sub_key not in seen_subs:
-            seen_subs[sub_key] = s_id
-            parent_nom = canonical_main_names.get(next((k for k, v in canonical_main.items() if v == p_id), ''), '')
-            det_uuid = get_deterministic_category_uuid(s_nom, parent_nom)
-            cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, s_id))
-        else:
-            cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (s_id,))
+    # Paso B: Agrupar por (nombre_l, padre_id), eliminar duplicados y luego asignar det_uuid
+    grouped_subs = {}
+    for s in resolved_subs:
+        key = (s['nombre_l'], s['padre_id'])
+        if key not in grouped_subs:
+            grouped_subs[key] = []
+        grouped_subs[key].append(s)
+
+    for (s_nom_l, p_id), items in grouped_subs.items():
+        parent_nom = canonical_main_names.get(next((k for k, v in canonical_main.items() if v == p_id), ''), '')
+        s_nom = items[0]['nombre']
+        det_uuid = get_deterministic_category_uuid(s_nom, parent_nom)
+
+        # Elegir el que ya tenga det_uuid o el primero
+        canon_item = next((it for it in items if it.get('uuid') == det_uuid), items[0])
+        canon_id = canon_item['id']
+
+        # Eliminar las filas duplicadas
+        for it in items:
+            if it['id'] != canon_id:
+                cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (it['id'],))
+
+        cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, canon_id))
 
     # 3. Reparar proveedores que tienen subcategoría pero categoría 'General' o vacía
     for s_nom_l, p_nom in SUBCAT_PARENT_MAP.items():
