@@ -75,7 +75,7 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-function truncateText(str, maxLen = 30) {
+function truncateText(str, maxLen = 25) {
     if (!str) return '';
     const s = String(str).trim();
     if (s.length <= maxLen) return s;
@@ -87,15 +87,15 @@ function formatSupplierCell(razonSocial) {
     const alias = aliasMap[raw] || aliasMap[raw.toUpperCase()] || aliasMap[raw.toLowerCase()] || '';
 
     if (alias) {
-        const truncAlias = truncateText(alias, 30);
+        const truncAlias = truncateText(alias, 25);
         return `
             <div class="supplier-name-cell" title="Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}">
                 <strong style="color: #0f172a;">${escapeHtml(truncAlias)}</strong>
-                <div style="font-size: 0.73rem; color: #64748b; font-weight: 500;">${escapeHtml(truncateText(raw, 24))}</div>
+                <div style="font-size: 0.73rem; color: #64748b; font-weight: 500;">${escapeHtml(truncateText(raw, 25))}</div>
             </div>
         `;
     } else {
-        const truncRaw = truncateText(raw, 30);
+        const truncRaw = truncateText(raw, 25);
         return `
             <div class="supplier-name-cell" title="${escapeHtml(raw)}">
                 <strong style="color: #0f172a;">${escapeHtml(truncRaw)}</strong>
@@ -1027,6 +1027,7 @@ async function fetchDashboardStats() {
 
         renderDashboardCharts(data);
         renderRankingTable();
+        renderHeatmap(data.mapa_calor);
     } catch (e) {
         console.error("Error cargando estadísticas del dashboard:", e);
     }
@@ -1172,7 +1173,7 @@ function renderDashboardCharts(data) {
     if (ctxTop) {
         if (chartTop) chartTop.destroy();
         const topList = data.top_proveedores || [];
-        const topLabels = topList.map(t => t.display_name);
+        const topLabels = topList.map(t => truncateText(t.display_name, 25));
         const topValues = topList.map(t => t.total);
 
         const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
@@ -1381,15 +1382,17 @@ function renderRankingTable() {
         else if (p.rank === 3) rankBadge = `<span style="background: #ffedd5; color: #9a3412; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #3</span>`;
 
         const hasAlias = Boolean(p.alias && p.alias.trim());
-        const mainName = hasAlias ? p.alias : p.razon_social;
-        const subName = hasAlias ? p.razon_social : '';
+        const fullMainName = hasAlias ? p.alias : p.razon_social;
+        const fullSubName = hasAlias ? p.razon_social : '';
+        const mainName = truncateText(fullMainName, 25);
+        const subName = fullSubName ? truncateText(fullSubName, 25) : '';
 
         return `
             <tr>
                 <td style="text-align: center;">${rankBadge}</td>
                 <td>
-                    <div style="font-weight: 800; color: #0f172a; font-size: 0.95rem;">${escapeHtml(mainName)}</div>
-                    ${subName ? `<div style="font-size: 0.76rem; color: #64748b; font-weight: 500;">${escapeHtml(subName)}</div>` : ''}
+                    <div style="font-weight: 800; color: #0f172a; font-size: 0.95rem;" title="${escapeHtml(fullMainName)}">${escapeHtml(mainName)}</div>
+                    ${subName ? `<div style="font-size: 0.76rem; color: #64748b; font-weight: 500;" title="${escapeHtml(fullSubName)}">${escapeHtml(subName)}</div>` : ''}
                     <div style="font-family: monospace; font-size: 0.74rem; color: #94a3b8;">${escapeHtml(p.cuit || '')}</div>
                 </td>
                 <td>
@@ -1432,6 +1435,212 @@ function renderRankingTable() {
 
 function filterRankingTable(term) {
     renderRankingTable();
+}
+
+// ==========================================
+// MAPA DE CALOR: RECEPCIÓN DE FACTURAS POR DÍA
+// ==========================================
+
+function renderHeatmap(mapaCalor) {
+    const section = document.getElementById('section-heatmap-facturas');
+    if (!section) return;
+
+    if (!mapaCalor) {
+        mapaCalor = {
+            total_facturas: 0,
+            dias_semana: [],
+            fechas: [],
+            dia_pico: { nombre: '-', cantidad: 0 },
+            fecha_record: { fecha: '-', cantidad: 0 }
+        };
+    }
+
+    const totalFacturas = mapaCalor.total_facturas || 0;
+    const diasSemana = mapaCalor.dias_semana || [];
+    const fechas = mapaCalor.fechas || [];
+    const diaPico = mapaCalor.dia_pico || { nombre: '-', cantidad: 0 };
+    const fechaRecord = mapaCalor.fecha_record || { fecha: '-', cantidad: 0 };
+
+    const isSingleMonth = currentMonth && currentMonth !== 'all';
+    const periodoTexto = isSingleMonth ? 'del mes' : 'del período';
+
+    // 1. Badge del encabezado y KPIs
+    const badgeCount = document.getElementById('heatmap-total-count');
+    if (badgeCount) badgeCount.textContent = totalFacturas.toLocaleString('es-AR');
+
+    const totalBadge = document.getElementById('heatmap-total-badge');
+    if (totalBadge) {
+        totalBadge.innerHTML = `<i class="fa-solid fa-receipt" style="margin-right: 5px;"></i> Facturas totales ${periodoTexto}: <strong style="margin-left: 4px; color: #1d4ed8;">${totalFacturas.toLocaleString('es-AR')}</strong>`;
+    }
+
+    const kpiTotal = document.getElementById('heatmap-kpi-total');
+    if (kpiTotal) kpiTotal.textContent = totalFacturas.toLocaleString('es-AR');
+
+    const kpiTotalSub = document.getElementById('heatmap-kpi-total-sub');
+    if (kpiTotalSub) kpiTotalSub.textContent = isSingleMonth ? 'Comprobantes en el mes seleccionado' : 'Comprobantes en todo el histórico';
+
+    const kpiPico = document.getElementById('heatmap-kpi-diapico');
+    if (kpiPico) {
+        kpiPico.textContent = diaPico.cantidad > 0 ? `${diaPico.nombre} (${diaPico.cantidad})` : '-';
+    }
+    const kpiPicoSub = document.getElementById('heatmap-kpi-diapico-sub');
+    if (kpiPicoSub) {
+        const pctPico = totalFacturas > 0 ? ((diaPico.cantidad / totalFacturas) * 100).toFixed(1) : '0';
+        kpiPicoSub.textContent = diaPico.cantidad > 0 ? `${pctPico}% de todas las facturas` : 'Sin comprobantes';
+    }
+
+    const kpiRecord = document.getElementById('heatmap-kpi-record');
+    if (kpiRecord) {
+        if (fechaRecord.fecha && fechaRecord.fecha !== '-' && fechaRecord.cantidad > 0) {
+            const parts = fechaRecord.fecha.split('-');
+            const fechaFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : fechaRecord.fecha;
+            kpiRecord.textContent = `${fechaFmt} (${fechaRecord.cantidad})`;
+        } else {
+            kpiRecord.textContent = '-';
+        }
+    }
+
+    const activeDays = fechas.filter(f => f.cantidad > 0).length || (totalFacturas > 0 ? 1 : 0);
+    const avgPerDay = activeDays > 0 ? (totalFacturas / activeDays).toFixed(1) : '0';
+    const kpiProm = document.getElementById('heatmap-kpi-promedio');
+    if (kpiProm) kpiProm.textContent = `${avgPerDay} / día`;
+
+    const kpiPromSub = document.getElementById('heatmap-kpi-promedio-sub');
+    if (kpiPromSub) {
+        kpiPromSub.textContent = `${activeDays} día${activeDays === 1 ? '' : 's'} con recepción registrada`;
+    }
+
+    // 2. Renderizar Cuadrícula de 7 Días de la Semana
+    const weekdaysGrid = document.getElementById('heatmap-weekdays-grid');
+    if (weekdaysGrid) {
+        const maxDow = Math.max(...diasSemana.map(d => d.cantidad), 1);
+
+        weekdaysGrid.innerHTML = diasSemana.map(d => {
+            const cant = d.cantidad || 0;
+            const pct = d.porcentaje || 0;
+            const ratio = maxDow > 0 ? (cant / maxDow) : 0;
+            const isPico = Boolean(d.es_pico);
+
+            // Nombre plural amigable en español
+            let plural = d.nombre.toLowerCase();
+            if (d.nombre === 'Sábado') plural = 'sábados';
+            else if (d.nombre === 'Domingo') plural = 'domingos';
+            else if (!plural.endsWith('s')) plural += 's';
+
+            // Estilos térmicos según intensidad
+            let cardBg = '#ffffff';
+            let borderColor = '#e2e8f0';
+            let barColor = 'linear-gradient(90deg, #3b82f6, #2563eb)';
+            let badgeHtml = '';
+            let shadowStyle = 'box-shadow: 0 1px 3px rgba(0,0,0,0.02);';
+
+            if (isPico && cant > 0) {
+                cardBg = '#fffaf5';
+                borderColor = '#f97316';
+                barColor = 'linear-gradient(90deg, #f97316, #ea580c)';
+                shadowStyle = 'box-shadow: 0 4px 12px rgba(249, 115, 22, 0.15);';
+                badgeHtml = `<span style="background: #ea580c; color: #ffffff; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.4px;"><i class="fa-solid fa-fire"></i> Pico</span>`;
+            } else if (ratio >= 0.7 && cant > 0) {
+                cardBg = '#f5f7ff';
+                borderColor = '#a5b4fc';
+                barColor = 'linear-gradient(90deg, #6366f1, #4f46e5)';
+            } else if (ratio >= 0.35 && cant > 0) {
+                cardBg = '#f8fafc';
+                borderColor = '#cbd5e1';
+                barColor = 'linear-gradient(90deg, #60a5fa, #3b82f6)';
+            } else if (cant === 0) {
+                cardBg = '#f8fafc';
+                borderColor = '#e2e8f0';
+                barColor = '#cbd5e1';
+            }
+
+            return `
+                <div style="background: ${cardBg}; border: 1.5px solid ${borderColor}; border-radius: 10px; padding: 0.9rem; display: flex; flex-direction: column; justify-content: space-between; position: relative; transition: all 0.2s ease; ${shadowStyle}">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-weight: 800; font-size: 0.88rem; color: #0f172a;">${d.nombre}</span>
+                            ${badgeHtml}
+                        </div>
+                        <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 4px;">
+                            <span style="font-size: 1.5rem; font-weight: 800; color: ${isPico ? '#ea580c' : '#0f172a'};">${cant}</span>
+                            <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">facturas</span>
+                        </div>
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #475569; margin-bottom: 8px; line-height: 1.25;">
+                            Todos los ${plural} ${periodoTexto}: <strong style="color: ${isPico ? '#c2410c' : '#0f172a'};">${cant}</strong>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="background: #e2e8f0; height: 6px; border-radius: 999px; overflow: hidden; margin-bottom: 6px;">
+                            <div style="width: ${Math.round(ratio * 100)}%; height: 100%; background: ${barColor}; border-radius: 999px;"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #64748b; font-weight: 600;">
+                            <span>${pct}% del total</span>
+                            <span style="font-weight: 700; color: #334155;">${formatCurrency(d.monto)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 3. Renderizar Cuadrícula Calendario Día a Día
+    const calGrid = document.getElementById('heatmap-calendar-grid');
+    if (calGrid) {
+        if (!fechas || fechas.length === 0) {
+            calGrid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #64748b; padding: 1.5rem; font-size: 0.85rem; font-weight: 600;">No hay fechas registradas con facturas para los filtros seleccionados.</div>`;
+            return;
+        }
+
+        const maxFechaCant = Math.max(...fechas.map(f => f.cantidad), 1);
+        const dowAbbr = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+
+        calGrid.innerHTML = fechas.map(f => {
+            const cnt = f.cantidad || 0;
+            const ratio = maxFechaCant > 0 ? (cnt / maxFechaCant) : 0;
+            const diaNombre = dowAbbr[f.dow] || '';
+
+            // Color térmico según volumen de facturas
+            let bg = '#f8fafc';
+            let border = '#e2e8f0';
+            let textColor = '#64748b';
+            let numColor = '#0f172a';
+
+            if (cnt >= 15) {
+                bg = '#ea580c';
+                border = '#c2410c';
+                textColor = '#ffedd5';
+                numColor = '#ffffff';
+            } else if (cnt >= 8) {
+                bg = '#6366f1';
+                border = '#4f46e5';
+                textColor = '#e0e7ff';
+                numColor = '#ffffff';
+            } else if (cnt >= 4) {
+                bg = '#dbeafe';
+                border = '#93c5fd';
+                textColor = '#1e40af';
+                numColor = '#1e3a8a';
+            } else if (cnt >= 1) {
+                bg = '#eff6ff';
+                border = '#bfdbfe';
+                textColor = '#3b82f6';
+                numColor = '#1d4ed8';
+            }
+
+            const parts = f.fecha.split('-');
+            const diaNum = parts.length === 3 ? parseInt(parts[2], 10) : f.dia_num;
+            const fechaStrFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : f.fecha;
+            const tooltip = `Fecha: ${fechaStrFmt} (${diaNombre})&#10;Facturas recibidas: ${cnt}&#10;Monto: ${formatCurrency(f.monto)}`;
+
+            return `
+                <div title="${tooltip}" style="background: ${bg}; border: 1px solid ${border}; border-radius: 8px; padding: 6px 4px; text-align: center; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;" onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.08)';" onmouseleave="this.style.transform='none'; this.style.boxShadow='none';">
+                    <div style="font-size: 0.65rem; font-weight: 700; color: ${textColor}; text-transform: uppercase;">${diaNombre} ${diaNum}</div>
+                    <div style="font-size: 0.95rem; font-weight: 800; color: ${numColor}; margin-top: 2px;">${cnt > 0 ? cnt : '-'}</div>
+                    <div style="font-size: 0.62rem; font-weight: 600; color: ${textColor}; opacity: 0.9;">${cnt === 1 ? 'fac.' : 'facs.'}</div>
+                </div>
+            `;
+        }).join('');
+    }
 }
 
 // ==========================================
@@ -1705,7 +1914,7 @@ function renderAliasTable(list) {
 
         return `
             <tr>
-                <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">${truncateText(safeNombre, 35)}</td>
+                <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">${truncateText(safeNombre, 25)}</td>
                 <td style="font-family: monospace; color: #64748b; font-size: 0.82rem;">${escapeHtml(p.cuit || '-')}</td>
                 <td>
                     <select id="${catSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 130px;" onchange="onCategorySelectChange('${catSelectId}', '${subcatSelectId}')">

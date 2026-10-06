@@ -766,6 +766,101 @@
                 </div>
             </div>
 
+            <!-- SECCIÓN: MAPA DE CALOR & ANÁLISIS DE RECEPCIÓN DE FACTURAS -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);" id="section-heatmap-facturas">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 1rem;">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: #fff7ed; color: #ea580c; font-size: 1.1rem; border: 1px solid #fed7aa;">
+                                <i class="fa-solid fa-fire-flame-curved"></i>
+                            </span>
+                            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0; color: #0f172a;" id="heatmap-header-title">🔥 Mapa de Calor: Recepción de Facturas por Día</h3>
+                        </div>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;" id="heatmap-header-subtitle">
+                            Distribución y concentración de comprobantes recibidos según día de la semana y frecuencia diaria.
+                        </p>
+                    </div>
+
+                    <!-- Badge de Facturas Totales -->
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span id="heatmap-total-badge" class="badge" style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-weight: 800; font-size: 0.85rem; padding: 6px 14px; border-radius: 999px;">
+                            <i class="fa-solid fa-receipt" style="margin-right: 5px;"></i> Facturas totales del mes: <strong id="heatmap-total-count" style="margin-left: 4px; color: #1d4ed8;">0</strong>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- KPI Mini Resumen del Mapa de Calor -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 1.5rem;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Facturas Totales</div>
+                        <div id="heatmap-kpi-total" style="font-size: 1.35rem; font-weight: 800; color: #0f172a; margin-top: 3px;">0</div>
+                        <div id="heatmap-kpi-total-sub" style="font-size: 0.74rem; color: #64748b; font-weight: 600; margin-top: 2px;">Comprobantes en el período</div>
+                    </div>
+
+                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #c2410c; text-transform: uppercase; letter-spacing: 0.5px;">Día con Más Facturas</div>
+                        <div id="heatmap-kpi-diapico" style="font-size: 1.35rem; font-weight: 800; color: #ea580c; margin-top: 3px;">-</div>
+                        <div id="heatmap-kpi-diapico-sub" style="font-size: 0.74rem; color: #9a3412; font-weight: 600; margin-top: 2px;">Día pico de la semana</div>
+                    </div>
+
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.5px;">Fecha Récord</div>
+                        <div id="heatmap-kpi-record" style="font-size: 1.35rem; font-weight: 800; color: #2563eb; margin-top: 3px;">-</div>
+                        <div id="heatmap-kpi-record-sub" style="font-size: 0.74rem; color: #1e40af; font-weight: 600; margin-top: 2px;">Día individual con más ingresos</div>
+                    </div>
+
+                    <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.5px;">Promedio por Día Activo</div>
+                        <div id="heatmap-kpi-promedio" style="font-size: 1.35rem; font-weight: 800; color: #7c3aed; margin-top: 3px;">0</div>
+                        <div id="heatmap-kpi-promedio-sub" style="font-size: 0.74rem; color: #6d28d9; font-weight: 600; margin-top: 2px;">Facturas por día con registros</div>
+                    </div>
+                </div>
+
+                <!-- CONTENEDOR 1: TARJETAS TIPO MAPA DE CALOR POR DÍA DE LA SEMANA -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <h4 style="font-size: 0.95rem; font-weight: 800; color: #1e293b; margin: 0;">
+                            <i class="fa-solid fa-chart-column" style="color: #6366f1;"></i> Frecuencia por Día de la Semana
+                        </h4>
+                        <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Intensidad de recepción acumulada</span>
+                    </div>
+
+                    <div id="heatmap-weekdays-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                        <!-- Renderizado dinámico desde JS con los 7 días (Lunes a Domingo) -->
+                    </div>
+                </div>
+
+                <!-- CONTENEDOR 2: CALENDARIO TÉRMICO MENSUAL (Día a Día) -->
+                <div id="heatmap-calendar-container" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1.25rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <h4 style="font-size: 0.92rem; font-weight: 800; color: #1e293b; margin: 0;">
+                                <i class="fa-solid fa-calendar-check" style="color: #0ea5e9;"></i> Cuadrícula Térmica de Días del Mes
+                            </h4>
+                            <p style="font-size: 0.76rem; color: #64748b; margin: 2px 0 0; font-weight: 600;">
+                                Visualización diaria de recepción de facturas. Posa el cursor sobre un día para ver detalles.
+                            </p>
+                        </div>
+
+                        <!-- Leyenda de Intensidad -->
+                        <div style="display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #64748b; font-weight: 700;">
+                            <span>Menos</span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #f1f5f9; border: 1px solid #cbd5e1;" title="0 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #e0e7ff; border: 1px solid #c7d2fe;" title="1 - 3 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #a5b4fc; border: 1px solid #818cf8;" title="4 - 7 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #6366f1; border: 1px solid #4f46e5;" title="8 - 14 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #ea580c; border: 1px solid #c2410c;" title="15+ facturas"></span>
+                            <span>Más</span>
+                        </div>
+                    </div>
+
+                    <div id="heatmap-calendar-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(65px, 1fr)); gap: 8px;">
+                        <!-- Días del mes renderizados dinámicamente -->
+                    </div>
+                </div>
+
+            </div>
+
         </section>
 
         <!-- TAB 5: CONFIGURACIÓN DE PROVEEDORES & ALIAS & CATEGORÍAS -->

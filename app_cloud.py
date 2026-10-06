@@ -1255,6 +1255,106 @@ def api_dashboard_stats():
         })
 
     top_proveedores = ranking_completo[:10]
+
+    # 8. Mapa de Calor y Análisis de Recepción de Facturas por Día
+    cursor.execute(f'''
+        SELECT CAST(strftime('%w', SUBSTR(c.fecha_emision, 1, 10)) AS INTEGER) as dow,
+               COUNT(c.id) as cantidad,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total_monto
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.fecha_emision IS NOT NULL AND LENGTH(c.fecha_emision) >= 10
+        GROUP BY dow
+        ORDER BY dow ASC
+    ''', params)
+    dow_rows = cursor.fetchall()
+
+    dias_semana_info = [
+        {"dow": 1, "nombre": "Lunes"},
+        {"dow": 2, "nombre": "Martes"},
+        {"dow": 3, "nombre": "Miércoles"},
+        {"dow": 4, "nombre": "Jueves"},
+        {"dow": 5, "nombre": "Viernes"},
+        {"dow": 6, "nombre": "Sábado"},
+        {"dow": 0, "nombre": "Domingo"}
+    ]
+
+    dow_map = {int(r['dow']): (int(r['cantidad'] or 0), round(float(r['total_monto'] or 0), 2)) for r in dow_rows if r['dow'] is not None}
+    total_facturas_mapa = sum(v[0] for v in dow_map.values())
+    max_dow_cant = max((v[0] for v in dow_map.values()), default=0)
+
+    heatmap_dias_semana = []
+    dia_pico_nombre = "-"
+    dia_pico_cant = 0
+
+    for d in dias_semana_info:
+        cant, monto = dow_map.get(d['dow'], (0, 0.0))
+        pct = round((cant / total_facturas_mapa * 100), 1) if total_facturas_mapa > 0 else 0.0
+        is_pico = (cant == max_dow_cant and cant > 0)
+        if is_pico and dia_pico_nombre == "-":
+            dia_pico_nombre = d['nombre']
+            dia_pico_cant = cant
+
+        heatmap_dias_semana.append({
+            "dow": d['dow'],
+            "nombre": d['nombre'],
+            "cantidad": cant,
+            "monto": monto,
+            "porcentaje": pct,
+            "es_pico": is_pico
+        })
+
+    # Consulta por fecha individual para la cuadrícula calendario
+    cursor.execute(f'''
+        SELECT SUBSTR(c.fecha_emision, 1, 10) as fecha,
+               CAST(strftime('%w', SUBSTR(c.fecha_emision, 1, 10)) AS INTEGER) as dow,
+               CAST(strftime('%d', SUBSTR(c.fecha_emision, 1, 10)) AS INTEGER) as dia_num,
+               COUNT(c.id) as cantidad,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total_monto
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.fecha_emision IS NOT NULL AND LENGTH(c.fecha_emision) >= 10
+        GROUP BY SUBSTR(c.fecha_emision, 1, 10)
+        ORDER BY fecha ASC
+    ''', params)
+    fechas_rows = cursor.fetchall()
+
+    heatmap_fechas = []
+    fecha_record = "-"
+    fecha_record_cant = 0
+    for r in fechas_rows:
+        cnt = int(r['cantidad'] or 0)
+        if cnt > fecha_record_cant:
+            fecha_record_cant = cnt
+            fecha_record = r['fecha']
+        heatmap_fechas.append({
+            "fecha": r['fecha'],
+            "dow": int(r['dow']) if r['dow'] is not None else 0,
+            "dia_num": int(r['dia_num']) if r['dia_num'] is not None else 0,
+            "cantidad": cnt,
+            "monto": round(float(r['total_monto'] or 0), 2)
+        })
+
+    mapa_calor = {
+        "total_facturas": total_facturas_mapa,
+        "dias_semana": heatmap_dias_semana,
+        "fechas": heatmap_fechas,
+        "dia_pico": {
+            "nombre": dia_pico_nombre,
+            "cantidad": dia_pico_cant
+        },
+        "fecha_record": {
+            "fecha": fecha_record,
+            "cantidad": fecha_record_cant
+        }
+    }
+
     tree = db_manager.get_categories_tree()
     conn.close()
 
@@ -1266,6 +1366,7 @@ def api_dashboard_stats():
         "gastos_subrubro": gastos_subrubro,
         "top_proveedores": top_proveedores,
         "ranking_proveedores": ranking_completo,
+        "mapa_calor": mapa_calor,
         "resumen": {
             "total_facturado": round(gran_total, 2),
             "total_neto": round(gran_total, 2),

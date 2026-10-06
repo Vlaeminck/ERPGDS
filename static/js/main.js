@@ -3424,7 +3424,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 : 'text-align: right; font-size: 0.88rem; font-weight: 700; color: var(--text-primary);';
 
             const denom = escapeHtml(c.denominacion_emisor || '-');
-            const shortDenom = denom.length > 35 ? denom.substring(0, 35) + '...' : denom;
+            const shortDenom = denom.length > 25 ? denom.substring(0, 22) + '...' : denom;
 
             return `
                 <tr style="${rowBg}">
