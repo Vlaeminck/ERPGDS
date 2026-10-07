@@ -1,5 +1,7 @@
 import sqlite3
 import os
+import json
+import re
 import config
 
 DB_PATH = os.path.join(config.REGISTROS_FOLDER, "control_interno.db")
@@ -1354,4 +1356,208 @@ def get_processed_invoices_from_db():
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def normalize_supplier_name(val):
+    if not val:
+        return ""
+    import unicodedata
+    import re
+    s = str(val).lower()
+    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    s = re.sub(r'[^a-z0-9\s]', ' ', s)
+    s = re.sub(r'\s+', ' ', s)
+    return s.strip()
+
+
+def get_cae_conflicts():
+    """
+    Detecta facturas con conflicto de CAE:
+    Casos donde el mismo CAE (no vacío) fue asignado a 2 o más proveedores distintos.
+    Cruza con arca_compras_csv para determinar cuál coincide con el emisor fiscal oficial de AFIP/ARCA.
+    """
+    import re
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT cae, COUNT(DISTINCT supplier) as supp_count
+            FROM facturas_procesadas
+            WHERE cae IS NOT NULL AND cae != '' AND cae != '0' AND (is_deleted = 0 OR is_deleted IS NULL)
+            GROUP BY cae
+            HAVING supp_count > 1
+        """)
+        conflict_caes = [row['cae'] for row in cursor.fetchall()]
+
+        conflicts = []
+        for cae in conflict_caes:
+            cursor.execute("""
+                SELECT id, year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, arca_match, arca_id
+                FROM facturas_procesadas
+                WHERE cae = ? AND (is_deleted = 0 OR is_deleted IS NULL)
+                ORDER BY id DESC
+            """, (cae,))
+            inv_rows = [dict(r) for r in cursor.fetchall()]
+
+            # Buscar emisor oficial en arca_compras_csv
+            cursor.execute("""
+                SELECT id, fecha_emision, nro_doc_emisor, denominacion_emisor, punto_venta, nro_comprobante, imp_total, cae
+                FROM arca_compras_csv
+                WHERE cae = ?
+                ORDER BY id DESC LIMIT 1
+            """, (cae,))
+            arca_row = cursor.fetchone()
+            arca_info = dict(arca_row) if arca_row else None
+
+            arca_norm = normalize_supplier_name(arca_info['denominacion_emisor']) if arca_info and arca_info.get('denominacion_emisor') else ''
+            arca_cuit = re.sub(r'\D', '', str(arca_info.get('nro_doc_emisor') or '')) if arca_info else ''
+
+            invoices_detail = []
+            for inv in inv_rows:
+                s_norm = normalize_supplier_name(inv['supplier'])
+                c_clean = re.sub(r'\D', '', str(inv.get('cuit') or ''))
+                
+                is_official = False
+                if arca_info:
+                    if arca_cuit and c_clean and arca_cuit == c_clean:
+                        is_official = True
+                    elif arca_norm and (s_norm in arca_norm or arca_norm in s_norm):
+                        is_official = True
+
+                invoices_detail.append({
+                    "id": inv['id'],
+                    "supplier": inv['supplier'],
+                    "filename": inv['filename'],
+                    "filepath": inv['filepath'],
+                    "total": inv['total'],
+                    "cuit": inv['cuit'],
+                    "fecha": inv['fecha'],
+                    "fecha_procesado": inv['fecha_procesado'],
+                    "arca_match": bool(inv['arca_match']),
+                    "is_arca_official": is_official
+                })
+
+            factura_num = inv_rows[0]['filename'].replace('.pdf', '') if inv_rows else ''
+            conflicts.append({
+                "cae": cae,
+                "factura_numero": factura_num,
+                "arca_oficial": arca_info,
+                "invoices": invoices_detail
+            })
+
+        return conflicts
+    finally:
+        conn.close()
+
+
+def resolve_cae_conflict(cae, keep_id, delete_id=None):
+    """
+    Resuelve un conflicto de CAE:
+    - Conserva la factura con id `keep_id`.
+    - Elimina la factura o facturas erróneas con ese CAE:
+      * Borra el archivo físico erróneo de Facturas_Procesadas.
+      * Borra el registro de facturas_procesadas.
+    - Asegura que keep_id quede formalmente vinculada con su registro de ARCA Compras.
+    - Limpia registros/user_history.json de las entradas erróneas.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Obtener factura a conservar
+        cursor.execute("SELECT * FROM facturas_procesadas WHERE id = ?", (keep_id,))
+        keep_row = cursor.fetchone()
+        if not keep_row:
+            return {"success": False, "message": f"No se encontró la factura a conservar con ID {keep_id}"}
+        keep_dict = dict(keep_row)
+        keep_rel_path = (keep_dict.get('filepath') or '').replace('/', os.sep).lower()
+
+        # Determinar facturas a eliminar
+        del_ids = []
+        if delete_id is not None:
+            if isinstance(delete_id, (list, tuple, set)):
+                del_ids = [int(x) for x in delete_id if int(x) != int(keep_id)]
+            else:
+                del_ids = [int(delete_id)] if int(delete_id) != int(keep_id) else []
+        else:
+            cursor.execute("SELECT id FROM facturas_procesadas WHERE cae = ? AND id != ?", (cae, keep_id))
+            del_ids = [r['id'] for r in cursor.fetchall()]
+
+        deleted_suppliers = set()
+        for d_id in del_ids:
+            cursor.execute("SELECT * FROM facturas_procesadas WHERE id = ?", (d_id,))
+            del_row = cursor.fetchone()
+            if not del_row:
+                continue
+            del_dict = dict(del_row)
+            deleted_suppliers.add(del_dict.get('supplier', ''))
+
+            # 1. Eliminar archivo físico de la factura errónea si no es el mismo que se conserva
+            rel_path = del_dict.get('filepath') or ''
+            if rel_path:
+                norm_rel = rel_path.replace('/', os.sep).lower()
+                if norm_rel != keep_rel_path:
+                    full_path = os.path.join(config.OUTPUT_FOLDER, rel_path.replace('/', os.sep))
+                    if os.path.exists(full_path):
+                        try:
+                            os.remove(full_path)
+                            print(f"[CONFLICTO-CAE] Archivo erróneo eliminado del disco: {full_path}", flush=True)
+                        except Exception as e_rm:
+                            print(f"[CONFLICTO-CAE] Aviso eliminando archivo erróneo: {e_rm}", flush=True)
+
+            # 2. Eliminar registro de facturas_procesadas
+            cursor.execute("DELETE FROM facturas_procesadas WHERE id = ?", (d_id,))
+
+        # 3. Vincular formalmente la factura correcta con ARCA Compras si hay coincidencia
+        cursor.execute("SELECT id FROM arca_compras_csv WHERE cae = ? LIMIT 1", (cae,))
+        arca_match = cursor.fetchone()
+        if arca_match:
+            arca_id = arca_match['id']
+            cursor.execute("""
+                UPDATE facturas_procesadas 
+                SET arca_match = 1, arca_id = ?, match_metodo = 'RESOLUCION_CONFLICTO', sync_status = 0
+                WHERE id = ?
+            """, (arca_id, keep_id))
+            cursor.execute("""
+                UPDATE arca_compras_csv 
+                SET factura_recibida = 1, sync_status = 0 
+                WHERE id = ?
+            """, (arca_id,))
+
+        conn.commit()
+
+        # 4. Limpiar del historial de usuario (user_history.json)
+        try:
+            from config import REGISTROS_FOLDER
+            user_hist_path = os.path.join(REGISTROS_FOLDER, "user_history.json")
+            if os.path.exists(user_hist_path):
+                with open(user_hist_path, "r", encoding="utf-8") as f:
+                    u_hist = json.load(f)
+                
+                del_fn_base = keep_dict.get('filename', '').replace('.pdf', '')
+                new_hist = []
+                for h in u_hist:
+                    h_supp = str(h.get('supplier', '')).strip()
+                    h_inv = str(h.get('invoice_number', '')).strip()
+                    # Si coincide con un proveedor eliminado y el número de comprobante, se descarta
+                    if h_supp in deleted_suppliers and (h_inv in del_fn_base or del_fn_base in h_inv):
+                        continue
+                    new_hist.append(h)
+
+                with open(user_hist_path, "w", encoding="utf-8") as f:
+                    json.dump(new_hist, f, ensure_ascii=False, indent=2)
+                print(f"[CONFLICTO-CAE] user_history.json actualizado sin los registros erróneos.", flush=True)
+        except Exception as e_hist:
+            print(f"[CONFLICTO-CAE] Aviso actualizando user_history.json: {e_hist}", flush=True)
+
+        del_supp_str = ", ".join(deleted_suppliers) if deleted_suppliers else "duplicados"
+        return {
+            "success": True,
+            "message": f"Conflicto resuelto: se confirmó '{keep_dict['supplier']}' y se eliminó el error de OCR de '{del_supp_str}'.",
+            "kept_supplier": keep_dict['supplier'],
+            "deleted_suppliers": list(deleted_suppliers),
+            "cae": cae
+        }
+    finally:
+        conn.close()
+
 

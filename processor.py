@@ -262,21 +262,29 @@ def move_to_remitos(file_path, new_filename):
 
 def extract_cuits_from_text(text):
     """
-    Extrae todos los CUITs encontrados en el texto, tolerando guiones con posibles espacios intermedios.
-    Soporta formato con guiones (ej. 30 - 70721038 - 5) y sin guiones (30707210385).
+    Extrae todos los CUITs encontrados en el texto, tolerando guiones con posibles espacios intermedios,
+    puntos, y prefijos ruidosos de OCR (como 'n2', 'no', 'cuit', etc.).
+    Soporta formato con guiones (ej. 30 - 70721038 - 5, n230-53785301-4) y sin guiones (30707210385).
     Devuelve lista de strings de 11 dígitos, en orden de aparición.
     """
     found = []
     seen = set()
 
-    # Formato con guiones y posibles espacios: XX - XXXXXXXX - X
+    # 1. Formato con guiones tolerante a prefijos pegados (ej. n230-53785301-4)
+    for m in re.finditer(r'(?:^|[^\d])(20|23|24|27|30|33|34)\s*[-.\s]*\s*(\d{8})\s*[-.\s]*\s*(\d)\b', text):
+        digits = m.group(1) + m.group(2) + m.group(3)
+        if digits not in seen:
+            found.append(digits)
+            seen.add(digits)
+
+    # 2. Formato con guiones estándar general: XX - XXXXXXXX - X
     for m in re.finditer(r'\b(\d{2})\s*-\s*(\d{8})\s*-\s*(\d)\b', text):
         digits = m.group(1) + m.group(2) + m.group(3)
         if digits not in seen:
             found.append(digits)
             seen.add(digits)
 
-    # Formato sin guiones: 11 dígitos con prefijo válido de CUIT argentino
+    # 3. Formato sin guiones: 11 dígitos con prefijo válido de CUIT argentino
     for m in re.finditer(r'\b((?:20|23|24|27|30|33|34)\d{9})\b', text):
         digits = m.group(1)
         if digits not in seen:
@@ -618,12 +626,44 @@ def find_supplier(text):
             print(f"  [OK] Proveedor identificado por CUIT {cuit_fmt}: {supplier}", flush=True)
             return supplier, "CUIT", None
 
+    # --- Tier 2.5: matching por Comprobante en ARCA (Punto de Venta + Número) ---
+    # Si el CUIT no pudo ser leído por OCR, comprobamos si el número de comprobante
+    # existe en los registros oficiales de ARCA Compras antes de recurrir a keywords.
+    if _ARCA_INVOICE_INDEX:
+        # Buscar números tipo 01030-00286035, 1030-286035, 0002-00001618
+        inv_matches = re.findall(r'\b(\d{4,5})[\s-]+(\d{6,8})\b', text)
+        for pv_c, num_c in inv_matches:
+            try:
+                inv_k = f"{int(pv_c)}-{int(num_c)}"
+                if inv_k in _ARCA_INVOICE_INDEX:
+                    arca_doc = _ARCA_INVOICE_INDEX[inv_k]
+                    arca_cuit = arca_doc.get("cuit")
+                    if arca_cuit and arca_cuit in _CUIT_INDEX:
+                        supplier = _CUIT_INDEX[arca_cuit]
+                        print(f"  [OK] Proveedor identificado por Comprobante Oficial ARCA {pv_c}-{num_c}: {supplier} (CUIT {arca_cuit})", flush=True)
+                        return supplier, "ARCA_COMPROBANTE", arca_doc
+            except Exception:
+                pass
+
     # --- Tier 3: matching por keywords (smart match seleccionando la coincidencia más larga) ---
     best_supplier = None
     longest_keyword_len = 0
     matched_keyword = ""
 
-    banned_generic = {'banco', 'buenos aires', 'la provincia', 'provincia', 'argentina', 'capital federal', 'comercial', 'transferencia', 'original', 'factura', 'total', 'iva'}
+    banned_generic = {
+        'banco', 'buenos aires', 'la provincia', 'provincia', 'argentina', 
+        'capital federal', 'comercial', 'transferencia', 'original', 'factura', 
+        'total', 'iva', 'gastro market', 'gastro market s.r.l.', 'gastro market srl', 
+        'gastro', 'paysandu', 'paysandu 958', 'ituzaingo'
+    }
+    try:
+        from config import MY_CUIT
+        if MY_CUIT:
+            banned_generic.add(MY_CUIT)
+            if len(MY_CUIT) == 11:
+                banned_generic.add(f"{MY_CUIT[:2]}-{MY_CUIT[2:10]}-{MY_CUIT[10]}")
+    except Exception:
+        pass
 
     for supplier_name, data in config.SUPPLIERS.items():
         for kw in data.get("keywords", []):
@@ -632,6 +672,9 @@ def find_supplier(text):
             if kw_normalized.isdigit() or re.match(r'^\d{2}\s\d{8}\s\d$', kw_normalized):
                 continue
             if kw_normalized in banned_generic:
+                continue
+            # Descartar cualquier keyword que mencione al comprador (Gastro Market / Paysandú / Ituzaingó)
+            if any(b in kw_normalized for b in ['gastro market', 'paysandu', 'ituzaingo']):
                 continue
             if len(kw_normalized) < 4:
                 continue
@@ -912,6 +955,8 @@ def learn_from_invoice(supplier_name, filename="", invoice_formatted=None, text=
         if new_kws:
             current_kws.extend(new_kws)
             current_kws = list(dict.fromkeys(current_kws))
+            buyer_banned = {'gastro market', 'paysandu', 'ituzaingo', 'gastro'}
+            current_kws = [k for k in current_kws if not any(b in k for b in buyer_banned) and k != '30714817767' and k != '30-71481776-7']
             suppliers[target_key]["keywords"] = current_kws
             with open(SUPPLIERS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(suppliers, f, indent=4, ensure_ascii=False)
@@ -1360,6 +1405,15 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
 
         try:
             import db_manager
+            if cae:
+                conn_chk = db_manager.get_connection()
+                c_chk = conn_chk.cursor()
+                c_chk.execute("SELECT supplier, filename FROM facturas_procesadas WHERE cae = ? AND supplier != ? LIMIT 1", (cae, supplier))
+                prev_conflict = c_chk.fetchone()
+                conn_chk.close()
+                if prev_conflict:
+                    print(f"  [ALERTA CONFLICTO CAE] El CAE {cae} ya estaba registrado bajo '{prev_conflict['supplier']}'. Queda habilitado en la interfaz para confirmar el correcto y eliminar el error de OCR.", flush=True)
+
             rel_p = os.path.relpath(dest_path, OUTPUT_FOLDER).replace('\\', '/')
             db_manager.save_processed_invoice(
                 year=year,
@@ -1926,6 +1980,13 @@ def save_ai_supplier(nombre, cuit, keywords):
                         
         # Normalizar y deduplicar keywords
         final_keywords = list(dict.fromkeys([k.lower().strip() for k in final_keywords if k]))
+        
+        # Filtrar términos del comprador / cliente para evitar contaminación cruzada
+        buyer_banned = {'gastro market', 'paysandu', 'ituzaingo', 'gastro'}
+        final_keywords = [
+            k for k in final_keywords 
+            if not any(b in k for b in buyer_banned) and k != '30714817767' and k != '30-71481776-7'
+        ]
         
         if target_key not in suppliers:
             suppliers[target_key] = {

@@ -2350,6 +2350,40 @@ def api_arca_reconciliar():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route('/api/cae_conflicts', methods=['GET'])
+def api_get_cae_conflicts():
+    """Retorna la lista de conflictos detectados donde el mismo CAE fue asignado a distintos proveedores."""
+    try:
+        conflicts = db_manager.get_cae_conflicts()
+        return jsonify({"success": True, "conflicts": conflicts, "total": len(conflicts)})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/cae_conflicts/resolve', methods=['POST'])
+def api_resolve_cae_conflict():
+    """Permite al usuario confirmar el proveedor correcto y eliminar de inmediato el error de OCR."""
+    try:
+        data = request.get_json() or {}
+        cae = data.get('cae')
+        keep_id = data.get('keep_id')
+        delete_id = data.get('delete_id')
+        if not cae or not keep_id:
+            return jsonify({"success": False, "message": "Faltan parámetros requeridos (cae, keep_id)."}), 400
+
+        del_arg = None
+        if delete_id is not None:
+            if isinstance(delete_id, list):
+                del_arg = [int(x) for x in delete_id]
+            else:
+                del_arg = int(delete_id)
+
+        res = db_manager.resolve_cae_conflict(cae, int(keep_id), del_arg)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route('/api/arca_compras/export_excel', methods=['GET'])
 def api_arca_export_excel():
     """Genera y descarga un archivo Excel (.xlsx) con las compras ARCA y su estado actual."""
@@ -2821,6 +2855,18 @@ def api_test_marcar_mes_pagado():
     
     return jsonify({"success": True, "actualizados": actualizados})
 
+@app.route('/api/configuraciones/<clave>', methods=['GET', 'POST'])
+def api_configuraciones(clave):
+    if request.method == 'GET':
+        val = db_manager.get_config(clave)
+        return jsonify({"success": True, "clave": clave, "valor": val})
+    else:
+        data = request.get_json() or {}
+        val = data.get('valor', '')
+        db_manager.set_config(clave, val)
+        return jsonify({"success": True, "clave": clave, "valor": val})
+
+
 if __name__ == '__main__':
     import webbrowser
     from threading import Timer
@@ -2854,7 +2900,6 @@ if __name__ == '__main__':
             for name, pkg_id in missing:
                 print(f"Descargando e instalando {name} (por favor espere)...")
                 try:
-                    # En modo --windowed, forzamos la creacion de una consola visible para que el usuario vea el progreso
                     creationflags = 0
                     if hasattr(subprocess, 'CREATE_NEW_CONSOLE'):
                         creationflags = subprocess.CREATE_NEW_CONSOLE
@@ -2867,33 +2912,6 @@ if __name__ == '__main__':
 
     check_and_install_dependencies()
 
-    def check_timeout():
-        global last_ping_time
-        time.sleep(15)
-        while True:
-            time.sleep(3)
-            # Evitar apagar si hay tareas activas en segundo plano
-            bot_running = False
-            try:
-                import arca_bot
-                bot_running = arca_bot.get_bot_status().get("running", False)
-            except Exception:
-                pass
-                
-            if bot_running or watcher_manager.is_processing_batch:
-                last_ping_time = time.time()
-                
-            # Si pasan más de 25 segundos sin recibir pings ni peticiones, se cerró la pestaña web
-            if time.time() - last_ping_time > 25:
-                print("No se detectó actividad web. Apagando servidor...", flush=True)
-                try:
-                    watcher_manager.stop()
-                except Exception:
-                    pass
-                os._exit(0)
-    # Auto-apagado deshabilitado para evitar que el servidor se cierre por inactividad.
-    # threading.Thread(target=check_timeout, daemon=True).start()
-
     print("\nIniciando la aplicación web...")
 
     def open_browser():
@@ -2902,15 +2920,3 @@ if __name__ == '__main__':
     Timer(1, open_browser).start()
 
     app.run(debug=False, port=5000, use_reloader=False, threaded=True)
-
-
-@app.route('/api/configuraciones/<clave>', methods=['GET', 'POST'])
-def api_configuraciones(clave):
-    if request.method == 'GET':
-        val = db_manager.get_config(clave)
-        return jsonify({"success": True, "clave": clave, "valor": val})
-    else:
-        data = request.get_json() or {}
-        val = data.get('valor', '')
-        db_manager.set_config(clave, val)
-        return jsonify({"success": True, "clave": clave, "valor": val})

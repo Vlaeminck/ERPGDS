@@ -2089,10 +2089,178 @@ document.addEventListener('DOMContentLoaded', () => {
                 const history = await res.json();
                 renderUserHistory(history);
             }
+            checkCAEConflicts();
         } catch (e) {
             console.error("Error fetching user history:", e);
         }
     }
+
+    // --- Controlador de Conflictos de CAE entre Proveedores ---
+    async function checkCAEConflicts() {
+        try {
+            const res = await fetch('/api/cae_conflicts');
+            if (!res.ok) return;
+            const data = await res.json();
+            const alertCard = document.getElementById('cae-conflict-alert');
+            const badge = document.getElementById('cae-conflict-badge');
+            const desc = document.getElementById('cae-conflict-desc');
+
+            if (data.total > 0 && alertCard) {
+                alertCard.style.display = 'block';
+                if (badge) badge.textContent = data.total;
+                if (desc && data.conflicts && data.conflicts.length > 0) {
+                    const first = data.conflicts[0];
+                    const suppNames = first.invoices ? first.invoices.map(i => i.supplier).join(' vs ') : '';
+                    desc.textContent = `Se detectó el comprobante ${first.factura_numero || first.cae} asignado a 2 proveedores diferentes (${suppNames}). Uno de ellos es un error de OCR y podés confirmarlo ahora.`;
+                }
+            } else if (alertCard) {
+                alertCard.style.display = 'none';
+            }
+        } catch (e) {
+            console.error("Error al consultar conflictos de CAE:", e);
+        }
+    }
+    window.checkCAEConflicts = checkCAEConflicts;
+
+    async function abrirModalConflictosCAE() {
+        const modal = document.getElementById('modal-conflictos-cae');
+        const container = document.getElementById('cae-conflicts-container');
+        if (!modal || !container) return;
+
+        modal.style.display = 'flex';
+        container.innerHTML = '<div style="text-align:center; padding:2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando conflictos de CAE...</div>';
+
+        try {
+            const res = await fetch('/api/cae_conflicts');
+            const data = await res.json();
+            const conflicts = data.conflicts || [];
+
+            if (conflicts.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 2rem; color: #10b981;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 2.5rem; margin-bottom: 0.75rem;"></i>
+                        <h4 style="margin: 0; font-size: 1.1rem; color: #065f46;">¡No hay conflictos de CAE pendientes!</h4>
+                        <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.85rem;">Todas las facturas electrónicas están asociadas unívocamente a sus proveedores.</p>
+                    </div>
+                `;
+                const alertCard = document.getElementById('cae-conflict-alert');
+                if (alertCard) alertCard.style.display = 'none';
+                return;
+            }
+
+            container.innerHTML = conflicts.map((c, idx) => {
+                const arcaOficial = c.arca_oficial;
+                let arcaBanner = '';
+                if (arcaOficial) {
+                    arcaBanner = `
+                        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid #6ee7b7; border-radius: 10px; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-shield-check" style="color: #059669; font-size: 1.2rem;"></i>
+                                <span style="font-weight: 700; color: #065f46; font-size: 0.88rem;">AFIP / ARCA Oficial:</span>
+                                <span style="font-weight: 800; color: #1e293b; font-size: 0.9rem;">${escapeHtml(arcaOficial.denominacion_emisor || '-')}</span>
+                                <span style="color: #64748b; font-size: 0.82rem;">(CUIT: ${escapeHtml(arcaOficial.nro_doc_emisor || '-')})</span>
+                            </div>
+                            <div style="font-weight: 700; color: #065f46; font-size: 0.88rem;">
+                                Monto Oficial: $${Number(arcaOficial.imp_total || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                const invoicesHtml = c.invoices.map((inv, i_idx) => {
+                    const otherInv = c.invoices.find(other => other.id !== inv.id) || c.invoices[i_idx === 0 ? 1 : 0];
+                    const otherId = otherInv ? otherInv.id : 0;
+                    const otherSupplier = otherInv ? otherInv.supplier : 'otro';
+
+                    const isOfficial = inv.is_arca_official;
+                    const cardBorder = isOfficial ? '2px solid #10b981' : '1px solid #e2e8f0';
+                    const cardBg = isOfficial ? 'rgba(16, 185, 129, 0.04)' : '#f8fafc';
+
+                    return `
+                        <div class="glass-card" style="padding: 1.25rem; border: ${cardBorder}; background: ${cardBg}; border-radius: 14px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 6px;">
+                                    <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #64748b;">Opción ${i_idx + 1}</span>
+                                    ${isOfficial ? `<span class="badge" style="background: #10b981; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-check"></i> Verificado en ARCA</span>` : `<span class="badge" style="background: #ef4444; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-triangle-exclamation"></i> Posible Error OCR</span>`}
+                                </div>
+                                <h4 style="margin: 0 0 6px 0; font-size: 1.05rem; font-weight: 800; color: #1e293b;">${escapeHtml(inv.supplier)}</h4>
+                                <div style="font-size: 0.82rem; color: #64748b; display: flex; flex-direction: column; gap: 4px;">
+                                    <div><strong>CUIT:</strong> ${escapeHtml(inv.cuit || 'No detectado')}</div>
+                                    <div><strong>Monto:</strong> $${Number(inv.total || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</div>
+                                    <div><strong>Archivo:</strong> <code style="font-size: 0.78rem;">${escapeHtml(inv.filename)}</code></div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 8px;">
+                                <button type="button" class="btn ${isOfficial ? 'btn-primary' : 'btn-danger'} btn-sm" style="width: 100%; font-weight: 700; padding: 0.6rem; display: flex; align-items: center; justify-content: center; gap: 6px;" onclick="resolverConflictoCAE('${escapeHtml(c.cae)}', ${inv.id}, ${otherId}, '${escapeHtml(inv.supplier)}', '${escapeHtml(otherSupplier)}')">
+                                    <i class="fa-solid fa-check"></i> Confirmar ${escapeHtml(inv.supplier.substring(0, 18))} (Eliminar el otro)
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <div>
+                                <span style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; color: #64748b;">Comprobante / Archivo:</span>
+                                <h4 style="margin: 2px 0 0 0; font-size: 1.1rem; font-weight: 800; color: #1e293b;">${escapeHtml(c.factura_numero)}</h4>
+                            </div>
+                            <div style="text-align: right;">
+                                <span style="font-size: 0.75rem; font-weight: 600; color: #64748b;">Número de CAE:</span>
+                                <div style="font-family: monospace; font-weight: 800; font-size: 0.95rem; color: #4338ca;">${escapeHtml(c.cae)}</div>
+                            </div>
+                        </div>
+
+                        ${arcaBanner}
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+                            ${invoicesHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error("Error al cargar modal de conflictos:", e);
+            container.innerHTML = '<div style="color: #ef4444; padding: 1.5rem; text-align: center;">Error al cargar conflictos de CAE.</div>';
+        }
+    }
+    window.abrirModalConflictosCAE = abrirModalConflictosCAE;
+
+    function cerrarModalConflictosCAE() {
+        const modal = document.getElementById('modal-conflictos-cae');
+        if (modal) modal.style.display = 'none';
+    }
+    window.cerrarModalConflictosCAE = cerrarModalConflictosCAE;
+
+    async function resolverConflictoCAE(cae, keepId, deleteId, keepSupplier, deleteSupplier) {
+        if (!confirm(`¿Confirmar '${keepSupplier}' como el proveedor legítimo de esta factura y ELIMINAR el error de OCR de '${deleteSupplier}' del disco y de la base de datos?`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/cae_conflicts/resolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cae: cae, keep_id: keepId, delete_id: deleteId })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message, 'success');
+                abrirModalConflictosCAE();
+                checkCAEConflicts();
+                if (typeof fetchUserHistory === 'function') fetchUserHistory();
+                if (typeof fetchStatus === 'function') fetchStatus();
+                if (typeof fetchProcessedInvoices === 'function') fetchProcessedInvoices();
+            } else {
+                showToast(data.message || "Error al resolver conflicto", "error");
+            }
+        } catch (e) {
+            console.error("Error al resolver conflicto de CAE:", e);
+            showToast("Error de conexión al resolver conflicto", "error");
+        }
+    }
+    window.resolverConflictoCAE = resolverConflictoCAE;
 
     function renderUserHistory(history) {
         if (!userHistoryTableBody) return;
