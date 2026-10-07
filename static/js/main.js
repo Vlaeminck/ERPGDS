@@ -3333,6 +3333,30 @@ document.addEventListener('DOMContentLoaded', () => {
         return AFIP_NC_CODES.includes(t) || (t.includes('nota') && (t.includes('cr') || t.includes('credito'))) || t === 'nc';
     }
 
+    function formatNumeroFactura(puntoVenta, nroComprobante) {
+        if (!puntoVenta && !nroComprobante) return '';
+        let pvStr = String(puntoVenta || '').trim();
+        let nroStr = String(nroComprobante || '').trim();
+
+        if (pvStr.includes(',')) {
+            const parts = pvStr.split(',');
+            if (parts.length >= 4) {
+                pvStr = parts[2] || '';
+                nroStr = parts[3] || '';
+            }
+        }
+
+        const pvDigits = pvStr.replace(/\D/g, '');
+        const nroDigits = nroStr.replace(/\D/g, '');
+
+        if (!pvDigits && !nroDigits) return '';
+
+        const pvPadded = pvDigits ? (pvDigits.length < 4 ? pvDigits.padStart(4, '0') : pvDigits) : '0000';
+        const nroPadded = nroDigits ? (nroDigits.length < 8 ? nroDigits.padStart(8, '0') : nroDigits) : '';
+
+        return nroPadded ? `${pvPadded} - ${nroPadded}` : pvPadded;
+    }
+
     window.renderArcaCompras = function () {
         const tbody = document.getElementById('tbl-arca-compras-body');
         if (!tbody) return;
@@ -3411,6 +3435,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const esNC = checkIsNC(c);
             const esRetro = c.es_retroactiva == 1;
+            const facNum = formatNumeroFactura(c.punto_venta, c.nro_comprobante);
+            const labelTipo = esNC ? 'Nota de Crédito' : 'Factura';
+            const invTooltip = facNum ? `${labelTipo}: ${facNum}` : '';
+            const invAttr = invTooltip ? `title="${escapeHtml(invTooltip)}"` : '';
 
             const ncTag = esNC ? ` <span class="badge" style="background: rgba(239, 68, 68, 0.18); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px;" title="${escapeHtml(c.tipo_comprobante || 'Nota de Crédito')}"><i class="fa-solid fa-file-invoice-dollar"></i> NC</span>` : '';
             const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px; cursor: help;" title="Factura Retroactiva: Comprobante cuya fecha de emisión es anterior a la fecha máxima previamente sincronizada para este proveedor en el mes (inserción de factura atrasada)."><i class="fa-solid fa-clock-rotate-left"></i> Retroactiva</span>` : '';
@@ -3425,13 +3453,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const denom = escapeHtml(c.denominacion_emisor || '-');
             const shortDenom = denom.length > 25 ? denom.substring(0, 22) + '...' : denom;
+            const supplierTitle = invTooltip ? `${escapeHtml(invTooltip)}&#10;${denom}` : denom;
 
             return `
-                <tr style="${rowBg}">
-                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
-                    <td title="${denom}"><strong>${shortDenom}</strong>${ncTag}</td>
-                    <td style="text-align: right; color: ${esNC ? '#ef4444' : '#f59e0b'};">${formatCurrency(c.total_iva)}</td>
-                    <td style="${amountStyle}">${formatCurrency(c.imp_total)}</td>
+                <tr style="${rowBg}" ${invAttr}>
+                    <td style="font-family: monospace; font-size: 0.82rem;" ${invAttr}>${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
+                    <td title="${supplierTitle}"><strong>${shortDenom}</strong>${ncTag}</td>
+                    <td style="text-align: right; color: ${esNC ? '#ef4444' : '#f59e0b'};" ${invAttr}>${formatCurrency(c.total_iva)}</td>
+                    <td style="${amountStyle}" ${invAttr}>${formatCurrency(c.imp_total)}</td>
                     <td style="text-align: center;">${recibida}</td>
                     <td style="text-align: center;">${estadoBadge}</td>
                     <td style="text-align: center; white-space: nowrap;">${metodoColContent}</td>

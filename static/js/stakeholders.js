@@ -82,14 +82,53 @@ function truncateText(str, maxLen = 25) {
     return s.substring(0, maxLen - 3) + '...';
 }
 
-function formatSupplierCell(razonSocial) {
+function formatNumeroFactura(puntoVenta, nroComprobante) {
+    if (!puntoVenta && !nroComprobante) return '';
+    let pvStr = String(puntoVenta || '').trim();
+    let nroStr = String(nroComprobante || '').trim();
+
+    if (pvStr.includes(',')) {
+        const parts = pvStr.split(',');
+        if (parts.length >= 4) {
+            pvStr = parts[2] || '';
+            nroStr = parts[3] || '';
+        }
+    }
+
+    const pvDigits = pvStr.replace(/\D/g, '');
+    const nroDigits = nroStr.replace(/\D/g, '');
+
+    if (!pvDigits && !nroDigits) return '';
+
+    const pvPadded = pvDigits ? (pvDigits.length < 4 ? pvDigits.padStart(4, '0') : pvDigits) : '0000';
+    const nroPadded = nroDigits ? (nroDigits.length < 8 ? nroDigits.padStart(8, '0') : nroDigits) : '';
+
+    return nroPadded ? `${pvPadded} - ${nroPadded}` : pvPadded;
+}
+
+function formatSupplierCell(razonSocial, invoiceTooltip = '') {
     const raw = String(razonSocial || '-').trim();
     const alias = aliasMap[raw] || aliasMap[raw.toUpperCase()] || aliasMap[raw.toLowerCase()] || '';
+
+    let tooltip = '';
+    if (invoiceTooltip) {
+        if (alias) {
+            tooltip = `${invoiceTooltip}&#10;Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}`;
+        } else {
+            tooltip = `${invoiceTooltip}&#10;${escapeHtml(raw)}`;
+        }
+    } else {
+        if (alias) {
+            tooltip = `Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}`;
+        } else {
+            tooltip = escapeHtml(raw);
+        }
+    }
 
     if (alias) {
         const truncAlias = truncateText(alias, 25);
         return `
-            <div class="supplier-name-cell" title="Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}">
+            <div class="supplier-name-cell" title="${tooltip}">
                 <strong style="color: #0f172a;">${escapeHtml(truncAlias)}</strong>
                 <div style="font-size: 0.73rem; color: #64748b; font-weight: 500;">${escapeHtml(truncateText(raw, 25))}</div>
             </div>
@@ -97,7 +136,7 @@ function formatSupplierCell(razonSocial) {
     } else {
         const truncRaw = truncateText(raw, 25);
         return `
-            <div class="supplier-name-cell" title="${escapeHtml(raw)}">
+            <div class="supplier-name-cell" title="${tooltip}">
                 <strong style="color: #0f172a;">${escapeHtml(truncRaw)}</strong>
             </div>
         `;
@@ -403,7 +442,8 @@ function renderArcaCloudTable() {
             const alias = (aliasMap[c.denominacion_emisor] || aliasMap[c.denominacion_emisor?.toUpperCase()] || '').toLowerCase();
             const cuit = String(c.nro_doc_emisor || '').toLowerCase();
             const comp = String(c.nro_comprobante || '').toLowerCase();
-            return razon.includes(searchProv) || alias.includes(searchProv) || cuit.includes(searchProv) || comp.includes(searchProv);
+            const fac = formatNumeroFactura(c.punto_venta, c.nro_comprobante).toLowerCase();
+            return razon.includes(searchProv) || alias.includes(searchProv) || cuit.includes(searchProv) || comp.includes(searchProv) || fac.includes(searchProv);
         });
     }
 
@@ -430,6 +470,10 @@ function renderArcaCloudTable() {
     tbody.innerHTML = filtered.map(c => {
         const esNC = checkIsNC(c);
         const esRetro = c.es_retroactiva == 1;
+        const facNum = formatNumeroFactura(c.punto_venta, c.nro_comprobante);
+        const labelTipo = esNC ? 'Nota de Crédito' : 'Factura';
+        const invTooltip = facNum ? `${labelTipo}: ${facNum}` : '';
+        const invAttr = invTooltip ? `title="${escapeHtml(invTooltip)}"` : '';
 
         const ncTag = esNC ? ` <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 700; font-size: 0.68rem; padding: 2px 5px;"><i class="fa-solid fa-file-invoice-dollar"></i> NC</span>` : '';
         const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 700; font-size: 0.68rem; padding: 2px 5px;"><i class="fa-solid fa-clock-rotate-left"></i> Retro</span>` : '';
@@ -470,16 +514,16 @@ function renderArcaCloudTable() {
             `;
         }
 
-        const supplierHtml = formatSupplierCell(c.denominacion_emisor);
+        const supplierHtml = formatSupplierCell(c.denominacion_emisor, invTooltip);
         const catBadge = getCategoryBadge(c.categoria_pago);
         const rowBg = esNC ? 'background: rgba(239, 68, 68, 0.04);' : (c.estado === 'Pagado' ? 'background: rgba(5, 150, 105, 0.03);' : '');
 
         return `
-            <tr style="${rowBg}">
-                <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
+            <tr style="${rowBg}" ${invAttr}>
+                <td style="font-family: monospace; font-size: 0.82rem;" ${invAttr}>${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
                 <td>${supplierHtml}${ncTag}</td>
-                <td style="text-align: right; color: ${esNC ? '#dc2626' : '#d97706'}; font-weight: 600;">${formatCurrency(c.total_iva)}</td>
-                <td style="text-align: right; font-weight: 800; font-size: 0.9rem; color: ${esNC ? '#dc2626' : '#0f172a'};">${formatCurrency(c.imp_total)}</td>
+                <td style="text-align: right; color: ${esNC ? '#dc2626' : '#d97706'}; font-weight: 600;" ${invAttr}>${formatCurrency(c.total_iva)}</td>
+                <td style="text-align: right; font-weight: 800; font-size: 0.9rem; color: ${esNC ? '#dc2626' : '#0f172a'};" ${invAttr}>${formatCurrency(c.imp_total)}</td>
                 <td style="text-align: center;">${catBadge}</td>
                 <td style="text-align: center;">${recibida}</td>
                 <td style="text-align: center;">${estadoBadge}</td>
