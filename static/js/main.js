@@ -214,6 +214,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     fetchCloudSyncStatus();
     setInterval(fetchCloudSyncStatus, 3000);
+    try {
+        fetch('/api/firebase/sync_now', { method: 'POST' }).then(() => fetchCloudSyncStatus()).catch(() => {});
+    } catch (_) {}
 
     allTabItems.forEach(link => {
         link.addEventListener('click', (e) => {

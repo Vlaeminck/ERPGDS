@@ -1446,3 +1446,29 @@ input[type="number"] {
     gap: 0.75rem;
     margin-top: 1.5rem;
 }
+
+.btn-copy-transparent {
+    background: transparent;
+    border: none;
+    padding: 3px 6px;
+    cursor: pointer;
+    color: #94a3b8;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    line-height: 1;
+    transition: all 0.15s ease;
+    vertical-align: middle;
+}
+
+.btn-copy-transparent:hover {
+    color: var(--primary-accent, #2563eb);
+    background: rgba(37, 99, 235, 0.08);
+    transform: scale(1.08);
+}
+
+.btn-copy-transparent:active {
+    transform: scale(0.92);
+}

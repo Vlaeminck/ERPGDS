@@ -82,6 +82,61 @@ function truncateText(str, maxLen = 25) {
     return s.substring(0, maxLen - 3) + '...';
 }
 
+function copyTextToClipboard(text, btnElement, label = 'Texto', evt = null) {
+    if (evt && typeof evt.stopPropagation === 'function') {
+        evt.stopPropagation();
+    }
+    if (!text || text === '-') {
+        showToast('No hay datos para copiar', 'info');
+        return;
+    }
+
+    const cleanText = String(text).trim();
+
+    const onSuccess = () => {
+        showToast(`${label} copiado: ${cleanText}`, 'success');
+        if (btnElement) {
+            const originalHtml = btnElement.innerHTML;
+            btnElement.innerHTML = '<i class="fa-solid fa-check" style="color: #059669;"></i>';
+            btnElement.style.color = '#059669';
+            setTimeout(() => {
+                btnElement.innerHTML = originalHtml;
+                btnElement.style.color = '';
+            }, 1500);
+        }
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(cleanText).then(onSuccess).catch(() => fallbackCopy(cleanText, onSuccess));
+    } else {
+        fallbackCopy(cleanText, onSuccess);
+    }
+}
+
+function fallbackCopy(text, onSuccess) {
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful && onSuccess) {
+            onSuccess();
+        } else {
+            showToast('No se pudo copiar al portapapeles', 'error');
+        }
+    } catch (err) {
+        console.error('Error fallback copy:', err);
+        showToast('Error al copiar al portapapeles', 'error');
+    }
+}
+
 function formatNumeroFactura(puntoVenta, nroComprobante) {
     if (!puntoVenta && !nroComprobante) return '';
     let pvStr = String(puntoVenta || '').trim();
@@ -272,6 +327,9 @@ async function initPortal() {
     await loadProveedoresAlias();
     pollSyncStatus();
     setInterval(pollSyncStatus, 15000);
+
+    // Sincronización automática con Firebase al ingresar al portal (sin tocar el botón)
+    triggerManualSync(false);
 }
 
 
@@ -1958,8 +2016,24 @@ function renderAliasTable(list) {
 
         return `
             <tr>
-                <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">${truncateText(safeNombre, 25)}</td>
-                <td style="font-family: monospace; color: #64748b; font-size: 0.82rem;">${escapeHtml(p.cuit || '-')}</td>
+                <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <button type="button" class="btn-copy-transparent" data-copy="${safeNombre}" onclick="copyTextToClipboard(this.getAttribute('data-copy'), this, 'Proveedor', event)" title="Copiar nombre completo del proveedor">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                        <span>${truncateText(safeNombre, 25)}</span>
+                    </div>
+                </td>
+                <td style="font-family: monospace; color: #64748b; font-size: 0.82rem;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${p.cuit ? `
+                        <button type="button" class="btn-copy-transparent" data-copy="${escapeHtml(p.cuit)}" onclick="copyTextToClipboard(this.getAttribute('data-copy'), this, 'CUIT', event)" title="Copiar CUIT">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                        ` : ''}
+                        <span>${escapeHtml(p.cuit || '-')}</span>
+                    </div>
+                </td>
                 <td>
                     <select id="${catSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 130px;" onchange="onCategorySelectChange('${catSelectId}', '${subcatSelectId}')">
                         ${catOptions}
@@ -2110,20 +2184,35 @@ function switchTab(tabId) {
     }
 }
 
-async function triggerManualSync() {
+let isSyncing = false;
+
+async function triggerManualSync(isManual = true) {
+    if (isSyncing) return;
+    isSyncing = true;
+
     const badge = document.getElementById('cloud-sync-badge');
     const text = document.getElementById('cloud-sync-text');
-    badge.classList.add('syncing');
-    text.textContent = 'Sincronizando...';
+    if (badge) badge.classList.add('syncing');
+    if (text) text.textContent = 'Sincronizando...';
 
     try {
         const res = await fetch('/api/firebase/full_resync', { method: 'POST' });
         const data = await res.json();
-        showToast('Nube reconciliada y sincronizada con éxito', 'success');
-        fetchAllData();
+        if (isManual) {
+            showToast('Nube reconciliada y sincronizada con éxito', 'success');
+        } else {
+            showToast('Firebase actualizado automáticamente', 'info');
+        }
+        await Promise.all([
+            fetchAllData(),
+            loadProveedoresAlias()
+        ]);
     } catch (e) {
-        showToast('Error forzando sincronización', 'error');
+        if (isManual) {
+            showToast('Error forzando sincronización', 'error');
+        }
     } finally {
+        isSyncing = false;
         pollSyncStatus();
     }
 }
