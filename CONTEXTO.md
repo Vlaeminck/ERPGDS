@@ -1,60 +1,77 @@
-# 📌 CONTEXTO TÉCNICO Y ARQUITECTURA DEL PROYECTO ERP GDS
+# 📌 CONTEXTO TÉCNICO Y ARQUITECTURA DEL PROYECTO ERP GDS (Rama Web & Desktop)
 
 Este documento sirve como **Guía Completa de Contexto Técnico** para desarrolladores, modelos de Inteligencia Artificial (LLMs) y herramientas agentic que colaboren en el proyecto **ERP GDS**.
 
 ---
 
 ## 🎯 1. Visión General del Sistema
-**ERP GDS** es una plataforma integral de gestión comercial, contable, financiera y de control interno especialmente adaptada para empresas y locales gastronómicos/comerciales.
+**ERP GDS** es una plataforma integral de gestión comercial, contable, financiera y de control interno especialmente adaptada para empresas y locales gastronómicos/comerciales. Cuenta con dos modalidades de despliegue coordinadas: la **Aplicación Desktop Local** (`app.py`) para operación diaria en el punto de venta y el **Portal Cloud para Stakeholders & Directivos** (`app_cloud.py`) para control remoto, análisis financiero y asignación de pagos.
 
 ### Funcionalidades Principales:
-1. **Dashboard de la Empresa**:
-   - Visión ejecutiva global de Ingresos vs. Egresos y Rentabilidad Neta.
+1. **Dashboard de la Empresa & Métricas de Rentabilidad**:
+   - Visión ejecutiva global de Ingresos vs. Egresos y Ganancia Neta.
    - Margen de Rentabilidad (%).
-   - **Métricas de Cubiertos (CUB)**: Total comensales, Promedio diario, Mejor día de cubiertos (con fecha, cantidad y recaudación) y Ticket promedio por cubierto.
+   - **Métricas de Cubiertos (CUB)**: Total comensales, promedio diario, mejor día de cubiertos (con fecha, comensales y recaudación) y ticket promedio por cubierto.
    - Gráficos interactivos en Chart.js: Estructura Financiera y Evolución Diaria de Cubiertos (CUB) vs. Recaudación ($).
 2. **Alivios & Conciliación de Recaudación**:
    - Conciliación diaria entre ventas registradas en Maxirest y dinero real percibido por plataformas (NAVE, MercadoPago, PedidosYa, Banco y Lotes de Alivios en Efectivo).
-   - Control de **Cubiertos (CUB)** por día.
+   - Control estricto de **Cubiertos (CUB)** por día y cálculo de desviaciones.
 3. **Retiros & Pagos Directos de Recaudación**:
-   - Registro de salidas de dinero desde los fondos recaudados (Efectivo, MercadoPago o Banco) para adelantos de sueldos, proveedores no registrados u otros fines.
+   - Registro de salidas de dinero desde los fondos recaudados (Efectivo, MercadoPago o Banco) para adelantos de sueldos, pagos a proveedores no registrados u otros fines operativos.
    - Descuento directo en los balances contables de la empresa.
 4. **Control de Estacionamiento**:
    - Arqueo de TicketControl vs. cobros reales en Efectivo y MercadoPago.
    - Control de gastos operativos fijos propios del sector.
 5. **Caja Chica & Arqueo Físico de Billetes**:
    - Movimientos de egresos e ingresos categorizados por responsable y motivo.
-   - Arqueo detallado de denominaciones de billetes ($20.000 a $20) con cálculo de diferencia contra el fondo en sistema.
+   - Arqueo detallado de denominaciones de billetes ($20.000 a $20) con cálculo automático de diferencia contra el fondo en sistema.
 6. **Gastos Fijos & Netos**:
    - Gestión mensual de costos estructurales (Alquiler, Servicios, Impuestos, Sueldos fijos).
    - Función para copiar automáticamente la estructura de gastos del mes anterior.
-7. **Procesador Inteligente de Facturas (OCR + IA Gemini)**:
-   - Monitoreo automático de facturas en PDF e imagen.
-   - Clasificación Multinivel por CUIT, CAE, Regex y Keywords.
-   - Rescate mediante IA (Google Gemini API) para facturas complejas o ilegibles.
-8. **Bot de Sincronización Automática con ARCA (ex AFIP)**:
-   - Bot con Selenium WebDriver que automatiza el ingreso al portal de ARCA y descarga "Mis Comprobantes Recibidos".
-   - Registro automático de proveedores e importación a la base de datos.
-9. **Doctor de Diagnóstico & Curación**:
-   - Escaneo y reparación de anomalías en base de datos e inconsistencias de archivos.
+7. **Portal Cloud para Stakeholders & Directivos (`app_cloud.py`)**:
+   - Acceso seguro mediante PIN configurable (`STAKEHOLDER_PIN = '2203'`).
+   - **Sincronización Automática con Firebase al Ingresar**: Al iniciar sesión o entrar al portal, se ejecuta una sincronización automática en segundo plano sin requerir pulsar el botón manual.
+   - **Modo Privacidad**: Opción de ocultar montos y totales con asteriscos (`$ ***.***`) para visualización discreta en público.
+   - Consulta y control de compras ARCA, estado de pagos y asignación obligatoria de categoría de pago (*Pinamar, Leloir, Socios*) y método (*Galicia, Mercado Pago, Efectivo, Tarjeta crédito*).
+   - Dashboard analítico con evolución mensual, métodos de pago, top proveedores y distribución por rubros.
+8. **Gestor de Categorías & Subcategorías de Gastos (Rubros)**:
+   - Árbol jerárquico de categorías y subcategorías (ej: *Carnes > Vacuno, Limpieza > Químicos*).
+   - Sincronización bidireccional automática con Firestore (`categorias_gastos`).
+9. **Asignación de Alias de Proveedores & Copiado Rápido**:
+   - Mapeo de razones sociales oficiales de ARCA a nombres de fantasía comerciales (ej: "PEPE CONGELADOS") con vinculación de rubro y subcategoría.
+   - **Botones Transparentes de Copiado Rápido**: Integrados en la tabla para copiar al portapapeles la **Razón Social Oficial completa** (sin truncar) y el **CUIT** con un solo clic y retroalimentación visual inmediata.
+10. **Procesador Inteligente de Facturas (OCR + IA Gemini)**:
+    - Monitoreo automático de facturas en PDF e imagen.
+    - Clasificación Multinivel por CUIT, CAE, Regex y Keywords.
+    - Rescate mediante IA (Google Gemini API) para facturas complejas o ilegibles.
+11. **Bot de Sincronización Automática con ARCA (ex AFIP)**:
+    - Bot con Selenium WebDriver que automatiza el ingreso al portal de ARCA y descarga "Mis Comprobantes Recibidos".
+    - Registro automático de proveedores e importación a la base de datos.
+12. **Motor de Sincronización Firebase Relay (`firebase_sync.py`)**:
+    - Sincronización de deltas entre múltiples equipos y la nube a costo $0.
+    - Escuchador en tiempo real (`on_snapshot`) y resolución automática de conflictos.
 
 ---
 
 ## 🛠️ 2. Pila Tecnológica (Stack)
 
 - **Lenguaje Principal**: Python 3.10+
-- **Framework Web Backend**: Flask (`app.py`, ejecución multihilo)
-- **Base de Datos**: SQLite 3 (`registros/control_interno.db` vía `db_manager.py`)
+- **Framework Web Backend**: Flask (`app.py` para Desktop/Local y `app_cloud.py` para Cloud/Stakeholders)
+- **Servidores WSGI de Producción**: `waitress` (Windows) y `gunicorn` (Linux/Cloud)
+- **Base de Datos**: SQLite 3 (`registros/control_interno.db` gestionado vía `db_manager.py` con modo WAL)
+- **Sincronización Cloud**: Firebase Admin SDK & Google Cloud Firestore (`firebase_sync.py`)
 - **Automatización Web**: Selenium WebDriver Headless (`arca_bot.py`)
 - **Procesamiento de Documentos / OCR**:
   - `PyPDFium2` & `pdfplumber` (Lectura nativa de texto PDF)
   - `Pytesseract` (OCR local para imágenes/escaneos)
   - `Google Generative AI SDK` (`google-generativeai` / Gemini API)
+- **Exportación e Importación**: `openpyxl` (Hojas de cálculo Excel)
 - **Frontend**:
-  - HTML5 Semántico (`templates/index.html`)
+  - HTML5 Semántico (`templates/index.html` para ERP principal, `templates/stakeholders.html` para portal web)
   - Vanilla CSS3 (`static/css/style.css` con Impeccable Light Theme, variables CSS, glassmorphism)
-  - Vanilla JavaScript ES6+ (`static/js/main.js`)
+  - Vanilla JavaScript ES6+ (`static/js/main.js` y `static/js/stakeholders.js`)
   - `Chart.js v4.4.0` (Gráficos estadísticos dinámicos)
+  - `FontAwesome 6.5.1` (Iconografía de alta resolución)
   - `Driver.js` (Tours guiados interactivos)
 
 ---
@@ -63,20 +80,26 @@ Este documento sirve como **Guía Completa de Contexto Técnico** para desarroll
 
 ```
 ERPGDS/
-├── app.py                     # Servidor Flask, API REST Endpoints y manejo de solicitudes
-├── db_manager.py              # Administrador de SQLite (Esquema de 12 tablas y conexión)
-├── processor.py               # Motor OCR, parsing de facturas, OCR Gemini y organización de archivos
+├── app.py                     # Servidor Flask principal (Desktop / Local)
+├── app_cloud.py               # Servidor Flask optimizado para Cloud / Portal Stakeholders
+├── db_manager.py              # Administrador de SQLite (Esquema de 14 tablas, conexión WAL y migraciones)
+├── firebase_sync.py           # Motor de sincronización bidireccional en tiempo real con Firestore
+├── processor.py               # Motor OCR, parsing de facturas, OCR Gemini y organización
 ├── arca_bot.py                # Bot Selenium para automatización del portal ARCA (AFIP)
 ├── doctor.py                  # Módulo de diagnóstico y reparación de inconsistencias
 ├── config.py                  # Variables de entorno, rutas base y deobfuscation de API Keys
 ├── watcher.py                 # Vigía de carpetas para procesamiento automático en tiempo real
 ├── reset.py                   # Script de restablecimiento a fábrica (Limpieza a 0 registros)
 ├── suppliers.json             # Catálogo de reglas de reconocimiento de proveedores
+├── requirements.txt           # Dependencias completas del sistema Desktop y Local
+├── requirements-web.txt       # Dependencias ligeras y multiplataforma para despliegue Cloud
 ├── templates/
-│   └── index.html             # Vista principal SPA (Secciones, Tablas, Modales, Visuales)
+│   ├── index.html             # Vista principal ERP Desktop (Conciliación, Caja, Facturas, Gastos)
+│   └── stakeholders.html      # Portal Web para Stakeholders (Compras, Cuentas, Rubros, Dashboard)
 ├── static/
-│   ├── css/style.css          # Sistema de diseño, temas de color y estilos Impeccable Light
-│   └── js/main.js             # Lógica de cliente, llamados a la API, renderizado y Chart.js
+│   ├── css/style.css          # Sistema de diseño, temas de color, botones transparentes y estilos Impeccable Light
+│   ├── js/main.js             # Lógica cliente del ERP Desktop
+│   └── js/stakeholders.js     # Lógica cliente del Portal Stakeholders, copiado rápido y gestor de rubros
 ├── Facturas_A_Procesar/        # Entrada de comprobantes pendientes
 ├── Facturas_Procesadas/       # Organización: YYYY/Mes/Proveedor/archivo.pdf
 ├── Facturas_No_Reconocidas/   # Archivos sin proveedor reconocido o con error
@@ -90,95 +113,104 @@ ERPGDS/
 
 ## 🗄️ 4. Esquema Completo de Base de Datos (`control_interno.db`)
 
-La base de datos contiene **12 tablas relacionales**:
+La base de datos contiene **14 tablas relacionales**:
 
 1. **`recaudacion_diaria`**:
-   - `id`, `fecha` (TEXT UNIQUE), `dia_nombre`, `efectivo_cub`, `cubiertos` (INTEGER), `nave_real`, `nave_maxi`, `diff_nave`, `efectivo_real`, `efectivo_maxi`, `diff_efectivo`, `py_real`, `py_maxi`, `diff_py`, `mp_real`, `mp_maxi`, `diff_mp`, `banco_real`, `banco_maxi`, `diff_banco`, `total_diario`, `diferencia_total`, `proyeccion_recaudacion`, `comentario`, `diff_proyeccion`, `lotes_json`, `es_feriado`.
+   - `id`, `fecha` (TEXT UNIQUE), `dia_nombre`, `efectivo_cub`, `cubiertos` (INTEGER), `nave_real`, `nave_maxi`, `diff_nave`, `efectivo_real`, `efectivo_maxi`, `diff_efectivo`, `py_real`, `py_maxi`, `diff_py`, `mp_real`, `mp_maxi`, `diff_mp`, `banco_real`, `banco_maxi`, `diff_banco`, `total_diario`, `diferencia_total`, `proyeccion_recaudacion`, `comentario`, `diff_proyeccion`, `lotes_json`, `es_feriado`, `uuid`, `updated_at`, `sync_status`.
 2. **`estacionamiento_diario`**:
-   - `id`, `fecha` (TEXT UNIQUE), `dia_nombre`, `caja_ticketcontrol`, `controlado_cash`, `controlado_mp`, `total`, `diferencia`, `comentario`.
+   - `id`, `fecha` (TEXT UNIQUE), `dia_nombre`, `caja_ticketcontrol`, `controlado_cash`, `controlado_mp`, `total`, `diferencia`, `comentario`, `uuid`, `updated_at`, `sync_status`.
 3. **`estacionamiento_gastos`**:
-   - `id`, `concepto` (TEXT UNIQUE), `monto`.
+   - `id`, `concepto` (TEXT UNIQUE), `monto`, `uuid`, `updated_at`, `sync_status`.
 4. **`caja_chica_movimientos`**:
-   - `id`, `fecha`, `monto_retirado`, `monto_ingresado`, `motivo`, `responsable`, `categoria`.
+   - `id`, `fecha`, `monto_retirado`, `monto_ingresado`, `motivo`, `responsable`, `categoria`, `uuid`, `updated_at`, `sync_status`.
 5. **`caja_chica_arqueo`**:
-   - `id`, `fecha` (TEXT UNIQUE), `b_20000`, `b_10000`, `b_2000`, `b_1000`, `b_500`, `b_200`, `b_100`, `b_50`, `b_20`, `total_efectivo_contado`, `diferencia_arqueo`.
+   - `id`, `fecha` (TEXT UNIQUE), `b_20000`, `b_10000`, `b_2000`, `b_1000`, `b_500`, `b_200`, `b_100`, `b_50`, `b_20`, `total_efectivo_contado`, `diferencia_arqueo`, `uuid`, `updated_at`, `sync_status`.
 6. **`gastos_fijos`**:
-   - `id`, `concepto`, `monto_mensual`, `mes`.
+   - `id`, `concepto`, `monto_mensual`, `mes`, `uuid`, `updated_at`, `sync_status`.
 7. **`arca_compras_csv`**:
-   - `id`, `fecha_emision`, `punto_venta`, `nro_doc_emisor`, `denominacion_emisor`, `total_iva`, `imp_total`, `mes`, `estado`, `factura_recibida`, `metodo_pago`, `fecha_pago`, `cae`, `nro_comprobante`.
-8. **`proveedores_cuentas_pagar`**:
-   - `id`, `proveedor_nombre`, `factura_numero`, `fecha`, `monto_total`, `estado`, `monto_pagado`, `fecha_pago`, `medio_pago`.
-9. **`proveedores`**:
-   - `id`, `nombre` (TEXT UNIQUE), `cuit`, `categoria`, `keywords`, `detalles`.
-10. **`facturas_procesadas`**:
-    - `id`, `year`, `month`, `supplier`, `filename`, `filepath`, `total`, `cuit`, `cae`, `fecha`, `fecha_procesado`.
-11. **`configuraciones`**:
-    - `clave` (TEXT PRIMARY KEY), `valor`.
+   - `id`, `fecha_emision`, `punto_venta`, `nro_doc_emisor`, `denominacion_emisor`, `total_iva`, `imp_total`, `mes`, `estado`, `factura_recibida`, `metodo_pago`, `fecha_pago`, `cae`, `nro_comprobante`, `tipo_comprobante`, `es_retroactiva`, `fecha_importacion`, `categoria_pago`, `uuid`, `updated_at`, `sync_status`.
+8. **`arca_compras_snapshots`**:
+   - `id`, `timestamp`, `origen`, `total_compras_pre`, `max_fechas_mes_json`, `max_fechas_proveedor_json`.
+9. **`proveedores_cuentas_pagar`**:
+   - `id`, `proveedor_nombre`, `factura_numero`, `fecha`, `monto_total`, `estado`, `monto_pagado`, `fecha_pago`, `medio_pago`, `categoria_pago`, `uuid`, `updated_at`, `sync_status`.
+10. **`proveedores`**:
+    - `id`, `nombre` (TEXT UNIQUE), `cuit`, `categoria`, `keywords`, `detalles`, `alias`, `subcategoria`, `is_deleted`, `uuid`, `updated_at`, `sync_status`.
+11. **`facturas_procesadas`**:
+    - `id`, `year`, `month`, `supplier`, `filename`, `filepath`, `total`, `cuit`, `cae`, `fecha`, `fecha_procesado`, `arca_match`, `arca_id`, `match_date`, `match_metodo`, `uuid`, `updated_at`, `sync_status`.
 12. **`retiros_recaudacion`**:
-    - `id`, `fecha`, `monto`, `medio_pago` ('Efectivo', 'MercadoPago', 'Banco'), `motivo`, `responsable`, `comentario`.
+    - `id`, `fecha`, `monto`, `medio_pago` ('Efectivo', 'MercadoPago', 'Banco'), `motivo`, `responsable`, `comentario`, `origen`, `uuid`, `updated_at`, `sync_status`.
+13. **`categorias_gastos`**:
+    - `id`, `nombre` (TEXT NOT NULL), `padre_id` (INTEGER, para subcategorías), `icono`, `color`, `uuid` (UNIQUE), `updated_at`, `sync_status`.
+14. **`configuraciones`**:
+    - `clave` (TEXT PRIMARY KEY), `valor`.
 
 ---
 
-## 🌐 5. Endpoints de la API Flask (`app.py`)
+## 🌐 5. Endpoints de la API Flask
 
-### 📈 Dashboard & Empresa
-- `GET /api/dashboard/empresa?mes=YYYY-MM`: Retorna resumen financiero completo (ingresos, egresos con retiros, ganancia neta, margen rentabilidad, métricas avanzadas de cubiertos y array diario para gráficos).
-- `GET /api/dashboard/resumen?mes=YYYY-MM`: Retorna totales generales de recaudación, estacionamiento, caja chica, gastos fijos y retiros.
+### 🔐 Autenticación Stakeholders (`app_cloud.py`)
+- `POST /api/auth/login`: Validación de PIN de acceso al portal web (`STAKEHOLDER_PIN`).
+- `GET /api/auth/check`: Verificación de sesión activa de stakeholder.
+- `POST /api/auth/logout`: Cierre de sesión.
+
+### 🏷️ Categorías & Rubros (`app.py` & `app_cloud.py`)
+- `GET /api/categorias`: Retorna el árbol (`tree`) y lista plana (`flat`) de categorías y subcategorías.
+- `POST /api/categorias`: Crea una categoría principal o subcategoría y sincroniza con Firestore.
+- `DELETE /api/categorias/<id>`: Elimina una categoría/subcategoría en SQLite y en Firestore.
+
+### 🏢 Proveedores & Nombres de Fantasía (Alias)
+- `GET /api/suppliers`: Lista única de proveedores y metadatos.
+- `GET /api/proveedores/alias`: Lista completa de proveedores para la grilla de alias y rubros.
+- `POST /api/proveedores/alias`: Actualiza nombre de fantasía (alias), categoría y subcategoría de un proveedor.
+- `POST /api/proveedores/<id>/categoria`: Actualiza exclusivamente categoría y subcategoría.
+
+### 📊 Dashboard & Métricas Cloud
+- `GET /api/dashboard/stats?mes=YYYY-MM`: Retorna métricas de compras, evolución mensual, distribución por métodos de pago y desglose por rubro para Stakeholders.
+- `GET /api/dashboard/empresa?mes=YYYY-MM`: Resumen financiero integral (ingresos, egresos, rentabilidad neta, cubiertos).
 - `GET /api/meses_disponibles`: Lista los meses con actividad registrada en el sistema.
 
-### 🍽️ Recaudación & Alivios
-- `GET /api/recaudacion?mes=YYYY-MM`: Lista registros de conciliación diaria.
-- `POST /api/recaudacion`: Guarda o actualiza conciliación de recaudación y cubiertos.
-- `DELETE /api/recaudacion?fecha=YYYY-MM-DD`: Elimina un registro de recaudación.
+### ☁️ Sincronización Firebase
+- `GET /api/firebase/status`: Estado de la sincronización (Online/Offline, registros pendientes y sincronizados).
+- `POST /api/firebase/sync_now`: Ejecuta un ciclo inmediato de push y pull.
+- `POST /api/firebase/full_resync`: Reconciliación completa forzada contra Firestore (ejecutada automáticamente al ingresar al portal web).
 
-### 💸 Retiros de Recaudación
-- `GET /api/recaudacion/retiros?mes=YYYY-MM`: Obtiene la lista de retiros directos de los fondos recaudados.
-- `POST /api/recaudacion/retiros`: Registra o actualiza un retiro (monto, medio de pago, motivo, responsable).
-- `DELETE /api/recaudacion/retiros?id=X`: Elimina un retiro de recaudación.
-
-### 🚗 Estacionamiento
-- `GET /api/estacionamiento?mes=YYYY-MM`: Registros diarios de TicketControl vs cobrado.
-- `POST /api/estacionamiento`: Guarda/actualiza día de estacionamiento.
-- `GET /api/estacionamiento/gastos`: Lista de gastos fijos operativos de estacionamiento.
-
-### 💼 Caja Chica & Arqueo
-- `GET /api/caja_chica/movimientos?mes=YYYY-MM`: Movimientos de egresos/ingresos.
-- `POST /api/caja_chica/movimientos`: Registra un movimiento de caja.
-- `GET/POST /api/caja_chica/arqueo`: Maneja el arqueo físico de billetes por denominación.
-
-### 📊 Gastos Fijos
-- `GET /api/gastos_fijos?mes=YYYY-MM`: Lista conceptos de gastos fijos del mes.
-- `POST /api/gastos_fijos`: Acciones: `upsert` (crear/editar), `delete` (eliminar), `copiar_mes_anterior` (copia del mes previo).
-
-### 🧾 Facturas, Proveedores y ARCA
-- `GET /api/suppliers`: Obtiene la lista de proveedores.
-- `GET /api/cuentas_por_pagar?mes=YYYY-MM`: Cuentas pendientes a proveedores.
-- `POST /api/cuentas_por_pagar/registrar_pago`: Registra el pago a un proveedor y sincroniza con ARCA.
-- `GET /api/arca_compras?mes=YYYY-MM`: Compras ARCA sincronizadas desde CSV.
-- `POST /api/arca/sync`: Inicia la sincronización automática con Selenium.
+### 🧾 Compras ARCA & Cuentas por Pagar
+- `GET /api/arca_compras?mes=YYYY-MM`: Lista de compras ARCA para el período.
+- `POST /api/arca_compras/<id>/marcar_pago`: Registra pago asignando categoría obligatoria (*Pinamar, Leloir, Socios*) y método.
+- `POST /api/arca_compras/<id>/desmarcar_pago`: Revierte el pago de un comprobante.
+- `POST /api/arca_compras/<id>/toggle_recibida`: Alterna el estado de factura física recibida.
+- `GET /api/arca_compras/export_excel?mes=YYYY-MM`: Exportación a formato Excel `.xlsx`.
+- `POST /api/arca_compras/import_excel`: Importación masiva desde archivo Excel.
+- `GET /api/cuentas_por_pagar?mes=YYYY-MM`: Reporte de saldos adeudados por proveedor.
+- `POST /api/cuentas_por_pagar/registrar_pago`: Pago de saldo en cuenta corriente.
 
 ---
 
 ## 🎨 6. Principios de Diseño y Buenas Prácticas
 
 1. **Única Fuente de Verdad (Single Source of Truth)**:
-   - Todos los módulos leen y escriben en SQLite (`control_interno.db`). No usar `localStorage` para datos del negocio.
-2. **Alto Contraste y Estética Premium**:
-   - Utilizar el tema claro Impeccable Light.
-   - En elementos con fondo claro, asegurar que el texto sea oscuro usando `var(--text-primary)` en lugar de tonos blancos hardcodeados.
-3. **Filtro Global por Período**:
-   - Todas las llamadas API respetan el mes seleccionado en la barra superior (`currentSelectedMonth`).
-4. **Resiliencia y Manejo de Errores**:
-   - Todas las operaciones en la base de datos deben cerrar sus conexiones en bloques `finally` o tras ejecutar el `commit`.
-   - Utilizar notificaciones tipo Toast (`showToast()`) en el frontend ante éxitos o errores.
+   - SQLite (`registros/control_interno.db`) es la fuente principal local respaldada en Firebase Firestore mediante `firebase_sync.py`. Nunca utilizar `localStorage` para persistir datos del negocio.
+2. **Alto Contraste y Estética Impeccable Light**:
+   - Paleta de diseño luminosa y limpia con variables CSS (`var(--text-primary)`, `var(--primary-accent)`). Evitar estilos inline con texto blanco sobre fondos claros.
+3. **Copiado Rápido con Botones Transparentes**:
+   - Botones sutiles `.btn-copy-transparent` en celdas de proveedores y CUIT que facilitan la interacción sin recargar la interfaz visual, respaldados por `navigator.clipboard` y fallback textarea.
+4. **Sincronización Transparente y Automática**:
+   - Toda mutación de datos (`INSERT`, `UPDATE`, `DELETE`) en tablas sincronizadas genera o mantiene su `uuid`, actualiza `updated_at`, marca `sync_status = 0` y ejecuta un ciclo de `sync_cycle()`.
+   - El portal web actualiza Firestore automáticamente al ingresar sin requerir interacción manual del usuario.
+5. **Filtro Global por Período**:
+   - Las llamadas a la API respetan la variable `currentSelectedMonth` (o `currentMonth` en el portal) mediante el parámetro `?mes=YYYY-MM`.
 
 ---
 
 ## 🚀 7. Ejecución y Desarrollo
 
-- **Iniciar la Aplicación**:
+- **Iniciar el ERP Desktop (Completo / Local)**:
   ```bash
   python app.py
+  ```
+- **Iniciar el Portal Web Cloud (Stakeholders)**:
+  ```bash
+  python app_cloud.py
   ```
 - **Resetear a Fábrica (0 registros)**:
   ```bash

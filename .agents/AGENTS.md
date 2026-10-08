@@ -5,7 +5,7 @@ Cualquier modelo de Inteligencia Artificial (LLM / Agentic AI) que trabaje en es
 ---
 
 ## 📖 1. Documentación de Contexto de Entrada
-- **Antes de realizar cambios significativos**, lee siempre el archivo [CONTEXTO.md](file:///c:/Users/Gardenias/Desktop/DEVS/ERPGDS/ERPGDS/CONTEXTO.md). Contiene la arquitectura completa del proyecto, el mapa de archivos, los endpoints de la API Flask y el esquema exacto de las **12 tablas SQLite**.
+- **Antes de realizar cambios significativos**, lee siempre el archivo [CONTEXTO.md](file:///c:/Users/Gardenias/Desktop/DEVS/ERPGDS/ERPGDS/CONTEXTO.md). Contiene la arquitectura completa del proyecto, el mapa de archivos, los endpoints de la API Flask y el esquema exacto de las **14 tablas SQLite**.
 
 ---
 
