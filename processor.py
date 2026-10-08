@@ -1581,10 +1581,15 @@ def sync_user_history_from_disk():
                     
                     try:
                         mtime = os.path.getmtime(fpath)
+                        if mtime <= 0:
+                            mtime = time.time()
                     except Exception:
                         mtime = time.time()
                     
-                    dt = datetime.datetime.fromtimestamp(mtime)
+                    try:
+                        dt = datetime.datetime.fromtimestamp(mtime)
+                    except Exception:
+                        dt = datetime.datetime.now()
                     entries.append({
                         "mtime": mtime,
                         "timestamp": dt.strftime("%d/%m/%Y %H:%M:%S"),
@@ -1606,9 +1611,14 @@ def sync_user_history_from_disk():
                     fpath = os.path.join(root, file)
                     try:
                         mtime = os.path.getmtime(fpath)
+                        if mtime <= 0:
+                            mtime = time.time()
                     except Exception:
                         mtime = time.time()
-                    dt = datetime.datetime.fromtimestamp(mtime)
+                    try:
+                        dt = datetime.datetime.fromtimestamp(mtime)
+                    except Exception:
+                        dt = datetime.datetime.now()
                     entries.append({
                         "mtime": mtime,
                         "timestamp": dt.strftime("%d/%m/%Y %H:%M:%S"),
@@ -1629,9 +1639,14 @@ def sync_user_history_from_disk():
                 fpath = os.path.join(UNRECOGNIZED_FOLDER, file)
                 try:
                     mtime = os.path.getmtime(fpath)
+                    if mtime <= 0:
+                        mtime = time.time()
                 except Exception:
                     mtime = time.time()
-                dt = datetime.datetime.fromtimestamp(mtime)
+                try:
+                    dt = datetime.datetime.fromtimestamp(mtime)
+                except Exception:
+                    dt = datetime.datetime.now()
                 entries.append({
                     "mtime": mtime,
                     "timestamp": dt.strftime("%d/%m/%Y %H:%M:%S"),

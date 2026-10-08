@@ -195,26 +195,43 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { }
     }
 
-    window.checkCloudSyncNow = async function () {
+    window.checkCloudSyncNow = async function (silent = false) {
         try {
+            const badge = document.getElementById('cloud-sync-badge');
+            const icon = document.getElementById('cloud-sync-icon');
+            const text = document.getElementById('cloud-sync-text');
+            if (badge && icon && text) {
+                badge.style.background = 'rgba(245, 158, 11, 0.15)';
+                badge.style.color = '#d97706';
+                badge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                icon.className = 'fa-solid fa-arrows-rotate fa-spin';
+                text.textContent = 'Sync Nube: Conectando...';
+            }
+
             const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
             const data = await res.json();
             fetchCloudSyncStatus();
-            if (data.mode === 'ONLINE_SYNC') {
-                if (data.pending_count > 0) {
-                    showToast(`Sincronización en curso: ${data.progress_percent}% (${data.synced_count}/${data.total_count})`, "info");
+            if (!silent) {
+                if (data.mode === 'ONLINE_SYNC') {
+                    if (data.pending_count > 0) {
+                        showToast(`Sincronización en curso: ${data.progress_percent}% (${data.synced_count}/${data.total_count})`, "info");
+                    } else {
+                        showToast("¡Sincronización Cloud al 100% completada!");
+                    }
                 } else {
-                    showToast("¡Sincronización Cloud al 100% completada!");
+                    showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");
                 }
-            } else {
-                showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");
             }
         } catch (e) {
-            showToast("Modo Local Activo", "info");
+            if (!silent) {
+                showToast("Modo Local Activo", "info");
+            }
         }
     };
 
     fetchCloudSyncStatus();
+    // Auto-sincronización con Firebase al abrir el portal web
+    checkCloudSyncNow(true);
     setInterval(fetchCloudSyncStatus, 3000);
 
     allTabItems.forEach(link => {
@@ -2191,7 +2208,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                             </div>
                             <div style="margin-top: 8px;">
-                                <button type="button" class="btn ${isOfficial ? 'btn-primary' : 'btn-danger'} btn-sm" style="width: 100%; font-weight: 700; padding: 0.6rem; display: flex; align-items: center; justify-content: center; gap: 6px;" onclick="resolverConflictoCAE('${escapeHtml(c.cae)}', ${inv.id}, ${otherId}, '${escapeHtml(inv.supplier)}', '${escapeHtml(otherSupplier)}')">
+                                <button type="button" class="btn ${isOfficial ? 'btn-primary' : 'btn-danger'} btn-sm btn-resolver-cae" style="width: 100%; font-weight: 700; padding: 0.6rem; display: flex; align-items: center; justify-content: center; gap: 6px;" data-cae="${escapeHtml(c.cae)}" data-keep-id="${inv.id}" data-keep-supplier="${escapeHtml(inv.supplier)}">
                                     <i class="fa-solid fa-check"></i> Confirmar ${escapeHtml(inv.supplier.substring(0, 18))} (Eliminar el otro)
                                 </button>
                             </div>
@@ -2220,6 +2237,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
             }).join('');
+
+            // Delegación de eventos para botones de resolución
+            container.querySelectorAll('.btn-resolver-cae').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const cae = btn.getAttribute('data-cae');
+                    const keepId = parseInt(btn.getAttribute('data-keep-id'), 10);
+                    const keepSupplier = btn.getAttribute('data-keep-supplier');
+                    resolverConflictoCAE(cae, keepId, keepSupplier);
+                });
+            });
         } catch (e) {
             console.error("Error al cargar modal de conflictos:", e);
             container.innerHTML = '<div style="color: #ef4444; padding: 1.5rem; text-align: center;">Error al cargar conflictos de CAE.</div>';
@@ -2233,8 +2260,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.cerrarModalConflictosCAE = cerrarModalConflictosCAE;
 
-    async function resolverConflictoCAE(cae, keepId, deleteId, keepSupplier, deleteSupplier) {
-        if (!confirm(`¿Confirmar '${keepSupplier}' como el proveedor legítimo de esta factura y ELIMINAR el error de OCR de '${deleteSupplier}' del disco y de la base de datos?`)) {
+    async function resolverConflictoCAE(cae, keepId, keepSupplier) {
+        if (!confirm(`¿Confirmar '${keepSupplier}' como el proveedor legítimo de esta factura y ELIMINAR los registros erróneos/duplicados del disco y de la base de datos?`)) {
             return;
         }
 
@@ -2242,7 +2269,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/cae_conflicts/resolve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cae: cae, keep_id: keepId, delete_id: deleteId })
+                body: JSON.stringify({ cae: cae, keep_id: keepId })
             });
             const data = await res.json();
             if (data.success) {

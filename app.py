@@ -2364,23 +2364,24 @@ def api_get_cae_conflicts():
 def api_resolve_cae_conflict():
     """Permite al usuario confirmar el proveedor correcto y eliminar de inmediato el error de OCR."""
     try:
-        data = request.get_json() or {}
-        cae = data.get('cae')
+        data = request.get_json(silent=True) or {}
+        cae = str(data.get('cae') or '').strip()
         keep_id = data.get('keep_id')
         delete_id = data.get('delete_id')
-        if not cae or not keep_id:
+        if not cae or keep_id is None:
             return jsonify({"success": False, "message": "Faltan parámetros requeridos (cae, keep_id)."}), 400
 
         del_arg = None
         if delete_id is not None:
             if isinstance(delete_id, list):
-                del_arg = [int(x) for x in delete_id]
-            else:
+                del_arg = [int(x) for x in delete_id if str(x).isdigit()]
+            elif str(delete_id).isdigit():
                 del_arg = int(delete_id)
 
         res = db_manager.resolve_cae_conflict(cae, int(keep_id), del_arg)
         return jsonify(res)
     except Exception as e:
+        print(f"[API] Error en /api/cae_conflicts/resolve: {e}", flush=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
 

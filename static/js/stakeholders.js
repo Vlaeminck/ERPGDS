@@ -223,6 +223,8 @@ async function handleLogout() {
 
 async function initPortal() {
     updatePrivacyModeUI();
+    // Auto-sincronización con Firebase al abrir el portal
+    triggerManualSync(true);
     await loadMonths();
     await loadCategories();
     await fetchAllData();
@@ -1289,19 +1291,25 @@ function switchTab(tabId) {
     }
 }
 
-async function triggerManualSync() {
+async function triggerManualSync(silent = false) {
     const badge = document.getElementById('cloud-sync-badge');
     const text = document.getElementById('cloud-sync-text');
-    badge.classList.add('syncing');
-    text.textContent = 'Sincronizando...';
+    if (badge && text) {
+        badge.classList.add('syncing');
+        text.textContent = 'Sincronizando...';
+    }
 
     try {
         const res = await fetch('/api/firebase/full_resync', { method: 'POST' });
         const data = await res.json();
-        showToast('Nube reconciliada y sincronizada con éxito', 'success');
+        if (!silent) {
+            showToast('Nube reconciliada y sincronizada con éxito', 'success');
+        }
         fetchAllData();
     } catch (e) {
-        showToast('Error forzando sincronización', 'error');
+        if (!silent) {
+            showToast('Error forzando sincronización', 'error');
+        }
     } finally {
         pollSyncStatus();
     }

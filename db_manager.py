@@ -1454,9 +1454,10 @@ def resolve_cae_conflict(cae, keep_id, delete_id=None):
     """
     Resuelve un conflicto de CAE:
     - Conserva la factura con id `keep_id`.
-    - Elimina la factura o facturas erróneas con ese CAE:
-      * Borra el archivo físico erróneo de Facturas_Procesadas.
-      * Borra el registro de facturas_procesadas.
+    - Elimina todas las facturas erróneas con ese CAE:
+      * Borra el archivo físico erróneo de Facturas_Procesadas con protección total de rutas.
+      * Borra el documento en Firebase Cloud para evitar reaparición o conflicto fantasma.
+      * Borra el registro de facturas_procesadas en SQLite.
     - Asegura que keep_id quede formalmente vinculada con su registro de ARCA Compras.
     - Limpia registros/user_history.json de las entradas erróneas.
     """
@@ -1472,15 +1473,26 @@ def resolve_cae_conflict(cae, keep_id, delete_id=None):
         keep_rel_path = (keep_dict.get('filepath') or '').replace('/', os.sep).lower()
 
         # Determinar facturas a eliminar
-        del_ids = []
+        del_ids = set()
         if delete_id is not None:
             if isinstance(delete_id, (list, tuple, set)):
-                del_ids = [int(x) for x in delete_id if int(x) != int(keep_id)]
+                for x in delete_id:
+                    try:
+                        if int(x) != int(keep_id):
+                            del_ids.add(int(x))
+                    except Exception:
+                        pass
             else:
-                del_ids = [int(delete_id)] if int(delete_id) != int(keep_id) else []
-        else:
-            cursor.execute("SELECT id FROM facturas_procesadas WHERE cae = ? AND id != ?", (cae, keep_id))
-            del_ids = [r['id'] for r in cursor.fetchall()]
+                try:
+                    if int(delete_id) != int(keep_id):
+                        del_ids.add(int(delete_id))
+                except Exception:
+                    pass
+
+        # Siempre incluir cualquier otra factura con el mismo CAE para resolver el conflicto completamente
+        cursor.execute("SELECT id FROM facturas_procesadas WHERE cae = ? AND id != ?", (cae, keep_id))
+        for r in cursor.fetchall():
+            del_ids.add(r['id'])
 
         deleted_suppliers = set()
         for d_id in del_ids:
@@ -1491,23 +1503,35 @@ def resolve_cae_conflict(cae, keep_id, delete_id=None):
             del_dict = dict(del_row)
             deleted_suppliers.add(del_dict.get('supplier', ''))
 
-            # 1. Eliminar archivo físico de la factura errónea si no es el mismo que se conserva
+            # 1. Eliminar archivo físico de la factura errónea con manejo seguro de excepciones
             rel_path = del_dict.get('filepath') or ''
             if rel_path:
-                norm_rel = rel_path.replace('/', os.sep).lower()
-                if norm_rel != keep_rel_path:
-                    full_path = os.path.join(config.OUTPUT_FOLDER, rel_path.replace('/', os.sep))
-                    if os.path.exists(full_path):
-                        try:
-                            os.remove(full_path)
-                            print(f"[CONFLICTO-CAE] Archivo erróneo eliminado del disco: {full_path}", flush=True)
-                        except Exception as e_rm:
-                            print(f"[CONFLICTO-CAE] Aviso eliminando archivo erróneo: {e_rm}", flush=True)
+                try:
+                    norm_rel = rel_path.replace('/', os.sep).lower()
+                    if norm_rel != keep_rel_path:
+                        full_path = os.path.join(config.OUTPUT_FOLDER, rel_path.replace('/', os.sep))
+                        if os.path.exists(full_path):
+                            try:
+                                os.remove(full_path)
+                                print(f"[CONFLICTO-CAE] Archivo erróneo eliminado del disco: {full_path}", flush=True)
+                            except Exception as e_rm:
+                                print(f"[CONFLICTO-CAE] Aviso eliminando archivo erróneo: {e_rm}", flush=True)
+                except Exception as e_path:
+                    print(f"[CONFLICTO-CAE] Aviso verificando ruta de archivo: {e_path}", flush=True)
 
-            # 2. Eliminar registro de facturas_procesadas
+            # 2. Eliminar registro en Firebase Cloud para que no se vuelva a descargar
+            del_uuid = del_dict.get('uuid')
+            if del_uuid:
+                try:
+                    import firebase_sync
+                    firebase_sync.delete_document('facturas_procesadas', del_uuid)
+                except Exception as e_fb:
+                    print(f"[CONFLICTO-CAE] Aviso eliminando de Firebase: {e_fb}", flush=True)
+
+            # 3. Eliminar registro de facturas_procesadas en SQLite local
             cursor.execute("DELETE FROM facturas_procesadas WHERE id = ?", (d_id,))
 
-        # 3. Vincular formalmente la factura correcta con ARCA Compras si hay coincidencia
+        # 4. Vincular formalmente la factura correcta con ARCA Compras si hay coincidencia
         cursor.execute("SELECT id FROM arca_compras_csv WHERE cae = ? LIMIT 1", (cae,))
         arca_match = cursor.fetchone()
         if arca_match:
@@ -1525,7 +1549,7 @@ def resolve_cae_conflict(cae, keep_id, delete_id=None):
 
         conn.commit()
 
-        # 4. Limpiar del historial de usuario (user_history.json)
+        # 5. Limpiar del historial de usuario (user_history.json)
         try:
             from config import REGISTROS_FOLDER
             user_hist_path = os.path.join(REGISTROS_FOLDER, "user_history.json")
@@ -1556,6 +1580,13 @@ def resolve_cae_conflict(cae, keep_id, delete_id=None):
             "kept_supplier": keep_dict['supplier'],
             "deleted_suppliers": list(deleted_suppliers),
             "cae": cae
+        }
+    except Exception as e:
+        conn.rollback()
+        print(f"[CONFLICTO-CAE] Error resolviendo conflicto de CAE: {e}", flush=True)
+        return {
+            "success": False,
+            "message": f"Error al resolver conflicto de CAE: {str(e)}"
         }
     finally:
         conn.close()

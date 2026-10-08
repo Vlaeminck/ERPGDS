@@ -212,6 +212,33 @@ def push_local_changes():
     conn.close()
     return total_pushed
 
+def delete_document(table, doc_uuid):
+    """
+    Elimina permanentemente un documento de Firestore por colección y UUID.
+    Actualiza el global_state para notificar a otras instancias.
+    """
+    global _firestore_db
+    if not _firestore_db:
+        if not init_firebase():
+            return False
+    if not doc_uuid:
+        return False
+    try:
+        _firestore_db.collection(table).document(str(doc_uuid)).delete()
+        print(f"[FirebaseSync] Documento {doc_uuid} eliminado de Firebase ({table})", flush=True)
+        try:
+            now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            _firestore_db.collection('sync_metadata').document('global_state').set({
+                'last_change': now_iso,
+                'sender_id': CLIENT_INSTANCE_ID
+            })
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print(f"[FirebaseSync] Error eliminando documento {doc_uuid} de {table}: {e}", flush=True)
+        return False
+
 _table_pull_timestamps = {}
 
 def reconcile_with_firestore(table=None):
