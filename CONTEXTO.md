@@ -30,7 +30,7 @@ Este documento sirve como **Guía Completa de Contexto Técnico** para desarroll
    - Función para copiar automáticamente la estructura de gastos del mes anterior.
 7. **Portal Cloud para Stakeholders & Directivos (`app_cloud.py`)**:
    - Acceso seguro mediante PIN configurable (`STAKEHOLDER_PIN = '2203'`).
-   - **Sincronización Automática con Firebase al Ingresar**: Al iniciar sesión o entrar al portal, se ejecuta una sincronización automática en segundo plano sin requerir pulsar el botón manual.
+   - **Sincronización Automática con Firebase al Ingresar**: Al entrar al portal, se ejecuta una sincronización de deltas liviana en segundo plano contra el documento testigo, sin descargar colecciones completas ni requerir pulsar el botón manual.
    - **Modo Privacidad**: Opción de ocultar montos y totales con asteriscos (`$ ***.***`) para visualización discreta en público.
    - Consulta y control de compras ARCA, estado de pagos y asignación obligatoria de categoría de pago (*Pinamar, Leloir, Socios*) y método (*Galicia, Mercado Pago, Efectivo, Tarjeta crédito*).
    - Dashboard analítico con evolución mensual, métodos de pago, top proveedores y distribución por rubros.
@@ -47,9 +47,11 @@ Este documento sirve como **Guía Completa de Contexto Técnico** para desarroll
 11. **Bot de Sincronización Automática con ARCA (ex AFIP)**:
     - Bot con Selenium WebDriver que automatiza el ingreso al portal de ARCA y descarga "Mis Comprobantes Recibidos".
     - Registro automático de proveedores e importación a la base de datos.
-12. **Motor de Sincronización Firebase Relay (`firebase_sync.py`)**:
-    - Sincronización de deltas entre múltiples equipos y la nube a costo $0.
-    - Escuchador en tiempo real (`on_snapshot`) y resolución automática de conflictos.
+12. **Motor de Sincronización Eficiente con Firebase Firestore (`firebase_sync.py`)**:
+    - **Arquitectura Event-Driven (Documento Testigo)**: Monitorea el documento testigo `sync_metadata/global_state` consumiendo 1 sola lectura por chequeo (o 0 lecturas si el listener `on_snapshot` está activo).
+    - **Persistencia de Marcas de Tiempo**: Guarda marcas `last_pull_{table}` en SQLite (`configuraciones`), evitando lecturas redundantes tras reinicios.
+    - **Ahorro de Cuota**: Eliminación de reconciliaciones ciegas periódicas que causaban picos de lecturas masivas.
+    - **Protección de Concurrencia**: Configuración de `busy_timeout` a 60s en SQLite y un solo proceso maestro (`--workers=1`) en entornos Cloud.
 
 ---
 
@@ -171,8 +173,8 @@ La base de datos contiene **14 tablas relacionales**:
 
 ### ☁️ Sincronización Firebase
 - `GET /api/firebase/status`: Estado de la sincronización (Online/Offline, registros pendientes y sincronizados).
-- `POST /api/firebase/sync_now`: Ejecuta un ciclo inmediato de push y pull.
-- `POST /api/firebase/full_resync`: Reconciliación completa forzada contra Firestore (ejecutada automáticamente al ingresar al portal web).
+- `POST /api/firebase/sync_now`: Ejecuta un ciclo inmediato de push y pull basado en el documento testigo (consumo mínimo).
+- `POST /api/firebase/full_resync`: Reconciliación completa forzada contra Firestore (uso manual exclusivo para resolución de inconsistencias o mantenimiento).
 
 ### 🧾 Compras ARCA & Cuentas por Pagar
 - `GET /api/arca_compras?mes=YYYY-MM`: Lista de compras ARCA para el período.

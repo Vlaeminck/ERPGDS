@@ -44,7 +44,7 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
 
 1. 🌐 **Portal Cloud para Stakeholders & Directivos (`app_cloud.py`):**
    - Acceso web protegido mediante PIN seguro (`STAKEHOLDER_PIN = '2203'`).
-   - **Sincronización Automática con Firebase al Ingresar:** Al acceder al portal, se realiza una reconciliación completa con la nube en segundo plano, sin requerir presionar el botón manual.
+   - **Sincronización Automática con Firebase al Ingresar:** Al acceder al portal, se realiza una verificación liviana de deltas en segundo plano contra el documento testigo de Firestore, sin requerir presionar el botón manual.
    - **Registro de Pagos Categorizados:** Asignación obligatoria de Categoría de Pago (*Pinamar, Leloir, Socios*) y Método de Pago (*Galicia, Mercado Pago, Efectivo, Tarjeta crédito*).
    - Exportación e importación directa a planillas Excel (`.xlsx`) mediante `openpyxl`.
 

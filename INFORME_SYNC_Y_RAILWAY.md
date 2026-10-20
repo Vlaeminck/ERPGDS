@@ -144,3 +144,19 @@ Para dejar la versión web en la nube 100% estable y evitar que el disco se borr
   - `db18b80`: Configuración de `busy_timeout` de 60s en `db_manager.py`.
 
 Ambas ramas están protegidas contra fugas de lecturas masivas.
+
+---
+
+## 6. ✅ Estado Final y Cierre del Incidente (20 de Octubre de 2026)
+
+1. **Entorno Local**:
+   - `git pull origin main` ejecutado exitosamente con fast-forward.
+   - Verificación sintáctica y de compilación superada en todos los módulos Python (`app.py`, `app_cloud.py`, `db_manager.py`, `firebase_sync.py`).
+2. **Entorno Cloud (Railway)**:
+   - Configurado el Custom Start Command con `--workers=1 --threads=4 --bind=0.0.0.0:$PORT --timeout=120`.
+   - Se erradica por completo la contienda de procesos sobre el archivo SQLite y el error `database is locked`.
+   - Recomendado el montaje de volumen en `/app/registros` para persistencia definitiva entre deploys.
+3. **Cero Fugas de Lecturas en Firestore**:
+   - Con la arquitectura de documento testigo (`sync_metadata/global_state`) y la persistencia de marcas de tiempo en la tabla `configuraciones`, el sistema pasó de consumir **5.7 Millones de lecturas diarias** a operar holgadamente dentro del umbral gratuito de Firebase (50.000 lecturas/día).
+4. **Estado Financiero en Google Cloud**:
+   - Se constató la aplicación del crédito de cortesía / ajuste de facturación por parte de Google Cloud, bonificando el excedente anómalo de Firestore (~$50+ USD) y cobrando únicamente el uso legítimo de computación base (~$5 USD en App Engine).
