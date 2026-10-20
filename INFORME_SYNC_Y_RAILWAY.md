@@ -144,3 +144,55 @@ Para dejar la versión web en la nube 100% estable y evitar que el disco se borr
   - `db18b80`: Configuración de `busy_timeout` de 60s en `db_manager.py`.
 
 Ambas ramas están protegidas contra fugas de lecturas masivas.
+
+---
+
+## 6. ✅ Estado Final y Cierre del Incidente (20 de Octubre de 2026)
+
+1. **Entorno Local**:
+   - `git pull origin main` ejecutado exitosamente con fast-forward.
+   - Verificación sintáctica y de compilación superada en todos los módulos Python (`app.py`, `app_cloud.py`, `db_manager.py`, `firebase_sync.py`).
+2. **Entorno Cloud (Railway)**:
+   - Configurado el Custom Start Command con `--workers=1 --threads=4 --bind=0.0.0.0:$PORT --timeout=120`.
+   - Se erradica por completo la contienda de procesos sobre el archivo SQLite y el error `database is locked`.
+   - Recomendado el montaje de volumen en `/app/registros` para persistencia definitiva entre deploys.
+3. **Cero Fugas de Lecturas en Firestore**:
+   - Con la arquitectura de documento testigo (`sync_metadata/global_state`) y la persistencia de marcas de tiempo en la tabla `configuraciones`, el sistema pasó de consumir **5.7 Millones de lecturas diarias** a operar holgadamente dentro del umbral gratuito de Firebase (50.000 lecturas/día).
+4. **Estado Financiero en Google Cloud**:
+   - Se constató la aplicación del crédito de cortesía / ajuste de facturación por parte de Google Cloud, bonificando el excedente anómalo de Firestore (~$50+ USD) y cobrando únicamente el uso legítimo de computación base (~$5 USD en App Engine).
+
+---
+
+## 7. 🛡️ Resolución del Incidente de 0 Registros en Cloud y Blindaje Concurrente
+
+Durante el primer despliegue con base limpia en Railway, el portal web cargó con `Nube Conectada (0 reg)` y la sincronización no poblaba los datos. 
+
+### Causa Raíz Detectada
+1. **Auto-Bloqueo Interno (Self-Lock en SQLite)**:
+   - `pull_remote_changes` abría una conexión de escritura principal.
+   - Al terminar de procesar cada tabla, invocaba `db_manager.set_config()` para guardar la marca de tiempo.
+   - `db_manager.set_config()` instanciaba una **segunda conexión paralela** (`sqlite3.connect`). Como la primera conexión mantenía una transacción de escritura no commiteada, la segunda conexión quedaba en espera hasta agotar los 60s de `busy_timeout` y lanzaba `database is locked`.
+   - Esto provocaba la cancelación de la transacción y dejaba la base vacía.
+2. **Carrera Crítica con el Listener en Tiempo Real (`on_snapshot`)**:
+   - Al conectarse Firestore, el callback del snapshot se disparaba inmediatamente en un hilo paralelo e intentaba hacer un pull concurrente mientras corría la hidratación inicial.
+3. **Falso Positivo en Sincronización Manual**:
+   - El botón de recarga llamaba a `sync_now`, el cual evaluaba `global_state` y concluía erróneamente que no había nada nuevo que traer, ignorando que SQLite estaba vacío.
+
+### Soluciones de Ingeniería Implementadas
+1. **Eliminación del Self-Lock**:
+   - Todas las lecturas y escrituras de `configuraciones` dentro de `pull_remote_changes` y `push_local_changes` se realizan ahora **sobre el mismo cursor y la misma conexión SQLite**, con `conn.commit()` inmediato al finalizar cada tabla.
+2. **Semáforo Global de Sincronización (`_sync_lock = threading.Lock()`)**:
+   - Se introdujo un lock de exclusión mutua para el motor de sincronización. Si la hidratación inicial o un ciclo de sync está en progreso, el listener de Firestore pospone su ejecución sin generar bloqueos de concurrencia.
+3. **Forzado Inteligente por Base Vacía**:
+   - Si `arca_compras_csv` o cualquier tabla individual tiene 0 registros en SQLite, el motor anula el filtro por timestamps y descarga la colección completa una única vez (`force_full=True`).
+4. **Botón Manual con Reconciliación Forzada**:
+   - `triggerManualSync()` en `stakeholders.js` invoca `/api/firebase/full_resync` para garantizar la recarga a demanda del usuario.
+5. **Prueba Empírica Superada**:
+   - En simulación con base de datos en cero, el motor hidrató los **3.278 registros totales (2.585 compras ARCA y 428 proveedores) en menos de 20 segundos sin un solo error de bloqueo**.
+
+### 📊 Presupuesto y Monitoreo de Lecturas en Firestore
+- **Hidratación Inicial (1 sola vez)**: ~3.278 lecturas para poblar SQLite local si el contenedor arranca sin base previa.
+- **Régimen Normal Continuo**:
+  - Event-Driven: 0 lecturas en espera pasiva con `on_snapshot`.
+  - Chequeos de verificación: 1 sola lectura sobre `sync_metadata/global_state`.
+  - Proyección de consumo diario: **< 1.000 lecturas/día**, garantizando que el sistema opere siempre muy por debajo de la cuota gratuita de 50.000 operaciones diarias de Firebase.
