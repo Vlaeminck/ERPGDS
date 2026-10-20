@@ -1298,7 +1298,7 @@ async function triggerManualSync(silent = false) {
     }
 
     try {
-        const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
+        const res = await fetch('/api/firebase/full_resync', { method: 'POST' });
         const data = await res.json();
         if (!silent) {
             showToast('Nube sincronizada con éxito', 'success');
