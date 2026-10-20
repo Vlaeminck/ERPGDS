@@ -51,7 +51,7 @@ Este documento sirve como **Guía Completa de Contexto Técnico** para desarroll
     - **Arquitectura Event-Driven (Documento Testigo)**: Monitorea el documento testigo `sync_metadata/global_state` consumiendo 1 sola lectura por chequeo (o 0 lecturas si el listener `on_snapshot` está activo).
     - **Persistencia de Marcas de Tiempo**: Guarda marcas `last_pull_{table}` en SQLite (`configuraciones`), evitando lecturas redundantes tras reinicios.
     - **Ahorro de Cuota**: Eliminación de reconciliaciones ciegas periódicas que causaban picos de lecturas masivas.
-    - **Protección de Concurrencia**: Configuración de `busy_timeout` a 60s en SQLite y un solo proceso maestro (`--workers=1`) en entornos Cloud.
+    - **Protección de Concurrencia**: Semáforo global `_sync_lock` (Lock), transacciones atómicas por tabla sobre la misma conexión abierta (prevención total de self-locks), `busy_timeout` a 60s en SQLite y un solo proceso maestro (`--workers=1`) en entornos Cloud.
 
 ---
 
