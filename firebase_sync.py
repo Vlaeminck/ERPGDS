@@ -126,22 +126,34 @@ def _setup_realtime_listener():
     if not _firestore_db or _listener_registered:
         return
     try:
-        def on_global_state_change(doc_snapshot, changes, read_time):
-            for change in changes:
-                if change.type.name in ('ADDED', 'MODIFIED'):
-                    doc_dict = change.document.to_dict() or {}
-                    # Ignorar si el cambio fue emitido por esta misma instancia
-                    if doc_dict.get('sender_id') == CLIENT_INSTANCE_ID:
-                        return
-                    print("[FirebaseSync] Novedad remota detectada en tiempo real desde otra instancia. Ejecutando Pull...", flush=True)
-                    pull_remote_changes()
+        def on_global_state_change(doc_snapshots, changes, read_time):
+            data = None
+            if doc_snapshots and len(doc_snapshots) > 0:
+                data = doc_snapshots[0].to_dict()
+            elif changes and len(changes) > 0:
+                data = changes[0].document.to_dict()
+
+            if not data:
+                return
+
+            # Ignorar si el cambio fue emitido por esta misma instancia
+            if data.get('sender_id') == CLIENT_INSTANCE_ID:
+                return
+
+            remote_last = str(data.get('last_change') or '')
+            last_pulled = db_manager.get_config('last_pulled_global_state', '')
+            if remote_last and last_pulled and remote_last <= last_pulled:
+                return
+
+            print(f"[FirebaseSync] Novedad remota detectada en tiempo real ({remote_last}). Ejecutando Pull delta...", flush=True)
+            pull_remote_changes()
 
         doc_ref = _firestore_db.collection('sync_metadata').document('global_state')
         doc_ref.on_snapshot(on_global_state_change)
         _listener_registered = True
         print("[FirebaseSync] Escuchador de eventos remotos en tiempo real (on_snapshot) activo.", flush=True)
     except Exception as e:
-        print(f"[FirebaseSync] Aviso: Listener realtime no pudo iniciarse (se usará polling): {e}", flush=True)
+        print(f"[FirebaseSync] Aviso: Listener realtime no pudo iniciarse (se usará polling de global_state): {e}", flush=True)
 
 def push_local_changes():
     """Sube registros nuevos o actualizados (sync_status = 0) desde SQLite a Firebase."""
@@ -206,6 +218,7 @@ def push_local_changes():
                 'last_change': now_iso,
                 'sender_id': CLIENT_INSTANCE_ID
             })
+            db_manager.set_config('last_pulled_global_state', now_iso)
         except Exception:
             pass
 
@@ -232,6 +245,7 @@ def delete_document(table, doc_uuid):
                 'last_change': now_iso,
                 'sender_id': CLIENT_INSTANCE_ID
             })
+            db_manager.set_config('last_pulled_global_state', now_iso)
         except Exception:
             pass
         return True
@@ -307,11 +321,30 @@ def reconcile_with_firestore(table=None):
     return total_reconciled
 
 def pull_remote_changes(force_full=False):
-    """Descarga e integra deltas por tabla desde Firebase a SQLite local."""
-    global _table_pull_timestamps
+    """Descarga e integra deltas por tabla desde Firebase a SQLite local de forma ultra-optimizada."""
     if not _firestore_db:
         if not init_firebase():
             return 0
+
+    remote_last_change = None
+    if not force_full:
+        try:
+            g_doc = _firestore_db.collection('sync_metadata').document('global_state').get()
+            if g_doc.exists:
+                g_dict = g_doc.to_dict() or {}
+                remote_last_change = str(g_dict.get('last_change') or '')
+                remote_sender = str(g_dict.get('sender_id') or '')
+
+                # Si el último cambio lo emitió esta misma instancia, no hay nada nuevo que traer
+                if remote_sender == CLIENT_INSTANCE_ID and remote_last_change:
+                    return 0
+
+                last_pulled = db_manager.get_config('last_pulled_global_state', '')
+                if remote_last_change and last_pulled and remote_last_change <= last_pulled:
+                    # Nada cambió en Firestore desde nuestra última descarga. Consumo: 1 lectura sola.
+                    return 0
+        except Exception as e:
+            print(f"[FirebaseSync] Aviso comprobando global_state: {e}", flush=True)
 
     total_pulled = 0
     conn = db_manager.get_connection()
@@ -324,7 +357,18 @@ def pull_remote_changes(force_full=False):
             cursor.execute(f"PRAGMA table_info({table})")
             valid_cols = {col['name'] for col in cursor.fetchall()}
 
-            last_ts = '' if force_full else _table_pull_timestamps.get(table)
+            saved_ts = db_manager.get_config(f'last_pull_{table}', '')
+            if not saved_ts and not force_full:
+                try:
+                    cursor.execute(f"SELECT MAX(updated_at) as max_u FROM {table}")
+                    r_max = cursor.fetchone()
+                    if r_max and r_max['max_u']:
+                        saved_ts = str(r_max['max_u'])
+                        db_manager.set_config(f'last_pull_{table}', saved_ts)
+                except Exception:
+                    pass
+
+            last_ts = '' if force_full else saved_ts
 
             query = _firestore_db.collection(table)
             if last_ts:
@@ -398,13 +442,18 @@ def pull_remote_changes(force_full=False):
                         except Exception as e_ins:
                             pass
 
-            _table_pull_timestamps[table] = current_pull_time
+            db_manager.set_config(f'last_pull_{table}', current_pull_time)
         except Exception as ex:
             err_str = str(ex)
             if 'Quota exceeded' in err_str or 'RESOURCE_EXHAUSTED' in err_str or '429' in err_str:
                 SYNC_STATUS["mode"] = "ERROR"
                 SYNC_STATUS["message"] = "Cuota de Firebase en proceso de actualización / propagación"
             print(f"[FirebaseSync] Error pull tabla {table}: {ex}", flush=True)
+
+    if remote_last_change:
+        db_manager.set_config('last_pulled_global_state', remote_last_change)
+    else:
+        db_manager.set_config('last_pulled_global_state', current_pull_time)
 
     if total_pulled > 0:
         SYNC_STATUS["last_remote_update"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -421,7 +470,10 @@ def sync_cycle():
             return
     try:
         pushed = push_local_changes()
-        pulled = pull_remote_changes()
+        # Si el listener en tiempo real está activo, NO necesitamos consultar por polling recurrente
+        # El listener on_snapshot avisará instantáneamente cuando otra terminal escriba
+        if not _listener_registered:
+            pulled = pull_remote_changes()
         SYNC_STATUS["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if SYNC_STATUS["mode"] == "ERROR" and "Cuota" in str(SYNC_STATUS.get("message", "")):
             SYNC_STATUS["mode"] = "ONLINE_SYNC"
@@ -429,24 +481,19 @@ def sync_cycle():
     except Exception as e:
         SYNC_STATUS["error"] = str(e)
 
-def _sync_worker_loop(interval=10):
+def _sync_worker_loop(interval=30):
     print(f"[FirebaseSync] Hilo de sincronización iniciado (Intervalo: {interval}s).", flush=True)
-    cycle_count = 0
     while not _stop_event.is_set():
         if not _firestore_db:
             init_firebase()
         if _firestore_db:
-            sync_cycle()
-            cycle_count += 1
-            if cycle_count >= 30:
-                cycle_count = 0
-                try:
-                    reconcile_with_firestore()
-                except Exception:
-                    pass
+            try:
+                sync_cycle()
+            except Exception as e:
+                print(f"[FirebaseSync] Error en ciclo de sincronización: {e}", flush=True)
         time.sleep(interval)
 
-def start_sync_engine(interval=10):
+def start_sync_engine(interval=30):
     global _sync_thread
     init_firebase()
     if _sync_thread is None or not _sync_thread.is_alive():

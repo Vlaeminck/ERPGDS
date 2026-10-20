@@ -18,9 +18,9 @@ try:
 except Exception as e:
     print(f"[CloudApp] Error al inicializar base de datos: {e}")
 
-# Iniciar motor de sincronización con la nube (Intervalo: 5 segundos)
+# Iniciar motor de sincronización con la nube (Intervalo: 30 segundos)
 try:
-    firebase_sync.start_sync_engine(interval=5)
+    firebase_sync.start_sync_engine(interval=30)
 except Exception as e:
     print(f"[CloudApp] Error al iniciar Firebase Sync Engine: {e}")
 
@@ -85,7 +85,6 @@ def api_firebase_status():
 
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
-    firebase_sync.reconcile_with_firestore()
     firebase_sync.sync_cycle()
     return jsonify(firebase_sync.get_sync_status())
 

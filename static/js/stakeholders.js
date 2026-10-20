@@ -223,14 +223,12 @@ async function handleLogout() {
 
 async function initPortal() {
     updatePrivacyModeUI();
-    // Auto-sincronización con Firebase al abrir el portal
-    triggerManualSync(true);
     await loadMonths();
     await loadCategories();
     await fetchAllData();
     await loadProveedoresAlias();
     pollSyncStatus();
-    setInterval(pollSyncStatus, 5000);
+    setInterval(pollSyncStatus, 10000);
 }
 
 
@@ -1300,10 +1298,10 @@ async function triggerManualSync(silent = false) {
     }
 
     try {
-        const res = await fetch('/api/firebase/full_resync', { method: 'POST' });
+        const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
         const data = await res.json();
         if (!silent) {
-            showToast('Nube reconciliada y sincronizada con éxito', 'success');
+            showToast('Nube sincronizada con éxito', 'success');
         }
         fetchAllData();
     } catch (e) {

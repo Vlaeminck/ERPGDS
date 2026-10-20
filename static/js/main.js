@@ -230,9 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     fetchCloudSyncStatus();
-    // Auto-sincronización con Firebase al abrir el portal web
-    checkCloudSyncNow(true);
-    setInterval(fetchCloudSyncStatus, 3000);
+    setInterval(fetchCloudSyncStatus, 10000);
 
     allTabItems.forEach(link => {
         link.addEventListener('click', (e) => {
