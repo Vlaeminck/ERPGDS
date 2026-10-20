@@ -2,7 +2,6 @@
 
 let currentMonth = '';
 let arcaData = [];
-let cuentasPagarData = { proveedores: [], cuentas: [] };
 let aliasMap = {};
 let allProveedoresList = [];
 let arcaSortKey = 'fecha_emision';
@@ -35,7 +34,9 @@ function togglePrivacyMode() {
     const next = !isPrivacyMode();
     localStorage.setItem('erp_privacy_mode', next ? 'true' : 'false');
     updatePrivacyModeUI();
-    fetchAllData();
+    if (typeof fetchAllData === 'function') {
+        fetchAllData();
+    }
     showToast(next ? 'Modo Privacidad activado: Montos protegidos con asteriscos' : 'Modo Privacidad desactivado: Montos visibles', 'info');
 }
 
@@ -55,7 +56,7 @@ function updatePrivacyModeUI() {
         icon.className = active ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
     }
     if (text) {
-        text.textContent = active ? 'Mostrar Montos' : 'Ocultar Montos';
+        text.textContent = active ? 'Mostrar' : 'Ocultar';
     }
 }
 
@@ -75,123 +76,29 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-function truncateText(str, maxLen = 25) {
+function truncateText(str, maxLen = 30) {
     if (!str) return '';
     const s = String(str).trim();
     if (s.length <= maxLen) return s;
     return s.substring(0, maxLen - 3) + '...';
 }
 
-function copyTextToClipboard(text, btnElement, label = 'Texto', evt = null) {
-    if (evt && typeof evt.stopPropagation === 'function') {
-        evt.stopPropagation();
-    }
-    if (!text || text === '-') {
-        showToast('No hay datos para copiar', 'info');
-        return;
-    }
-
-    const cleanText = String(text).trim();
-
-    const onSuccess = () => {
-        showToast(`${label} copiado: ${cleanText}`, 'success');
-        if (btnElement) {
-            const originalHtml = btnElement.innerHTML;
-            btnElement.innerHTML = '<i class="fa-solid fa-check" style="color: #059669;"></i>';
-            btnElement.style.color = '#059669';
-            setTimeout(() => {
-                btnElement.innerHTML = originalHtml;
-                btnElement.style.color = '';
-            }, 1500);
-        }
-    };
-
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(cleanText).then(onSuccess).catch(() => fallbackCopy(cleanText, onSuccess));
-    } else {
-        fallbackCopy(cleanText, onSuccess);
-    }
-}
-
-function fallbackCopy(text, onSuccess) {
-    try {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-999999px";
-        textArea.style.top = "-999999px";
-        textArea.style.opacity = "0";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        if (successful && onSuccess) {
-            onSuccess();
-        } else {
-            showToast('No se pudo copiar al portapapeles', 'error');
-        }
-    } catch (err) {
-        console.error('Error fallback copy:', err);
-        showToast('Error al copiar al portapapeles', 'error');
-    }
-}
-
-function formatNumeroFactura(puntoVenta, nroComprobante) {
-    if (!puntoVenta && !nroComprobante) return '';
-    let pvStr = String(puntoVenta || '').trim();
-    let nroStr = String(nroComprobante || '').trim();
-
-    if (pvStr.includes(',')) {
-        const parts = pvStr.split(',');
-        if (parts.length >= 4) {
-            pvStr = parts[2] || '';
-            nroStr = parts[3] || '';
-        }
-    }
-
-    const pvDigits = pvStr.replace(/\D/g, '');
-    const nroDigits = nroStr.replace(/\D/g, '');
-
-    if (!pvDigits && !nroDigits) return '';
-
-    const pvPadded = pvDigits ? (pvDigits.length < 4 ? pvDigits.padStart(4, '0') : pvDigits) : '0000';
-    const nroPadded = nroDigits ? (nroDigits.length < 8 ? nroDigits.padStart(8, '0') : nroDigits) : '';
-
-    return nroPadded ? `${pvPadded} - ${nroPadded}` : pvPadded;
-}
-
-function formatSupplierCell(razonSocial, invoiceTooltip = '') {
+function formatSupplierCell(razonSocial) {
     const raw = String(razonSocial || '-').trim();
     const alias = aliasMap[raw] || aliasMap[raw.toUpperCase()] || aliasMap[raw.toLowerCase()] || '';
 
-    let tooltip = '';
-    if (invoiceTooltip) {
-        if (alias) {
-            tooltip = `${invoiceTooltip}&#10;Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}`;
-        } else {
-            tooltip = `${invoiceTooltip}&#10;${escapeHtml(raw)}`;
-        }
-    } else {
-        if (alias) {
-            tooltip = `Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}`;
-        } else {
-            tooltip = escapeHtml(raw);
-        }
-    }
-
     if (alias) {
-        const truncAlias = truncateText(alias, 25);
+        const truncAlias = truncateText(alias, 30);
         return `
-            <div class="supplier-name-cell" title="${tooltip}">
+            <div class="supplier-name-cell" title="Razón Social: ${escapeHtml(raw)}&#10;Nombre de Fantasía: ${escapeHtml(alias)}">
                 <strong style="color: #0f172a;">${escapeHtml(truncAlias)}</strong>
-                <div style="font-size: 0.73rem; color: #64748b; font-weight: 500;">${escapeHtml(truncateText(raw, 25))}</div>
+                <div style="font-size: 0.73rem; color: #64748b; font-weight: 500;">${escapeHtml(truncateText(raw, 24))}</div>
             </div>
         `;
     } else {
-        const truncRaw = truncateText(raw, 25);
+        const truncRaw = truncateText(raw, 30);
         return `
-            <div class="supplier-name-cell" title="${tooltip}">
+            <div class="supplier-name-cell" title="${escapeHtml(raw)}">
                 <strong style="color: #0f172a;">${escapeHtml(truncRaw)}</strong>
             </div>
         `;
@@ -259,11 +166,6 @@ async function checkAuth() {
         const modal = document.getElementById('auth-modal');
         if (!data.authenticated) {
             modal.style.display = 'flex';
-            const pinInput = document.getElementById('input-pin');
-            if (pinInput) {
-                pinInput.value = '';
-                setTimeout(() => pinInput.focus(), 50);
-            }
         } else {
             modal.style.display = 'none';
             initPortal();
@@ -326,10 +228,7 @@ async function initPortal() {
     await fetchAllData();
     await loadProveedoresAlias();
     pollSyncStatus();
-    setInterval(pollSyncStatus, 15000);
-
-    // Sincronización automática con Firebase al ingresar al portal (sin tocar el botón)
-    triggerManualSync(false);
+    setInterval(pollSyncStatus, 10000);
 }
 
 
@@ -389,52 +288,14 @@ async function fetchArcaComprasCloud() {
 
         // Actualizar KPIs
         const resStats = data.resumen || {};
-        const netVal = resStats.total_neto !== undefined ? resStats.total_neto : (resStats.total_importe || 0);
-        const brutoVal = resStats.total_bruto !== undefined ? resStats.total_bruto : netVal;
-        const ncVal = resStats.total_nc || 0;
-
-        document.getElementById('kpi-total-facturado').textContent = formatCurrency(netVal);
-        
-        const subDetailsEl = document.getElementById('kpi-facturado-sub-details');
-        if (subDetailsEl) {
-            if (ncVal > 0) {
-                subDetailsEl.innerHTML = `<span style="color: #475569;">Bruto: ${formatCurrency(brutoVal)}</span> <span style="color: #94a3b8; margin: 0 4px;">•</span> <span style="color: #dc2626; font-weight: 700;">NC: -${formatCurrency(ncVal)}</span>`;
-                subDetailsEl.style.display = 'block';
-            } else {
-                subDetailsEl.textContent = '';
-                subDetailsEl.style.display = 'none';
-            }
-        }
+        document.getElementById('kpi-total-facturado').textContent = formatCurrency(resStats.total_importe || 0);
         document.getElementById('kpi-count-facturas').textContent = `${resStats.total_compras || 0} comprobantes emitidos`;
 
-        const pendienteImp = resStats.pendientes_total !== undefined ? resStats.pendientes_total : ((resStats.total_importe || 0) - (resStats.pagados_total || 0));
+        const pendienteImp = (resStats.total_importe || 0) - (resStats.pagados_total || 0);
         document.getElementById('kpi-total-pendiente').textContent = formatCurrency(pendienteImp > 0 ? pendienteImp : 0);
-        
-        const pendSubEl = document.getElementById('kpi-pendiente-sub-details');
-        if (pendSubEl) {
-            if (resStats.pendientes_nc && resStats.pendientes_nc > 0) {
-                pendSubEl.innerHTML = `<span style="color: #475569;">Bruto: ${formatCurrency(resStats.pendientes_bruto || 0)}</span> <span style="color: #94a3b8; margin: 0 4px;">•</span> <span style="color: #dc2626; font-weight: 700;">NC: -${formatCurrency(resStats.pendientes_nc)}</span>`;
-                pendSubEl.style.display = 'block';
-            } else {
-                pendSubEl.textContent = '';
-                pendSubEl.style.display = 'none';
-            }
-        }
         document.getElementById('kpi-count-pendientes').textContent = `${resStats.pendientes || 0} facturas por pagar`;
 
-        const pagadoImp = resStats.pagados_total !== undefined ? resStats.pagados_total : 0;
-        document.getElementById('kpi-total-pagado').textContent = formatCurrency(pagadoImp);
-        
-        const pagSubEl = document.getElementById('kpi-pagado-sub-details');
-        if (pagSubEl) {
-            if (resStats.pagados_nc && resStats.pagados_nc > 0) {
-                pagSubEl.innerHTML = `<span style="color: #475569;">Bruto: ${formatCurrency(resStats.pagados_bruto || 0)}</span> <span style="color: #94a3b8; margin: 0 4px;">•</span> <span style="color: #dc2626; font-weight: 700;">NC: -${formatCurrency(resStats.pagados_nc)}</span>`;
-                pagSubEl.style.display = 'block';
-            } else {
-                pagSubEl.textContent = '';
-                pagSubEl.style.display = 'none';
-            }
-        }
+        document.getElementById('kpi-total-pagado').textContent = formatCurrency(resStats.pagados_total || 0);
         document.getElementById('kpi-count-pagados').textContent = `${resStats.pagados || 0} facturas abonadas`;
 
         document.getElementById('kpi-count-nc-retro').textContent = `${resStats.notas_credito || 0} NC / ${resStats.retroactivas || 0} Retros`;
@@ -483,8 +344,7 @@ function renderArcaCloudTable() {
     const tbody = document.getElementById('tbl-arca-cloud-body');
     if (!tbody) return;
 
-    const filterVal = document.getElementById('arca-cloud-filter')?.value || 'all';
-    const searchProv = (document.getElementById('arca-cloud-search-provider')?.value || '').toLowerCase().trim();
+    const filterVal = document.getElementById('arca-cloud-filter').value;
     let filtered = [...arcaData];
 
     if (filterVal === 'recibida') filtered = filtered.filter(c => c.factura_recibida);
@@ -493,18 +353,6 @@ function renderArcaCloudTable() {
     if (filterVal === 'pagado') filtered = filtered.filter(c => c.estado === 'Pagado');
     if (filterVal === 'nc') filtered = filtered.filter(c => checkIsNC(c));
     if (filterVal === 'retroactiva') filtered = filtered.filter(c => c.es_retroactiva == 1);
-
-    if (searchProv) {
-        filtered = filtered.filter(c => {
-            const razon = String(c.denominacion_emisor || '').toLowerCase();
-            const alias = (aliasMap[c.denominacion_emisor] || aliasMap[c.denominacion_emisor?.toUpperCase()] || '').toLowerCase();
-            const cuit = String(c.nro_doc_emisor || '').toLowerCase();
-            const comp = String(c.nro_comprobante || '').toLowerCase();
-            const fac = formatNumeroFactura(c.punto_venta, c.nro_comprobante).toLowerCase();
-            return razon.includes(searchProv) || alias.includes(searchProv) || cuit.includes(searchProv) || comp.includes(searchProv) || fac.includes(searchProv);
-        });
-    }
-
 
     if (arcaSortKey) {
         filtered.sort((a, b) => {
@@ -528,10 +376,6 @@ function renderArcaCloudTable() {
     tbody.innerHTML = filtered.map(c => {
         const esNC = checkIsNC(c);
         const esRetro = c.es_retroactiva == 1;
-        const facNum = formatNumeroFactura(c.punto_venta, c.nro_comprobante);
-        const labelTipo = esNC ? 'Nota de Crédito' : 'Factura';
-        const invTooltip = facNum ? `${labelTipo}: ${facNum}` : '';
-        const invAttr = invTooltip ? `title="${escapeHtml(invTooltip)}"` : '';
 
         const ncTag = esNC ? ` <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 700; font-size: 0.68rem; padding: 2px 5px;"><i class="fa-solid fa-file-invoice-dollar"></i> NC</span>` : '';
         const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 700; font-size: 0.68rem; padding: 2px 5px;"><i class="fa-solid fa-clock-rotate-left"></i> Retro</span>` : '';
@@ -572,16 +416,16 @@ function renderArcaCloudTable() {
             `;
         }
 
-        const supplierHtml = formatSupplierCell(c.denominacion_emisor, invTooltip);
+        const supplierHtml = formatSupplierCell(c.denominacion_emisor);
         const catBadge = getCategoryBadge(c.categoria_pago);
         const rowBg = esNC ? 'background: rgba(239, 68, 68, 0.04);' : (c.estado === 'Pagado' ? 'background: rgba(5, 150, 105, 0.03);' : '');
 
         return `
-            <tr style="${rowBg}" ${invAttr}>
-                <td style="font-family: monospace; font-size: 0.82rem;" ${invAttr}>${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
+            <tr style="${rowBg}">
+                <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
                 <td>${supplierHtml}${ncTag}</td>
-                <td style="text-align: right; color: ${esNC ? '#dc2626' : '#d97706'}; font-weight: 600;" ${invAttr}>${formatCurrency(c.total_iva)}</td>
-                <td style="text-align: right; font-weight: 800; font-size: 0.9rem; color: ${esNC ? '#dc2626' : '#0f172a'};" ${invAttr}>${formatCurrency(c.imp_total)}</td>
+                <td style="text-align: right; color: ${esNC ? '#dc2626' : '#d97706'}; font-weight: 600;">${formatCurrency(c.total_iva)}</td>
+                <td style="text-align: right; font-weight: 800; font-size: 0.9rem; color: ${esNC ? '#dc2626' : '#0f172a'};">${formatCurrency(c.imp_total)}</td>
                 <td style="text-align: center;">${catBadge}</td>
                 <td style="text-align: center;">${recibida}</td>
                 <td style="text-align: center;">${estadoBadge}</td>
@@ -788,169 +632,21 @@ async function handleImportArcaExcelCloud(event) {
 // TAB 2: CUENTAS POR PAGAR
 // ==========================================
 
-function toggleDesgloseCuentaCloud(idx) {
-    const row = document.getElementById(`breakdown-row-cloud-${idx}`);
-    const icon = document.getElementById(`breakdown-icon-cloud-${idx}`);
-    if (row) {
-        if (row.style.display === 'none' || !row.style.display) {
-            row.style.display = 'table-row';
-            if (icon) icon.style.transform = 'rotate(90deg)';
-        } else {
-            row.style.display = 'none';
-            if (icon) icon.style.transform = 'rotate(0deg)';
-        }
-    }
-}
-
 async function fetchCuentasPagarCloud() {
     try {
         const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
         const res = await fetch('/api/cuentas_por_pagar' + param);
         const data = await res.json();
-        cuentasPagarData = data || { proveedores: [], cuentas: [] };
-        renderCuentasPagarCloud();
-    } catch (e) {
-        console.error("Error cargando cuentas por pagar:", e);
-    }
-}
 
-function filterCuentasPagarCloud(val) {
-    renderCuentasPagarCloud();
-}
+        const tbody = document.getElementById('tbl-cuentas-cloud-body');
+        const rows = data.cuentas || [];
 
-function renderCuentasPagarCloud() {
-    const tbody = document.getElementById('tbl-cuentas-cloud-body');
-    if (!tbody) return;
+        if (rows.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #64748b; padding: 2rem;">No hay cuentas por pagar registradas</td></tr>`;
+            return;
+        }
 
-    let proveedores = [...((cuentasPagarData && cuentasPagarData.proveedores) || [])];
-    let rawCuentas = [...((cuentasPagarData && cuentasPagarData.cuentas) || [])];
-
-    const searchTerm = (document.getElementById('cuentas-cloud-search-provider')?.value || '').toLowerCase().trim();
-
-    if (searchTerm) {
-        proveedores = proveedores.filter(p => {
-            const nom = String(p.proveedor_nombre || '').toLowerCase();
-            const alias = (aliasMap[p.proveedor_nombre] || aliasMap[p.proveedor_nombre?.toUpperCase()] || '').toLowerCase();
-            const cuit = String(p.cuit || '').toLowerCase();
-            const hasFactura = (p.facturas || []).some(f => 
-                String(f.factura_numero || '').toLowerCase().includes(searchTerm) ||
-                String(f.medio_pago || '').toLowerCase().includes(searchTerm)
-            );
-            return nom.includes(searchTerm) || alias.includes(searchTerm) || cuit.includes(searchTerm) || hasFactura;
-        });
-
-        rawCuentas = rawCuentas.filter(r => {
-            const nom = String(r.proveedor_nombre || '').toLowerCase();
-            const alias = (aliasMap[r.proveedor_nombre] || aliasMap[r.proveedor_nombre?.toUpperCase()] || '').toLowerCase();
-            const fac = String(r.factura_numero || '').toLowerCase();
-            const cuit = String(r.cuit || '').toLowerCase();
-            return nom.includes(searchTerm) || alias.includes(searchTerm) || fac.includes(searchTerm) || cuit.includes(searchTerm);
-        });
-    }
-
-    if (proveedores.length === 0 && rawCuentas.length === 0) {
-        const msg = searchTerm 
-            ? `No se encontraron cuentas por pagar para "${escapeHtml(searchTerm)}"`
-            : 'No hay cuentas por pagar registradas';
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #64748b; padding: 2rem;">${msg}</td></tr>`;
-        return;
-    }
-
-    // Si tenemos la estructura agrupada por proveedor
-    if (proveedores.length > 0) {
-        tbody.innerHTML = proveedores.map((p, idx) => {
-            const isPagado = p.estado === 'Pagado';
-            const isParcial = p.estado === 'Parcial';
-            let estadoBadge = '';
-            if (isPagado) {
-                estadoBadge = `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
-            } else if (isParcial) {
-                estadoBadge = `<span style="color: #2563eb; font-weight: 700;"><i class="fa-solid fa-circle-half-stroke"></i> Parcial</span>`;
-            } else {
-                estadoBadge = `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
-            }
-
-            // ID representativo o primera factura pendiente
-            const firstPending = p.facturas.find(f => f.estado !== 'Pagado') || p.facturas[0];
-            const actionBtn = isPagado
-                ? `<span style="color: #059669; font-size: 0.82rem; font-weight: 700;"><i class="fa-solid fa-check-double"></i> Al día</span>`
-                : `<button class="btn btn-sm" style="background: var(--primary-accent, #2563eb); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 4px 12px; cursor: pointer;" onclick="event.stopPropagation(); openModalPagarCuenta(${firstPending.id}, '${escapeHtml(p.proveedor_nombre || '')}', ${p.total_pendiente})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
-
-            const supplierHtml = formatSupplierCell(p.proveedor_nombre);
-            const catBadge = getCategoryBadge(p.categoria_pago);
-            const totalFormateado = formatCurrency(p.total_acumulado);
-
-            return `
-                <tr style="cursor: pointer; transition: background 0.15s; background: #ffffff;" onclick="toggleDesgloseCuentaCloud(${idx})" title="Click para ver desglose de facturas">
-                    <td style="font-family: monospace; font-size: 0.82rem; white-space: nowrap;">
-                        <i class="fa-solid fa-chevron-right" id="breakdown-icon-cloud-${idx}" style="margin-right: 6px; font-size: 0.75rem; color: #64748b; transition: transform 0.2s;"></i>
-                        ${escapeHtml(p.fecha || '-')}
-                    </td>
-                    <td>
-                        ${supplierHtml}
-                        <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">
-                            ${p.cantidad_facturas} ${p.cantidad_facturas === 1 ? 'factura' : 'facturas'}
-                        </span>
-                    </td>
-                    <td>
-                        <span style="font-size: 0.8rem; color: #475569; font-family: monospace;">
-                            <i class="fa-solid fa-list-check" style="color: #3b82f6; margin-right: 4px;"></i>
-                            ${p.cantidad_facturas} comprobante${p.cantidad_facturas === 1 ? '' : 's'} (Ver desglose)
-                        </span>
-                    </td>
-                    <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: #0f172a;">
-                        ${totalFormateado}
-                    </td>
-                    <td style="text-align: center;">${catBadge}</td>
-                    <td style="text-align: center;">${estadoBadge}</td>
-                    <td style="text-align: center;" onclick="event.stopPropagation();">${actionBtn}</td>
-                </tr>
-                <tr id="breakdown-row-cloud-${idx}" style="display: none; background: #f8fafc;">
-                    <td colspan="7" style="padding: 0.8rem 1.2rem; border-bottom: 2px solid #e2e8f0;">
-                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                            <div style="font-weight: 700; font-size: 0.85rem; color: #334155; margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
-                                <span><i class="fa-solid fa-receipt" style="color: #2563eb; margin-right: 6px;"></i> Desglose de Facturas (${p.cantidad_facturas}) — <strong>${escapeHtml(p.proveedor_nombre)}</strong></span>
-                                <span style="color: #0f172a; font-weight: 800;">Total Acumulado: ${totalFormateado}</span>
-                            </div>
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
-                                <thead>
-                                    <tr style="border-bottom: 1px solid #e2e8f0; color: #64748b; background: #f8fafc;">
-                                        <th style="text-align: left; padding: 6px 10px;">N° Comprobante / Archivo</th>
-                                        <th style="text-align: center; padding: 6px 10px;">Fecha</th>
-                                        <th style="text-align: right; padding: 6px 10px;">Monto Total</th>
-                                        <th style="text-align: center; padding: 6px 10px;">Estado</th>
-                                        <th style="text-align: center; padding: 6px 10px;">Medio de Pago</th>
-                                        <th style="text-align: center; padding: 6px 10px;">Acción</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${p.facturas.map(f => `
-                                        <tr style="border-bottom: 1px solid #f1f5f9;">
-                                            <td style="padding: 6px 10px; font-family: monospace; font-weight: 600; color: #1e293b;">
-                                                <i class="fa-solid fa-file-invoice" style="color: #94a3b8; margin-right: 6px;"></i>
-                                                ${escapeHtml(f.factura_numero || '-')}
-                                            </td>
-                                            <td style="padding: 6px 10px; text-align: center; color: #64748b; font-family: monospace;">${escapeHtml(f.fecha || '-')}</td>
-                                            <td style="padding: 6px 10px; text-align: right; font-weight: 800; color: #0f172a;">${formatCurrency(f.monto_total)}</td>
-                                            <td style="padding: 6px 10px; text-align: center;">
-                                                ${f.estado === 'Pagado' ? '<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>' : '<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>'}
-                                            </td>
-                                            <td style="padding: 6px 10px; text-align: center; color: #64748b;">${escapeHtml(f.medio_pago || '-')}</td>
-                                            <td style="padding: 6px 10px; text-align: center;">
-                                                ${f.estado !== 'Pagado' ? `<button class="btn btn-sm" style="background: var(--primary-accent, #2563eb); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;" onclick="event.stopPropagation(); openModalPagarCuenta(${f.id}, '${escapeHtml(p.proveedor_nombre)} (${escapeHtml(f.factura_numero)})', ${f.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar</button>` : '<span style="color: #059669; font-size: 0.75rem;"><i class="fa-solid fa-check"></i></span>'}
-                                            </td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    } else {
-        // Fallback directo a lista plana
-        tbody.innerHTML = rawCuentas.map(r => {
+        tbody.innerHTML = rows.map(r => {
             const isPagado = r.estado === 'Pagado';
             const estadoBadge = isPagado
                 ? `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`
@@ -960,176 +656,36 @@ function renderCuentasPagarCloud() {
                 ? `<span style="color: #64748b; font-size: 0.8rem;">${escapeHtml(r.medio_pago || 'Abonado')}</span>`
                 : `<button class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 3px 10px; cursor: pointer;" onclick="openModalPagarCuenta(${r.id}, '${escapeHtml(r.proveedor_nombre || '')}', ${r.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
 
+            const supplierHtml = formatSupplierCell(r.proveedor_nombre);
+            const catBadge = getCategoryBadge(r.categoria_pago);
+
             return `
                 <tr>
                     <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(r.fecha || '-')}</td>
-                    <td>${formatSupplierCell(r.proveedor_nombre)}</td>
+                    <td>${supplierHtml}</td>
                     <td><small style="color: #64748b;">${escapeHtml(r.factura_numero || '-')}</small></td>
                     <td style="text-align: right; font-weight: 800;">${formatCurrency(r.monto_total)}</td>
-                    <td style="text-align: center;">${getCategoryBadge(r.categoria_pago)}</td>
+                    <td style="text-align: center;">${catBadge}</td>
                     <td style="text-align: center;">${estadoBadge}</td>
                     <td style="text-align: center;">${actionBtn}</td>
                 </tr>
             `;
         }).join('');
+    } catch (e) {
+        console.error("Error cargando cuentas por pagar:", e);
     }
 }
 
 // ==========================================
-// TAB 4: DASHBOARD DE GRÁFICOS & RANKING (CHART.JS)
+// TAB 4: DASHBOARD DE GRÁFICOS (CHART.JS)
 // ==========================================
-
-let dashboardRawData = null;
-let currentRankingList = [];
-let dashboardRubroViewMode = 'categoria'; // 'categoria' | 'subcategoria'
-
-function populateDashboardFilterCategories() {
-    const catSelect = document.getElementById('dash-filter-cat');
-    if (!catSelect) return;
-
-    const currentVal = catSelect.value || 'all';
-    let optionsHtml = '<option value="all">-- Todos los Rubros --</option>';
-
-    const seenCats = new Set();
-    // 1. Agregar desde categoriesTree
-    (categoriesTree || []).forEach(cat => {
-        const nom = (cat.nombre || '').trim();
-        if (nom && !seenCats.has(nom.toLowerCase())) {
-            seenCats.add(nom.toLowerCase());
-            const isSel = (nom.toLowerCase() === currentVal.toLowerCase()) ? 'selected' : '';
-            optionsHtml += `<option value="${escapeHtml(nom)}" ${isSel}>${escapeHtml(nom)}</option>`;
-        }
-    });
-
-    // 2. Agregar desde categorías presentes en los datos de proveedores
-    if (dashboardRawData && dashboardRawData.gastos_rubro) {
-        Object.keys(dashboardRawData.gastos_rubro).forEach(nom => {
-            const trimmed = nom.trim();
-            if (trimmed && !seenCats.has(trimmed.toLowerCase())) {
-                seenCats.add(trimmed.toLowerCase());
-                const isSel = (trimmed.toLowerCase() === currentVal.toLowerCase()) ? 'selected' : '';
-                optionsHtml += `<option value="${escapeHtml(trimmed)}" ${isSel}>${escapeHtml(trimmed)}</option>`;
-            }
-        });
-    }
-
-    catSelect.innerHTML = optionsHtml;
-}
-
-function onDashboardCategoryChange() {
-    const catSelect = document.getElementById('dash-filter-cat');
-    const subcatSelect = document.getElementById('dash-filter-subcat');
-    const selectedCat = catSelect ? catSelect.value : 'all';
-
-    if (subcatSelect) {
-        let subHtml = '<option value="all">-- Todas las Subcategorías --</option>';
-        if (selectedCat && selectedCat !== 'all') {
-            const matchedCat = (categoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === selectedCat.toLowerCase().trim());
-            if (matchedCat && matchedCat.subcategorias) {
-                matchedCat.subcategorias.forEach(sub => {
-                    subHtml += `<option value="${escapeHtml(sub.nombre)}">${escapeHtml(sub.nombre)}</option>`;
-                });
-            }
-        }
-        subcatSelect.innerHTML = subHtml;
-    }
-
-    fetchDashboardStats();
-}
-
-function resetDashboardFilters() {
-    const catSelect = document.getElementById('dash-filter-cat');
-    const subcatSelect = document.getElementById('dash-filter-subcat');
-    const metodoSelect = document.getElementById('dash-filter-metodo');
-    const estadoSelect = document.getElementById('dash-filter-estado');
-    const searchInput = document.getElementById('input-search-ranking');
-
-    if (catSelect) catSelect.value = 'all';
-    if (subcatSelect) subcatSelect.innerHTML = '<option value="all">-- Todas las Subcategorías --</option>';
-    if (metodoSelect) metodoSelect.value = 'all';
-    if (estadoSelect) estadoSelect.value = 'all';
-    if (searchInput) searchInput.value = '';
-
-    fetchDashboardStats();
-}
-
-function setRubroViewMode(mode) {
-    dashboardRubroViewMode = mode;
-    const btnCat = document.getElementById('btn-view-rubro-cat');
-    const btnSub = document.getElementById('btn-view-rubro-sub');
-    const titleEl = document.getElementById('title-chart-rubro');
-
-    if (mode === 'categoria') {
-        if (btnCat) {
-            btnCat.style.background = 'var(--primary-accent)';
-            btnCat.style.color = '#ffffff';
-            btnCat.style.border = 'none';
-        }
-        if (btnSub) {
-            btnSub.style.background = '#f1f5f9';
-            btnSub.style.color = '#475569';
-            btnSub.style.border = '1px solid #cbd5e1';
-        }
-        if (titleEl) titleEl.textContent = 'Gastos por Rubro Principal';
-    } else {
-        if (btnSub) {
-            btnSub.style.background = 'var(--primary-accent)';
-            btnSub.style.color = '#ffffff';
-            btnSub.style.border = 'none';
-        }
-        if (btnCat) {
-            btnCat.style.background = '#f1f5f9';
-            btnCat.style.color = '#475569';
-            btnCat.style.border = '1px solid #cbd5e1';
-        }
-        if (titleEl) titleEl.textContent = 'Gastos por Subcategoría';
-    }
-
-    if (dashboardRawData) {
-        renderRubroChart(dashboardRawData);
-    }
-}
 
 async function fetchDashboardStats() {
     try {
-        const catVal = document.getElementById('dash-filter-cat')?.value || 'all';
-        const subcatVal = document.getElementById('dash-filter-subcat')?.value || 'all';
-        const metodoVal = document.getElementById('dash-filter-metodo')?.value || 'all';
-        const estadoVal = document.getElementById('dash-filter-estado')?.value || 'all';
-
-        const params = new URLSearchParams();
-        if (currentMonth && currentMonth !== 'all') params.append('mes', currentMonth);
-        if (catVal && catVal !== 'all') params.append('categoria', catVal);
-        if (subcatVal && subcatVal !== 'all') params.append('subcategoria', subcatVal);
-        if (metodoVal && metodoVal !== 'all') params.append('metodo_pago', metodoVal);
-        if (estadoVal && estadoVal !== 'all') params.append('estado', estadoVal);
-
-        const url = '/api/dashboard/stats?' + params.toString();
-        const res = await fetch(url);
+        const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
+        const res = await fetch('/api/dashboard/stats' + param);
         const data = await res.json();
-        dashboardRawData = data;
-        currentRankingList = data.ranking_proveedores || [];
-
-        // Actualizar mini KPIs
-        const resumen = data.resumen || {};
-        const kpiTot = document.getElementById('dash-kpi-total');
-        const kpiPag = document.getElementById('dash-kpi-pagado');
-        const kpiPen = document.getElementById('dash-kpi-pendiente');
-        const kpiComp = document.getElementById('dash-kpi-comprobantes');
-        const kpiProv = document.getElementById('dash-kpi-proveedores');
-
-        if (kpiTot) kpiTot.textContent = formatCurrency(resumen.total_facturado);
-        if (kpiPag) kpiPag.textContent = formatCurrency(resumen.total_pagado);
-        if (kpiPen) kpiPen.textContent = formatCurrency(resumen.total_pendiente);
-        if (kpiComp) kpiComp.textContent = (resumen.total_comprobantes || 0).toLocaleString('es-AR');
-        if (kpiProv) kpiProv.textContent = (resumen.total_proveedores || 0).toLocaleString('es-AR');
-
-        // Poblar selector de categorías si no está cargado
-        populateDashboardFilterCategories();
-
         renderDashboardCharts(data);
-        renderRankingTable();
-        renderHeatmap(data.mapa_calor);
     } catch (e) {
         console.error("Error cargando estadísticas del dashboard:", e);
     }
@@ -1175,12 +731,7 @@ function renderDashboardCharts(data) {
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                const idx = context.dataIndex;
-                                let txt = context.dataset.label + ': ' + formatCurrency(context.raw);
-                                if (context.dataset.label === 'Total Facturado' && evData.nc && evData.nc[idx] > 0) {
-                                    txt += ` (Bruto: ${formatCurrency(evData.bruto[idx])} | NC: -${formatCurrency(evData.nc[idx])})`;
-                                }
-                                return txt;
+                                return context.dataset.label + ': ' + formatCurrency(context.raw);
                             }
                         }
                     }
@@ -1188,7 +739,7 @@ function renderDashboardCharts(data) {
                 scales: {
                     y: {
                         ticks: {
-                            callback: val => isPrivacyMode() ? '***' : ('$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val)))
+                            callback: val => '$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val))
                         },
                         grid: { color: 'rgba(226, 232, 240, 0.6)' }
                     },
@@ -1198,7 +749,7 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 2. Gráfico por Categoría de Pago (Pinamar, Leloir, Socios)
+    // 2. Gráfico por Categoría (Pinamar, Leloir, Socios)
     const ctxCategoria = document.getElementById('chart-categoria');
     if (ctxCategoria) {
         if (chartCategoria) chartCategoria.destroy();
@@ -1248,7 +799,7 @@ function renderDashboardCharts(data) {
                 labels: metLabels.length ? metLabels : ['Sin Pagos'],
                 datasets: [{
                     data: metValues.length ? metValues : [0],
-                    backgroundColor: ['#059669', '#ea580c', '#2563eb', '#7c3aed', '#64748b'],
+                    backgroundColor: ['#ea580c', '#2563eb', '#059669', '#7c3aed', '#64748b'],
                     borderWidth: 2,
                     borderColor: '#ffffff'
                 }]
@@ -1270,31 +821,21 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 4. Gráfico Top Proveedores (del Filtro Actual)
+    // 4. Gráfico Top Proveedores
     const ctxTop = document.getElementById('chart-top-proveedores');
     if (ctxTop) {
         if (chartTop) chartTop.destroy();
         const topList = data.top_proveedores || [];
-        const topLabels = topList.map(t => truncateText(t.display_name, 25));
+        const topLabels = topList.map(t => t.display_name);
         const topValues = topList.map(t => t.total);
-
-        const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
-        const titleTopEl = document.getElementById('title-top-proveedores');
-        const subTopEl = document.getElementById('sub-top-proveedores');
-        if (titleTopEl) {
-            titleTopEl.textContent = (filterCat && filterCat !== 'all') ? `Top Proveedores (${filterCat})` : 'Top Proveedores';
-        }
-        if (subTopEl) {
-            subTopEl.textContent = (filterCat && filterCat !== 'all') ? `Proveedores con mayor facturación en ${filterCat}` : 'Mayores importes facturados';
-        }
 
         chartTop = new Chart(ctxTop, {
             type: 'bar',
             data: {
-                labels: topLabels.length ? topLabels : ['Sin Proveedores'],
+                labels: topLabels,
                 datasets: [{
                     label: 'Gasto Total',
-                    data: topValues.length ? topValues : [0],
+                    data: topValues,
                     backgroundColor: 'rgba(124, 58, 237, 0.75)',
                     borderColor: '#7c3aed',
                     borderWidth: 1,
@@ -1322,7 +863,7 @@ function renderDashboardCharts(data) {
                 scales: {
                     x: {
                         ticks: {
-                            callback: val => isPrivacyMode() ? '***' : ('$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val)))
+                            callback: val => '$ ' + (val >= 1000000 ? (val/1000000).toFixed(1) + 'M' : (val >= 1000 ? (val/1000).toFixed(0) + 'k' : val))
                         },
                         grid: { color: 'rgba(226, 232, 240, 0.6)' }
                     },
@@ -1332,416 +873,44 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 5. Gráfico por Rubro / Subcategoría
-    renderRubroChart(data);
-}
-
-function renderRubroChart(data) {
+    // 5. Gráfico por Rubro / Categoría de Proveedor (Carnes, Verdulería, Limpieza, etc.)
     const ctxRubro = document.getElementById('chart-rubro');
-    if (!ctxRubro || typeof Chart === 'undefined') return;
-    if (chartRubro) chartRubro.destroy();
+    if (ctxRubro) {
+        if (chartRubro) chartRubro.destroy();
+        const rubroObj = data.gastos_rubro || {};
+        const rubroLabels = Object.keys(rubroObj);
+        const rubroValues = Object.values(rubroObj);
 
-    const isSub = (dashboardRubroViewMode === 'subcategoria');
-    const rubroObj = isSub ? (data.gastos_subrubro || {}) : (data.gastos_rubro || {});
-    const rubroLabels = Object.keys(rubroObj);
-    const rubroValues = Object.values(rubroObj);
-
-    const palette = [
-        '#e11d48', '#059669', '#2563eb', '#d97706',
-        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
-        '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
-        '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'
-    ];
-
-    chartRubro = new Chart(ctxRubro, {
-        type: 'doughnut',
-        data: {
-            labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
-            datasets: [{
-                data: rubroValues.length ? rubroValues : [0],
-                backgroundColor: palette.slice(0, Math.max(rubroLabels.length, 1)),
-                borderWidth: 2,
-                borderColor: '#ffffff'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            onClick: (evt, elements) => {
-                if (elements && elements.length > 0) {
-                    const idx = elements[0].index;
-                    const clickedLabel = rubroLabels[idx];
-                    if (!clickedLabel || clickedLabel === 'Sin Datos') return;
-
-                    if (isSub && clickedLabel.includes('>')) {
-                        const parts = clickedLabel.split('>').map(s => s.trim());
-                        const parentCat = parts[0];
-                        const subCat = parts[1];
-                        const catSelect = document.getElementById('dash-filter-cat');
-                        if (catSelect) {
-                            catSelect.value = parentCat;
-                            onDashboardCategoryChange();
-                            setTimeout(() => {
-                                const subSelect = document.getElementById('dash-filter-subcat');
-                                if (subSelect) {
-                                    subSelect.value = subCat;
-                                    fetchDashboardStats();
-                                }
-                            }, 100);
-                        }
-                        showToast(`Filtrando por subcategoría: ${clickedLabel}`, 'info');
-                    } else {
-                        const catSelect = document.getElementById('dash-filter-cat');
-                        if (catSelect) {
-                            catSelect.value = clickedLabel;
-                            onDashboardCategoryChange();
-                            showToast(`Filtrando ranking por rubro: ${clickedLabel}`, 'info');
-                        }
-                    }
-                }
+        chartRubro = new Chart(ctxRubro, {
+            type: 'doughnut',
+            data: {
+                labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
+                datasets: [{
+                    data: rubroValues.length ? rubroValues : [0],
+                    backgroundColor: [
+                        '#e11d48', '#059669', '#2563eb', '#d97706',
+                        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
+                        '#84cc16', '#ec4899', '#6366f1', '#14b8a6'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
             },
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        font: { weight: 'bold', family: 'Albert Sans' },
-                        boxWidth: 14,
-                        padding: 12
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return context.label + ': ' + formatCurrency(context.raw);
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { weight: 'bold', family: 'Albert Sans' } } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.label + ': ' + formatCurrency(context.raw);
+                            }
                         }
                     }
                 }
             }
-        }
-    });
-}
-
-function renderRankingTable() {
-    const tbody = document.getElementById('tbl-ranking-body');
-    if (!tbody) return;
-
-    const searchTerm = (document.getElementById('input-search-ranking')?.value || '').toLowerCase().trim();
-    const limitVal = document.getElementById('select-ranking-limit')?.value || '25';
-
-    let list = [...currentRankingList];
-
-    if (searchTerm) {
-        list = list.filter(p =>
-            (p.razon_social || '').toLowerCase().includes(searchTerm) ||
-            (p.alias || '').toLowerCase().includes(searchTerm) ||
-            (p.cuit || '').toLowerCase().includes(searchTerm) ||
-            (p.categoria || '').toLowerCase().includes(searchTerm) ||
-            (p.subcategoria || '').toLowerCase().includes(searchTerm)
-        );
-    }
-
-    const totalCount = list.length;
-    const badge = document.getElementById('ranking-count-badge');
-    const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
-    const filterSub = document.getElementById('dash-filter-subcat')?.value || 'all';
-
-    if (badge) {
-        badge.textContent = `${totalCount} proveedor${totalCount === 1 ? '' : 'es'}`;
-    }
-
-    const headerTitle = document.getElementById('ranking-header-title');
-    const headerSub = document.getElementById('ranking-header-subtitle');
-    if (headerTitle) {
-        if (filterCat && filterCat !== 'all') {
-            const subPart = (filterSub && filterSub !== 'all') ? ` > ${filterSub}` : '';
-            headerTitle.textContent = `🏆 Ranking de Consumo en ${filterCat}${subPart}`;
-        } else {
-            headerTitle.textContent = '🏆 Ranking de Consumo & Facturación por Proveedor';
-        }
-    }
-    if (headerSub) {
-        if (filterCat && filterCat !== 'all') {
-            headerSub.textContent = `Proveedores ordenados por facturación en el rubro ${filterCat}.`;
-        } else {
-            headerSub.textContent = 'Listado ordenado por mayor volumen de facturación según los filtros aplicados.';
-        }
-    }
-
-    if (limitVal !== 'all') {
-        const numLimit = parseInt(limitVal, 10);
-        if (!isNaN(numLimit)) list = list.slice(0, numLimit);
-    }
-
-    if (!list || list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 2.5rem;">No se encontraron proveedores para los filtros seleccionados.</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = list.map(p => {
-        let rankBadge = `<span style="font-weight: 800; color: #64748b; font-size: 0.9rem;">#${p.rank}</span>`;
-        if (p.rank === 1) rankBadge = `<span style="background: #fef08a; color: #854d0e; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-crown"></i> #1</span>`;
-        else if (p.rank === 2) rankBadge = `<span style="background: #f1f5f9; color: #334155; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #2</span>`;
-        else if (p.rank === 3) rankBadge = `<span style="background: #ffedd5; color: #9a3412; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #3</span>`;
-
-        const hasAlias = Boolean(p.alias && p.alias.trim());
-        const fullMainName = hasAlias ? p.alias : p.razon_social;
-        const fullSubName = hasAlias ? p.razon_social : '';
-        const mainName = truncateText(fullMainName, 25);
-        const subName = fullSubName ? truncateText(fullSubName, 25) : '';
-
-        return `
-            <tr>
-                <td style="text-align: center;">${rankBadge}</td>
-                <td>
-                    <div style="font-weight: 800; color: #0f172a; font-size: 0.95rem;" title="${escapeHtml(fullMainName)}">${escapeHtml(mainName)}</div>
-                    ${subName ? `<div style="font-size: 0.76rem; color: #64748b; font-weight: 500;" title="${escapeHtml(fullSubName)}">${escapeHtml(subName)}</div>` : ''}
-                    <div style="font-family: monospace; font-size: 0.74rem; color: #94a3b8;">${escapeHtml(p.cuit || '')}</div>
-                </td>
-                <td>
-                    <span class="badge" style="background: #eff6ff; color: #1d4ed8; font-weight: 700; font-size: 0.78rem; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe;">
-                        ${escapeHtml(p.categoria || 'General')}
-                    </span>
-                </td>
-                <td>
-                    ${p.subcategoria ? `
-                        <span class="badge" style="background: #f8fafc; color: #475569; font-weight: 600; font-size: 0.76rem; padding: 2px 7px; border-radius: 6px; border: 1px solid #cbd5e1;">
-                            ${escapeHtml(p.subcategoria)}
-                        </span>
-                    ` : `<span style="color: #cbd5e1; font-size: 0.8rem;">-</span>`}
-                </td>
-                <td style="text-align: center;">
-                    <span style="background: #f1f5f9; color: #334155; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 999px;">
-                        ${p.comprobantes_count}
-                    </span>
-                </td>
-                <td style="text-align: right; font-weight: 800; color: #0f172a; font-size: 0.95rem; vertical-align: middle;">
-                    <div>${formatCurrency(p.total_neto !== undefined ? p.total_neto : p.total)}</div>
-                    ${(p.total_nc && p.total_nc > 0) ? `
-                        <div style="font-size: 0.74rem; color: #64748b; font-weight: 600; margin-top: 2px;" title="Facturado Bruto: ${formatCurrency(p.total_bruto)} | Notas de Crédito: -${formatCurrency(p.total_nc)}">
-                            Bruto: ${formatCurrency(p.total_bruto)}
-                        </div>
-                    ` : ''}
-                </td>
-                <td>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="flex: 1; background: #f1f5f9; border-radius: 999px; height: 7px; overflow: hidden;">
-                            <div style="background: var(--primary-accent); height: 100%; width: ${Math.min(p.porcentaje, 100)}%; border-radius: 999px;"></div>
-                        </div>
-                        <span style="font-size: 0.78rem; font-weight: 700; color: #475569; min-width: 42px; text-align: right;">${p.porcentaje}%</span>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-function filterRankingTable(term) {
-    renderRankingTable();
-}
-
-// ==========================================
-// MAPA DE CALOR: RECEPCIÓN DE FACTURAS POR DÍA
-// ==========================================
-
-function renderHeatmap(mapaCalor) {
-    const section = document.getElementById('section-heatmap-facturas');
-    if (!section) return;
-
-    if (!mapaCalor) {
-        mapaCalor = {
-            total_facturas: 0,
-            dias_semana: [],
-            fechas: [],
-            dia_pico: { nombre: '-', cantidad: 0 },
-            fecha_record: { fecha: '-', cantidad: 0 }
-        };
-    }
-
-    const totalFacturas = mapaCalor.total_facturas || 0;
-    const diasSemana = mapaCalor.dias_semana || [];
-    const fechas = mapaCalor.fechas || [];
-    const diaPico = mapaCalor.dia_pico || { nombre: '-', cantidad: 0 };
-    const fechaRecord = mapaCalor.fecha_record || { fecha: '-', cantidad: 0 };
-
-    const isSingleMonth = currentMonth && currentMonth !== 'all';
-    const periodoTexto = isSingleMonth ? 'del mes' : 'del período';
-
-    // 1. Badge del encabezado y KPIs
-    const badgeCount = document.getElementById('heatmap-total-count');
-    if (badgeCount) badgeCount.textContent = totalFacturas.toLocaleString('es-AR');
-
-    const totalBadge = document.getElementById('heatmap-total-badge');
-    if (totalBadge) {
-        totalBadge.innerHTML = `<i class="fa-solid fa-receipt" style="margin-right: 5px;"></i> Facturas totales ${periodoTexto}: <strong style="margin-left: 4px; color: #1d4ed8;">${totalFacturas.toLocaleString('es-AR')}</strong>`;
-    }
-
-    const kpiTotal = document.getElementById('heatmap-kpi-total');
-    if (kpiTotal) kpiTotal.textContent = totalFacturas.toLocaleString('es-AR');
-
-    const kpiTotalSub = document.getElementById('heatmap-kpi-total-sub');
-    if (kpiTotalSub) kpiTotalSub.textContent = isSingleMonth ? 'Comprobantes en el mes seleccionado' : 'Comprobantes en todo el histórico';
-
-    const kpiPico = document.getElementById('heatmap-kpi-diapico');
-    if (kpiPico) {
-        kpiPico.textContent = diaPico.cantidad > 0 ? `${diaPico.nombre} (${diaPico.cantidad})` : '-';
-    }
-    const kpiPicoSub = document.getElementById('heatmap-kpi-diapico-sub');
-    if (kpiPicoSub) {
-        const pctPico = totalFacturas > 0 ? ((diaPico.cantidad / totalFacturas) * 100).toFixed(1) : '0';
-        kpiPicoSub.textContent = diaPico.cantidad > 0 ? `${pctPico}% de todas las facturas` : 'Sin comprobantes';
-    }
-
-    const kpiRecord = document.getElementById('heatmap-kpi-record');
-    if (kpiRecord) {
-        if (fechaRecord.fecha && fechaRecord.fecha !== '-' && fechaRecord.cantidad > 0) {
-            const parts = fechaRecord.fecha.split('-');
-            const fechaFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : fechaRecord.fecha;
-            kpiRecord.textContent = `${fechaFmt} (${fechaRecord.cantidad})`;
-        } else {
-            kpiRecord.textContent = '-';
-        }
-    }
-
-    const activeDays = fechas.filter(f => f.cantidad > 0).length || (totalFacturas > 0 ? 1 : 0);
-    const avgPerDay = activeDays > 0 ? (totalFacturas / activeDays).toFixed(1) : '0';
-    const kpiProm = document.getElementById('heatmap-kpi-promedio');
-    if (kpiProm) kpiProm.textContent = `${avgPerDay} / día`;
-
-    const kpiPromSub = document.getElementById('heatmap-kpi-promedio-sub');
-    if (kpiPromSub) {
-        kpiPromSub.textContent = `${activeDays} día${activeDays === 1 ? '' : 's'} con recepción registrada`;
-    }
-
-    // 2. Renderizar Cuadrícula de 7 Días de la Semana
-    const weekdaysGrid = document.getElementById('heatmap-weekdays-grid');
-    if (weekdaysGrid) {
-        const maxDow = Math.max(...diasSemana.map(d => d.cantidad), 1);
-
-        weekdaysGrid.innerHTML = diasSemana.map(d => {
-            const cant = d.cantidad || 0;
-            const pct = d.porcentaje || 0;
-            const ratio = maxDow > 0 ? (cant / maxDow) : 0;
-            const isPico = Boolean(d.es_pico);
-
-            // Nombre plural amigable en español
-            let plural = d.nombre.toLowerCase();
-            if (d.nombre === 'Sábado') plural = 'sábados';
-            else if (d.nombre === 'Domingo') plural = 'domingos';
-            else if (!plural.endsWith('s')) plural += 's';
-
-            // Estilos térmicos según intensidad
-            let cardBg = '#ffffff';
-            let borderColor = '#e2e8f0';
-            let barColor = 'linear-gradient(90deg, #3b82f6, #2563eb)';
-            let badgeHtml = '';
-            let shadowStyle = 'box-shadow: 0 1px 3px rgba(0,0,0,0.02);';
-
-            if (isPico && cant > 0) {
-                cardBg = '#fffaf5';
-                borderColor = '#f97316';
-                barColor = 'linear-gradient(90deg, #f97316, #ea580c)';
-                shadowStyle = 'box-shadow: 0 4px 12px rgba(249, 115, 22, 0.15);';
-                badgeHtml = `<span style="background: #ea580c; color: #ffffff; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.4px;"><i class="fa-solid fa-fire"></i> Pico</span>`;
-            } else if (ratio >= 0.7 && cant > 0) {
-                cardBg = '#f5f7ff';
-                borderColor = '#a5b4fc';
-                barColor = 'linear-gradient(90deg, #6366f1, #4f46e5)';
-            } else if (ratio >= 0.35 && cant > 0) {
-                cardBg = '#f8fafc';
-                borderColor = '#cbd5e1';
-                barColor = 'linear-gradient(90deg, #60a5fa, #3b82f6)';
-            } else if (cant === 0) {
-                cardBg = '#f8fafc';
-                borderColor = '#e2e8f0';
-                barColor = '#cbd5e1';
-            }
-
-            return `
-                <div style="background: ${cardBg}; border: 1.5px solid ${borderColor}; border-radius: 10px; padding: 0.9rem; display: flex; flex-direction: column; justify-content: space-between; position: relative; transition: all 0.2s ease; ${shadowStyle}">
-                    <div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="font-weight: 800; font-size: 0.88rem; color: #0f172a;">${d.nombre}</span>
-                            ${badgeHtml}
-                        </div>
-                        <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 4px;">
-                            <span style="font-size: 1.5rem; font-weight: 800; color: ${isPico ? '#ea580c' : '#0f172a'};">${cant}</span>
-                            <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">facturas</span>
-                        </div>
-                        <div style="font-size: 0.74rem; font-weight: 700; color: #475569; margin-bottom: 8px; line-height: 1.25;">
-                            Todos los ${plural} ${periodoTexto}: <strong style="color: ${isPico ? '#c2410c' : '#0f172a'};">${cant}</strong>
-                        </div>
-                    </div>
-                    <div>
-                        <div style="background: #e2e8f0; height: 6px; border-radius: 999px; overflow: hidden; margin-bottom: 6px;">
-                            <div style="width: ${Math.round(ratio * 100)}%; height: 100%; background: ${barColor}; border-radius: 999px;"></div>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #64748b; font-weight: 600;">
-                            <span>${pct}% del total</span>
-                            <span style="font-weight: 700; color: #334155;">${formatCurrency(d.monto)}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // 3. Renderizar Cuadrícula Calendario Día a Día
-    const calGrid = document.getElementById('heatmap-calendar-grid');
-    if (calGrid) {
-        if (!fechas || fechas.length === 0) {
-            calGrid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #64748b; padding: 1.5rem; font-size: 0.85rem; font-weight: 600;">No hay fechas registradas con facturas para los filtros seleccionados.</div>`;
-            return;
-        }
-
-        const maxFechaCant = Math.max(...fechas.map(f => f.cantidad), 1);
-        const dowAbbr = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
-
-        calGrid.innerHTML = fechas.map(f => {
-            const cnt = f.cantidad || 0;
-            const ratio = maxFechaCant > 0 ? (cnt / maxFechaCant) : 0;
-            const diaNombre = dowAbbr[f.dow] || '';
-
-            // Color térmico según volumen de facturas
-            let bg = '#f8fafc';
-            let border = '#e2e8f0';
-            let textColor = '#64748b';
-            let numColor = '#0f172a';
-
-            if (cnt >= 15) {
-                bg = '#ea580c';
-                border = '#c2410c';
-                textColor = '#ffedd5';
-                numColor = '#ffffff';
-            } else if (cnt >= 8) {
-                bg = '#6366f1';
-                border = '#4f46e5';
-                textColor = '#e0e7ff';
-                numColor = '#ffffff';
-            } else if (cnt >= 4) {
-                bg = '#dbeafe';
-                border = '#93c5fd';
-                textColor = '#1e40af';
-                numColor = '#1e3a8a';
-            } else if (cnt >= 1) {
-                bg = '#eff6ff';
-                border = '#bfdbfe';
-                textColor = '#3b82f6';
-                numColor = '#1d4ed8';
-            }
-
-            const parts = f.fecha.split('-');
-            const diaNum = parts.length === 3 ? parseInt(parts[2], 10) : f.dia_num;
-            const fechaStrFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : f.fecha;
-            const tooltip = `Fecha: ${fechaStrFmt} (${diaNombre})&#10;Facturas recibidas: ${cnt}&#10;Monto: ${formatCurrency(f.monto)}`;
-
-            return `
-                <div title="${tooltip}" style="background: ${bg}; border: 1px solid ${border}; border-radius: 8px; padding: 6px 4px; text-align: center; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;" onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.08)';" onmouseleave="this.style.transform='none'; this.style.boxShadow='none';">
-                    <div style="font-size: 0.65rem; font-weight: 700; color: ${textColor}; text-transform: uppercase;">${diaNombre} ${diaNum}</div>
-                    <div style="font-size: 0.95rem; font-weight: 800; color: ${numColor}; margin-top: 2px;">${cnt > 0 ? cnt : '-'}</div>
-                    <div style="font-size: 0.62rem; font-weight: 600; color: ${textColor}; opacity: 0.9;">${cnt === 1 ? 'fac.' : 'facs.'}</div>
-                </div>
-            `;
-        }).join('');
+        });
     }
 }
 
@@ -1751,16 +920,13 @@ function renderHeatmap(mapaCalor) {
 
 function toggleCategoryManager() {
     const body = document.getElementById('category-manager-body');
-    const toggleText = document.getElementById('cat-mgr-toggle-text');
     const chevron = document.getElementById('cat-mgr-chevron');
     if (!body) return;
     if (body.style.display === 'none' || !body.style.display) {
         body.style.display = 'block';
-        if (toggleText) toggleText.innerHTML = '<i class="fa-solid fa-chevron-up"></i> Ocultar Panel';
         if (chevron) chevron.className = 'fa-solid fa-chevron-up';
     } else {
         body.style.display = 'none';
-        if (toggleText) toggleText.innerHTML = '<i class="fa-solid fa-chevron-down"></i> Mostrar Panel';
         if (chevron) chevron.className = 'fa-solid fa-chevron-down';
     }
 }
@@ -1773,7 +939,6 @@ async function loadCategories() {
         categoriesFlat = data.flat || [];
         renderCategoriesTree();
         populateParentCategorySelect();
-        populateDashboardFilterCategories();
     } catch (e) {
         console.error("Error cargando categorías:", e);
     }
@@ -1832,7 +997,7 @@ function renderCategoriesTree() {
 }
 
 async function createNewCategory() {
-    const input = document.getElementById('new-cat-name') || document.getElementById('cat-nuevo-nombre');
+    const input = document.getElementById('cat-nuevo-nombre');
     const selectPadre = document.getElementById('cat-padre-select');
     if (!input) return;
 
@@ -1854,8 +1019,6 @@ async function createNewCategory() {
         if (data.success) {
             showToast(`Categoría '${nombre}' guardada con éxito`, 'success');
             input.value = '';
-            const altInput = document.getElementById('cat-nuevo-nombre') || document.getElementById('new-cat-name');
-            if (altInput) altInput.value = '';
             if (selectPadre) selectPadre.value = '';
             await loadCategories();
             renderAliasTable(allProveedoresList);
@@ -1967,19 +1130,8 @@ function renderAliasTable(list) {
         const subcatSelectId = `subcat-select-${pId}`;
         const safeNombre = escapeHtml(p.nombre || '');
         const currentAlias = escapeHtml(p.alias || '');
-        let currentCat = (p.categoria || '').trim();
-        const currentSubcat = (p.subcategoria || '').trim();
-
-        // Inferencia de categoría padre si subcategoría está presente pero categoría es 'General' o vacía
-        if (currentSubcat && (!currentCat || currentCat.toLowerCase() === 'general')) {
-            for (const c of categoriesTree) {
-                if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === currentSubcat.toLowerCase().trim())) {
-                    currentCat = c.nombre;
-                    p.categoria = c.nombre;
-                    break;
-                }
-            }
-        }
+        const currentCat = p.categoria || '';
+        const currentSubcat = p.subcategoria || '';
 
         // Opciones de categoría principal únicas
         let catOptions = `<option value="">-- Sin Rubro --</option>`;
@@ -2016,39 +1168,23 @@ function renderAliasTable(list) {
 
         return `
             <tr>
-                <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <button type="button" class="btn-copy-transparent" data-copy="${safeNombre}" onclick="copyTextToClipboard(this.getAttribute('data-copy'), this, 'Proveedor', event)" title="Copiar nombre completo del proveedor">
-                            <i class="fa-regular fa-copy"></i>
-                        </button>
-                        <span>${truncateText(safeNombre, 25)}</span>
-                    </div>
-                </td>
-                <td style="font-family: monospace; color: #64748b; font-size: 0.82rem;">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        ${p.cuit ? `
-                        <button type="button" class="btn-copy-transparent" data-copy="${escapeHtml(p.cuit)}" onclick="copyTextToClipboard(this.getAttribute('data-copy'), this, 'CUIT', event)" title="Copiar CUIT">
-                            <i class="fa-regular fa-copy"></i>
-                        </button>
-                        ` : ''}
-                        <span>${escapeHtml(p.cuit || '-')}</span>
-                    </div>
-                </td>
+                <td style="font-weight: 700; color: #0f172a;" title="${safeNombre}">${truncateText(safeNombre, 35)}</td>
+                <td style="font-family: monospace; color: #64748b; font-size: 0.82rem;">${escapeHtml(p.cuit || '-')}</td>
                 <td>
                     <select id="${catSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 130px;" onchange="onCategorySelectChange('${catSelectId}', '${subcatSelectId}')">
                         ${catOptions}
                     </select>
                 </td>
                 <td>
-                    <select id="${subcatSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 120px;" onchange="onSubcategorySelectChange('${catSelectId}', '${subcatSelectId}')">
+                    <select id="${subcatSelectId}" class="form-control" style="font-size: 0.82rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; width: 100%; min-width: 120px;">
                         ${subcatOptions}
                     </select>
                 </td>
                 <td>
-                    <input type="text" id="${inputId}" class="form-control" placeholder="Nombre de fantasía" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias(${pId}, '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
+                    <input type="text" id="${inputId}" class="form-control" placeholder="Ej: PEPE CONGELADOS" value="${currentAlias}" style="width: 100%; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid #cbd5e1;" onkeydown="if(event.key==='Enter') saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                 </td>
                 <td style="text-align: center;">
-                    <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 5px 12px; cursor: pointer;" onclick="saveProveedorAlias(${pId}, '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
+                    <button id="${btnId}" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 5px 12px; cursor: pointer;" onclick="saveProveedorAlias('${safeNombre}', '${inputId}', '${btnId}', '${catSelectId}', '${subcatSelectId}')">
                         <i class="fa-solid fa-floppy-disk"></i> Guardar
                     </button>
                 </td>
@@ -2065,9 +1201,7 @@ function onCategorySelectChange(catSelectId, subcatSelectId) {
     const selectedCatName = catSelect.value.trim().toLowerCase();
     subcatSelect.innerHTML = '<option value="">-- Ninguna --</option>';
 
-    if (!selectedCatName) return;
-
-    const matchedCat = categoriesTree.find(c => (c.nombre || '').toLowerCase().trim() === selectedCatName);
+    const matchedCat = categoriesTree.find(c => c.nombre.toLowerCase() === selectedCatName);
     if (matchedCat && matchedCat.subcategorias) {
         matchedCat.subcategorias.forEach(s => {
             subcatSelect.innerHTML += `<option value="${escapeHtml(s.nombre)}">${escapeHtml(s.nombre)}</option>`;
@@ -2075,46 +1209,16 @@ function onCategorySelectChange(catSelectId, subcatSelectId) {
     }
 }
 
-function onSubcategorySelectChange(catSelectId, subcatSelectId) {
-    const catSelect = document.getElementById(catSelectId);
-    const subcatSelect = document.getElementById(subcatSelectId);
-    if (!catSelect || !subcatSelect) return;
-
-    const selectedSubName = subcatSelect.value.trim().toLowerCase();
-    if (!selectedSubName) return;
-
-    for (const c of categoriesTree) {
-        if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === selectedSubName)) {
-            catSelect.value = c.nombre;
-            break;
-        }
-    }
-}
-
-async function saveProveedorAlias(provIdentifier, inputId, btnId, catSelectId, subcatSelectId) {
+async function saveProveedorAlias(nombre, inputId, btnId, catSelectId, subcatSelectId) {
     const input = document.getElementById(inputId);
     const btn = document.getElementById(btnId);
     const catSelect = document.getElementById(catSelectId);
     const subcatSelect = document.getElementById(subcatSelectId);
     if (!input) return;
 
-    const provObj = allProveedoresList.find(p => p.id === provIdentifier || p.nombre === provIdentifier);
-    const nombre = provObj ? provObj.nombre : String(provIdentifier);
-
     const newAlias = input.value.trim();
-    let categoria = catSelect ? catSelect.value.trim() : '';
+    const categoria = catSelect ? catSelect.value.trim() : '';
     const subcategoria = subcatSelect ? subcatSelect.value.trim() : '';
-
-    // Si tiene subcategoría pero no categoría (o General), auto-asignar categoría padre
-    if (subcategoria && (!categoria || categoria.toLowerCase() === 'general')) {
-        for (const c of categoriesTree) {
-            if (c.subcategorias && c.subcategorias.some(s => (s.nombre || '').toLowerCase().trim() === subcategoria.toLowerCase().trim())) {
-                categoria = c.nombre;
-                if (catSelect) catSelect.value = c.nombre;
-                break;
-            }
-        }
-    }
 
     if (btn) {
         btn.disabled = true;
@@ -2136,6 +1240,7 @@ async function saveProveedorAlias(provIdentifier, inputId, btnId, catSelectId, s
         if (data.success) {
             showToast(`Datos actualizados para ${nombre}`, 'success');
             aliasMap[nombre] = newAlias;
+            const provObj = allProveedoresList.find(p => p.nombre === nombre);
             if (provObj) {
                 provObj.alias = newAlias;
                 provObj.categoria = categoria;
@@ -2184,38 +1289,31 @@ function switchTab(tabId) {
     }
 }
 
-let isSyncing = false;
-
-async function triggerManualSync(isManual = true) {
-    if (isSyncing) return;
-    isSyncing = true;
-
+async function triggerManualSync(silent = false) {
     const badge = document.getElementById('cloud-sync-badge');
     const text = document.getElementById('cloud-sync-text');
-    if (badge) badge.classList.add('syncing');
-    if (text) text.textContent = 'Sincronizando...';
+    if (badge && text) {
+        badge.classList.add('syncing');
+        text.textContent = 'Sincronizando...';
+    }
 
     try {
         const res = await fetch('/api/firebase/full_resync', { method: 'POST' });
         const data = await res.json();
-        if (isManual) {
-            showToast('Nube reconciliada y sincronizada con éxito', 'success');
-        } else {
-            showToast('Firebase actualizado automáticamente', 'info');
+        if (!silent) {
+            showToast('Nube sincronizada con éxito', 'success');
         }
-        await Promise.all([
-            fetchAllData(),
-            loadProveedoresAlias()
-        ]);
+        fetchAllData();
     } catch (e) {
-        if (isManual) {
+        if (!silent) {
             showToast('Error forzando sincronización', 'error');
         }
     } finally {
-        isSyncing = false;
         pollSyncStatus();
     }
 }
+
+let lastKnownRemoteUpdateCloud = null;
 
 async function pollSyncStatus() {
     try {
@@ -2224,25 +1322,30 @@ async function pollSyncStatus() {
         const badge = document.getElementById('cloud-sync-badge');
         const text = document.getElementById('cloud-sync-text');
 
-        badge.classList.remove('syncing');
-        if (data.enabled || data.mode === 'ONLINE_SYNC') {
-            badge.style.background = 'rgba(16, 185, 129, 0.12)';
-            badge.style.color = '#059669';
-            text.textContent = `Nube Conectada (${data.synced_count} reg)`;
-        } else {
-            badge.style.background = 'rgba(245, 158, 11, 0.12)';
-            badge.style.color = '#d97706';
-            text.textContent = data.message || 'Modo Local';
+        if (badge && text) {
+            badge.classList.remove('syncing');
+            if (data.enabled || data.mode === 'ONLINE_SYNC') {
+                badge.style.background = 'rgba(16, 185, 129, 0.12)';
+                badge.style.color = '#059669';
+                text.textContent = `Nube Conectada (${data.synced_count} reg)`;
+            } else {
+                badge.style.background = 'rgba(245, 158, 11, 0.12)';
+                badge.style.color = '#d97706';
+                text.textContent = data.message || 'Modo Local';
+            }
+        }
+
+        // Auto-refrescar datos en el portal web si hubo sincronización remota
+        if (data.last_remote_update && lastKnownRemoteUpdateCloud && data.last_remote_update !== lastKnownRemoteUpdateCloud) {
+            console.log("[CloudSync] Actualización remota recibida desde Firebase. Refrescando datos en web...");
+            fetchAllData();
+        }
+        if (data.last_remote_update) {
+            lastKnownRemoteUpdateCloud = data.last_remote_update;
         }
     } catch (e) {}
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
-});
-
-window.addEventListener('pageshow', (event) => {
-    if (event.persisted) {
-        checkAuth();
-    }
 });

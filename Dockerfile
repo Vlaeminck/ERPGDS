@@ -17,4 +17,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "gunicorn app_cloud:app --workers=2 --bind=0.0.0.0:${PORT:-5000} --timeout=120"]
+CMD ["sh", "-c", "gunicorn app_cloud:app --workers=1 --threads=4 --bind=0.0.0.0:${PORT:-5000} --timeout=120"]
