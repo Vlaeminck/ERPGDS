@@ -222,3 +222,7 @@ La base de datos contiene **14 tablas relacionales**:
   ```bash
   build.bat
   ```
+- **Despliegue Cloud en Railway**:
+  - Servicio: `ERPGDS` (rama `main` o `Web`)
+  - Comando de inicio (Gunicorn): `gunicorn app_cloud:app --workers=1 --threads=4 --bind=0.0.0.0:$PORT --timeout=120` (gestionado con `sh -c` nativo vía Dockerfile / railway.json).
+  - Almacenamiento Persistente: Volumen `erpgds-data` (1 GB) montado en `/app/registros` para persistir `control_interno.db`.

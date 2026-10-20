@@ -196,3 +196,18 @@ Durante el primer despliegue con base limpia en Railway, el portal web cargó co
   - Event-Driven: 0 lecturas en espera pasiva con `on_snapshot`.
   - Chequeos de verificación: 1 sola lectura sobre `sync_metadata/global_state`.
   - Proyección de consumo diario: **< 1.000 lecturas/día**, garantizando que el sistema opere siempre muy por debajo de la cuota gratuita de 50.000 operaciones diarias de Firebase.
+
+---
+
+## 8. 💾 Despliegue del Volumen Persistente (`erpgds-data`) en Railway
+
+Se configuró y desplegó exitosamente el almacenamiento persistente en Railway:
+- **Nombre del Volumen**: `erpgds-data`
+- **Capacidad**: `1 GB` (suficiente para años de histórico contable en SQLite).
+- **Ruta de Montaje (Mount Path)**: `/app/registros`
+- **Servicio Asociado**: `ERPGDS`
+
+### Beneficios Definitivos:
+1. **Persistencia Total**: `control_interno.db` ya no es volátil; sobrevive a cualquier redeploy, reinicio o caída de contenedor.
+2. **Cero Rehidrataciones**: Los futuros despliegues abren instantáneamente con la base de datos completa existente, eliminando la necesidad de volver a descargar los ~3.278 documentos desde Firestore.
+3. **Consumo Blindado**: El sistema queda operando a costo $0 y con un consumo diario mínimo (< 1.000 lecturas/día).
