@@ -463,17 +463,40 @@ def pull_remote_changes(force_full=False):
     conn.close()
     return total_pulled
 
+def check_initial_hydration():
+    """
+    Si la base SQLite local está vacía (común en Railway tras un nuevo despliegue sin volumen persistente),
+    descarga inmediatamente todos los registros desde Firebase para que la pantalla no quede en blanco.
+    """
+    if not _firestore_db:
+        return
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        total_local = 0
+        for t in ('arca_compras_csv', 'proveedores', 'recaudacion_diaria', 'gastos_fijos'):
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM {t}")
+                total_local += cursor.fetchone()[0]
+            except Exception:
+                pass
+        conn.close()
+
+        if total_local == 0:
+            print("[FirebaseSync] Base de datos local vacía (nuevo contenedor/despliegue). Hidratando registros desde Firebase...", flush=True)
+            pull_remote_changes(force_full=True)
+            print("[FirebaseSync] Hidratación inicial completada exitosamente.", flush=True)
+    except Exception as e:
+        print(f"[FirebaseSync] Error en hidratación inicial: {e}", flush=True)
+
 def sync_cycle():
-    """Un ciclo completo de sincronización (Push + Pull)."""
+    """Un ciclo completo de sincronización (Push + Pull delta)."""
     if not _firestore_db:
         if not init_firebase():
             return
     try:
         pushed = push_local_changes()
-        # Si el listener en tiempo real está activo, NO necesitamos consultar por polling recurrente
-        # El listener on_snapshot avisará instantáneamente cuando otra terminal escriba
-        if not _listener_registered:
-            pulled = pull_remote_changes()
+        pulled = pull_remote_changes(force_full=False)
         SYNC_STATUS["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if SYNC_STATUS["mode"] == "ERROR" and "Cuota" in str(SYNC_STATUS.get("message", "")):
             SYNC_STATUS["mode"] = "ONLINE_SYNC"
@@ -483,6 +506,11 @@ def sync_cycle():
 
 def _sync_worker_loop(interval=30):
     print(f"[FirebaseSync] Hilo de sincronización iniciado (Intervalo: {interval}s).", flush=True)
+    if not _firestore_db:
+        init_firebase()
+    if _firestore_db:
+        check_initial_hydration()
+
     while not _stop_event.is_set():
         if not _firestore_db:
             init_firebase()
