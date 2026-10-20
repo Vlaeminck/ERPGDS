@@ -90,6 +90,7 @@ ERPGDS/
 ├── arca_bot.py                # Bot Selenium para automatización del portal ARCA (AFIP)
 ├── doctor.py                  # Módulo de diagnóstico y reparación de inconsistencias
 ├── config.py                  # Variables de entorno, rutas base y deobfuscation de API Keys
+├── scanner_helper.py          # Auto-recuperación y verificación de red del escáner (NAPS2 / eSCL)
 ├── watcher.py                 # Vigía de carpetas para procesamiento automático en tiempo real
 ├── reset.py                   # Script de restablecimiento a fábrica (Limpieza a 0 registros)
 ├── suppliers.json             # Catálogo de reglas de reconocimiento de proveedores

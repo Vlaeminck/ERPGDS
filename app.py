@@ -658,6 +658,11 @@ def api_scanner_status():
         st["elapsed"] = round(time.time() - st["start_time"], 1)
     return jsonify(st)
 
+@app.route('/api/scanner/diagnostics', methods=['GET'])
+def api_scanner_diagnostics():
+    from scanner_helper import check_scanner_status
+    return jsonify(check_scanner_status())
+
 @app.route('/api/open_scanner', methods=['POST'])
 def open_scanner():
     global SCANNER_STATE
@@ -674,6 +679,14 @@ def open_scanner():
         return jsonify({"success": False, "message": "El escáner ya está en uso. Por favor espera a que termine el escaneo actual."})
         
     try:
+        # 1. Verificar y auto-recuperar IP del escáner en red antes de lanzar el proceso
+        from scanner_helper import ensure_scanner_profile_valid
+        sc_ok, sc_target, sc_msg = ensure_scanner_profile_valid()
+        if not sc_ok:
+            if scanning_lock.locked():
+                scanning_lock.release()
+            return jsonify({"success": False, "message": sc_msg})
+
         # Generar nombre de archivo único
         filename = f"Escáner_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
         output_path = os.path.join(INPUT_FOLDER, filename)
@@ -712,7 +725,17 @@ def open_scanner():
                 startupinfo.wShowWindow = 0
                 kwargs['startupinfo'] = startupinfo
                 
-                subprocess.run([naps2_path, '-o', output_path], **kwargs)
+                # Ejecutar NAPS2 capturando salida con timeout de seguridad
+                naps_res = subprocess.run(
+                    [naps2_path, '-v', '-o', output_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                    **kwargs
+                )
+                
+                if naps_res.returncode != 0:
+                    print(f"[SCANNER] NAPS2 finalizó con código {naps_res.returncode}. Stderr: {naps_res.stderr} | Stdout: {naps_res.stdout}", flush=True)
                 
                 # Al terminar NAPS2, el escaneo físico terminó y la lámpara volvió a posición de descanso
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -756,12 +779,20 @@ def open_scanner():
                     msg_txt = f"¡{supp} {num} procesado y guardado!".strip()
                     SCANNER_STATE["message"] = msg_txt
                 else:
+                    err_output = (naps_res.stderr or naps_res.stdout or "").strip()
+                    print(f"[SCANNER] No se generó el archivo de salida. Salida NAPS2: {err_output}", flush=True)
                     SCANNER_STATE["phase"] = "error"
                     SCANNER_STATE["can_open_lid"] = True
                     SCANNER_STATE["progress"] = 100
                     SCANNER_STATE["active"] = False
-                    SCANNER_STATE["message"] = "El escáner no generó el archivo de salida."
-                    SCANNER_STATE["error"] = "Archivo no encontrado tras escaneo"
+                    if "timed out" in err_output.lower() or "timeout" in err_output.lower():
+                        SCANNER_STATE["message"] = "Tiempo de espera agotado al conectar con el escáner. Verifica que esté encendido."
+                    elif err_output:
+                        lines = [l.strip() for l in err_output.splitlines() if l.strip()]
+                        SCANNER_STATE["message"] = f"Error en escáner: {lines[-1]}"
+                    else:
+                        SCANNER_STATE["message"] = "El escáner no generó el archivo de salida."
+                    SCANNER_STATE["error"] = err_output or "Archivo no encontrado tras escaneo"
                     if scanning_lock.locked():
                         scanning_lock.release()
             except Exception as e:
