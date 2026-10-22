@@ -141,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastKnownRemoteUpdate = null;
 
     async function fetchCloudSyncStatus() {
+        if (document.hidden) return;
         try {
             const res = await fetch('/api/firebase/status');
             const data = await res.json();
@@ -213,7 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     fetchCloudSyncStatus();
-    setInterval(fetchCloudSyncStatus, 3000);
+    setInterval(fetchCloudSyncStatus, 15000);
     try {
         fetch('/api/firebase/sync_now', { method: 'POST' }).then(() => fetchCloudSyncStatus()).catch(() => {});
     } catch (_) {}

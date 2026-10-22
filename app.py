@@ -22,7 +22,7 @@ except Exception as e:
     print(f"Error al inicializar DB control interno: {e}")
 
 try:
-    firebase_sync.start_sync_engine(interval=30)
+    firebase_sync.start_sync_engine(interval=15)
 except Exception as e:
     print(f"Error al iniciar Firebase Sync Engine: {e}")
 
@@ -39,7 +39,7 @@ def api_firebase_status():
 
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
-    firebase_sync.sync_cycle()
+    firebase_sync.sync_cycle(force_pull=True)
     return jsonify(firebase_sync.get_sync_status())
 
 @app.route('/api/firebase/full_resync', methods=['POST', 'GET'])
