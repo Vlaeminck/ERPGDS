@@ -76,6 +76,14 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
+function normalizeSearchText(str) {
+    return String(str || '')
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim();
+}
+
 function truncateText(str, maxLen = 30) {
     if (!str) return '';
     const s = String(str).trim();
@@ -228,7 +236,7 @@ async function initPortal() {
     await fetchAllData();
     await loadProveedoresAlias();
     pollSyncStatus();
-    setInterval(pollSyncStatus, 10000);
+    setInterval(pollSyncStatus, 25000);
 }
 
 
@@ -269,6 +277,7 @@ async function fetchAllData() {
     await Promise.all([
         fetchArcaComprasCloud(),
         fetchCuentasPagarCloud(),
+        loadPagosNoRegistradosCloud(),
         fetchDashboardStats()
     ]);
 }
@@ -288,7 +297,29 @@ async function fetchArcaComprasCloud() {
 
         // Actualizar KPIs
         const resStats = data.resumen || {};
-        document.getElementById('kpi-total-facturado').textContent = formatCurrency(resStats.total_importe || 0);
+
+        // 1. Monto total sumando los pagos no registrados (Consolidado Principal)
+        const totalConsolidado = resStats.total_consolidado !== undefined ? resStats.total_consolidado : (resStats.total_neto || 0);
+        document.getElementById('kpi-total-facturado').textContent = formatCurrency(totalConsolidado);
+
+        // 2. Monto real del mes (Facturado Bruto antes de NC)
+        const elSubBruto = document.getElementById('kpi-sub-total-bruto');
+        if (elSubBruto) elSubBruto.textContent = formatCurrency(resStats.total_bruto || 0);
+
+        // 3. Monto total restando las notas de crédito (Neto ARCA)
+        const elSubNeto = document.getElementById('kpi-sub-total-neto');
+        if (elSubNeto) {
+            const ncDesc = resStats.total_nc ? ` (-${formatCurrency(resStats.total_nc)})` : '';
+            elSubNeto.textContent = `${formatCurrency(resStats.total_neto || 0)}${ncDesc}`;
+        }
+
+        // 4. Monto de pagos no registrados
+        const elSubPnr = document.getElementById('kpi-sub-total-no-registrados');
+        if (elSubPnr) {
+            const cntPnr = resStats.cantidad_no_registrados || 0;
+            elSubPnr.textContent = `+${formatCurrency(resStats.total_no_registrados || 0)} (${cntPnr} pagos)`;
+        }
+
         document.getElementById('kpi-count-facturas').textContent = `${resStats.total_compras || 0} comprobantes emitidos`;
 
         const pendienteImp = (resStats.total_importe || 0) - (resStats.pagados_total || 0);
@@ -344,7 +375,10 @@ function renderArcaCloudTable() {
     const tbody = document.getElementById('tbl-arca-cloud-body');
     if (!tbody) return;
 
-    const filterVal = document.getElementById('arca-cloud-filter').value;
+    const filterVal = document.getElementById('arca-cloud-filter') ? document.getElementById('arca-cloud-filter').value : 'all';
+    const searchInput = document.getElementById('arca-cloud-search-provider');
+    const searchTerm = normalizeSearchText(searchInput ? searchInput.value : '');
+
     let filtered = [...arcaData];
 
     if (filterVal === 'recibida') filtered = filtered.filter(c => c.factura_recibida);
@@ -353,6 +387,35 @@ function renderArcaCloudTable() {
     if (filterVal === 'pagado') filtered = filtered.filter(c => c.estado === 'Pagado');
     if (filterVal === 'nc') filtered = filtered.filter(c => checkIsNC(c));
     if (filterVal === 'retroactiva') filtered = filtered.filter(c => c.es_retroactiva == 1);
+
+    if (searchTerm) {
+        filtered = filtered.filter(c => {
+            const raw = normalizeSearchText(c.denominacion_emisor);
+            const alias = normalizeSearchText(
+                aliasMap[c.denominacion_emisor] || 
+                aliasMap[(c.denominacion_emisor || '').toUpperCase()] || 
+                aliasMap[(c.denominacion_emisor || '').toLowerCase()] || 
+                ''
+            );
+            const cuit = normalizeSearchText(c.numero_documento_emisor);
+            const tipoComp = normalizeSearchText(c.tipo_comprobante);
+            const nroComp = normalizeSearchText(c.numero_desde || c.comprobante);
+            const cat = normalizeSearchText(c.categoria_pago);
+            const fecha = normalizeSearchText(c.fecha_emision);
+            const imp = normalizeSearchText(c.imp_total);
+            const estado = normalizeSearchText(c.estado);
+
+            return raw.includes(searchTerm) ||
+                   alias.includes(searchTerm) ||
+                   cuit.includes(searchTerm) ||
+                   tipoComp.includes(searchTerm) ||
+                   nroComp.includes(searchTerm) ||
+                   cat.includes(searchTerm) ||
+                   fecha.includes(searchTerm) ||
+                   imp.includes(searchTerm) ||
+                   estado.includes(searchTerm);
+        });
+    }
 
     if (arcaSortKey) {
         filtered.sort((a, b) => {
@@ -368,7 +431,7 @@ function renderArcaCloudTable() {
 
     if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color: #64748b; padding: 2rem;">
-            No hay compras registradas para este filtro o período.
+            No hay compras registradas para este filtro o búsqueda.
         </td></tr>`;
         return;
     }
@@ -632,60 +695,245 @@ async function handleImportArcaExcelCloud(event) {
 // TAB 2: CUENTAS POR PAGAR
 // ==========================================
 
+let cuentasPagarData = [];
+
 async function fetchCuentasPagarCloud() {
     try {
         const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
         const res = await fetch('/api/cuentas_por_pagar' + param);
         const data = await res.json();
-
-        const tbody = document.getElementById('tbl-cuentas-cloud-body');
-        const rows = data.cuentas || [];
-
-        if (rows.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #64748b; padding: 2rem;">No hay cuentas por pagar registradas</td></tr>`;
-            return;
-        }
-
-        tbody.innerHTML = rows.map(r => {
-            const isPagado = r.estado === 'Pagado';
-            const estadoBadge = isPagado
-                ? `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`
-                : `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
-
-            const actionBtn = isPagado
-                ? `<span style="color: #64748b; font-size: 0.8rem;">${escapeHtml(r.medio_pago || 'Abonado')}</span>`
-                : `<button class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 3px 10px; cursor: pointer;" onclick="openModalPagarCuenta(${r.id}, '${escapeHtml(r.proveedor_nombre || '')}', ${r.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
-
-            const supplierHtml = formatSupplierCell(r.proveedor_nombre);
-            const catBadge = getCategoryBadge(r.categoria_pago);
-
-            return `
-                <tr>
-                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(r.fecha || '-')}</td>
-                    <td>${supplierHtml}</td>
-                    <td><small style="color: #64748b;">${escapeHtml(r.factura_numero || '-')}</small></td>
-                    <td style="text-align: right; font-weight: 800;">${formatCurrency(r.monto_total)}</td>
-                    <td style="text-align: center;">${catBadge}</td>
-                    <td style="text-align: center;">${estadoBadge}</td>
-                    <td style="text-align: center;">${actionBtn}</td>
-                </tr>
-            `;
-        }).join('');
+        cuentasPagarData = data.cuentas || [];
+        renderCuentasPagarTable();
     } catch (e) {
         console.error("Error cargando cuentas por pagar:", e);
     }
 }
 
+function filterCuentasPagarCloud(search) {
+    renderCuentasPagarTable();
+}
+
+function renderCuentasPagarTable() {
+    const tbody = document.getElementById('tbl-cuentas-cloud-body');
+    if (!tbody) return;
+
+    const searchInput = document.getElementById('cuentas-cloud-search-provider');
+    const searchTerm = normalizeSearchText(searchInput ? searchInput.value : '');
+
+    let filtered = [...cuentasPagarData];
+
+    if (searchTerm) {
+        filtered = filtered.filter(r => {
+            const prov = normalizeSearchText(r.proveedor_nombre);
+            const alias = normalizeSearchText(
+                aliasMap[r.proveedor_nombre] || 
+                aliasMap[(r.proveedor_nombre || '').toUpperCase()] || 
+                aliasMap[(r.proveedor_nombre || '').toLowerCase()] || 
+                ''
+            );
+            const fac = normalizeSearchText(r.factura_numero);
+            const cat = normalizeSearchText(r.categoria_pago);
+            const medio = normalizeSearchText(r.medio_pago);
+            const fecha = normalizeSearchText(r.fecha);
+            const monto = normalizeSearchText(r.monto_total);
+            const estado = normalizeSearchText(r.estado);
+
+            return prov.includes(searchTerm) ||
+                   alias.includes(searchTerm) ||
+                   fac.includes(searchTerm) ||
+                   cat.includes(searchTerm) ||
+                   medio.includes(searchTerm) ||
+                   fecha.includes(searchTerm) ||
+                   monto.includes(searchTerm) ||
+                   estado.includes(searchTerm);
+        });
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #64748b; padding: 2rem;">No hay cuentas por pagar registradas para este filtro o búsqueda.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(r => {
+        const isPagado = r.estado === 'Pagado';
+        const estadoBadge = isPagado
+            ? `<span style="color: #059669; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`
+            : `<span style="color: #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Pendiente</span>`;
+
+        const actionBtn = isPagado
+            ? `<span style="color: #64748b; font-size: 0.8rem;">${escapeHtml(r.medio_pago || 'Abonado')}</span>`
+            : `<button class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 3px 10px; cursor: pointer;" onclick="openModalPagarCuenta(${r.id}, '${escapeHtml(r.proveedor_nombre || '')}', ${r.monto_total})"><i class="fa-solid fa-dollar-sign"></i> Pagar...</button>`;
+
+        const supplierHtml = formatSupplierCell(r.proveedor_nombre);
+        const catBadge = getCategoryBadge(r.categoria_pago);
+
+        return `
+            <tr>
+                <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(r.fecha || '-')}</td>
+                <td>${supplierHtml}</td>
+                <td><small style="color: #64748b;">${escapeHtml(r.factura_numero || '-')}</small></td>
+                <td style="text-align: right; font-weight: 800;">${formatCurrency(r.monto_total)}</td>
+                <td style="text-align: center;">${catBadge}</td>
+                <td style="text-align: center;">${estadoBadge}</td>
+                <td style="text-align: center;">${actionBtn}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
 // ==========================================
-// TAB 4: DASHBOARD DE GRÁFICOS (CHART.JS)
+// TAB 4: DASHBOARD DE GRÁFICOS & RANKING (CHART.JS)
 // ==========================================
+
+let dashboardRawData = null;
+let currentRankingList = [];
+let dashboardRubroViewMode = 'categoria'; // 'categoria' | 'subcategoria'
+
+function populateDashboardFilterCategories() {
+    const catSelect = document.getElementById('dash-filter-cat');
+    if (!catSelect) return;
+
+    const currentVal = catSelect.value || 'all';
+    let optionsHtml = '<option value="all">-- Todos los Rubros --</option>';
+
+    const seenCats = new Set();
+    (categoriesTree || []).forEach(cat => {
+        const nom = (cat.nombre || '').trim();
+        if (nom && !seenCats.has(nom.toLowerCase())) {
+            seenCats.add(nom.toLowerCase());
+            const isSel = (nom.toLowerCase() === currentVal.toLowerCase()) ? 'selected' : '';
+            optionsHtml += `<option value="${escapeHtml(nom)}" ${isSel}>${escapeHtml(nom)}</option>`;
+        }
+    });
+
+    if (dashboardRawData && dashboardRawData.gastos_rubro) {
+        Object.keys(dashboardRawData.gastos_rubro).forEach(nom => {
+            const trimmed = nom.trim();
+            if (trimmed && !seenCats.has(trimmed.toLowerCase())) {
+                seenCats.add(trimmed.toLowerCase());
+                const isSel = (trimmed.toLowerCase() === currentVal.toLowerCase()) ? 'selected' : '';
+                optionsHtml += `<option value="${escapeHtml(trimmed)}" ${isSel}>${escapeHtml(trimmed)}</option>`;
+            }
+        });
+    }
+
+    catSelect.innerHTML = optionsHtml;
+}
+
+function onDashboardCategoryChange() {
+    const catSelect = document.getElementById('dash-filter-cat');
+    const subcatSelect = document.getElementById('dash-filter-subcat');
+    const selectedCat = catSelect ? catSelect.value : 'all';
+
+    if (subcatSelect) {
+        let subHtml = '<option value="all">-- Todas las Subcategorías --</option>';
+        if (selectedCat && selectedCat !== 'all') {
+            const matchedCat = (categoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === selectedCat.toLowerCase().trim());
+            if (matchedCat && matchedCat.subcategorias) {
+                matchedCat.subcategorias.forEach(sub => {
+                    subHtml += `<option value="${escapeHtml(sub.nombre)}">${escapeHtml(sub.nombre)}</option>`;
+                });
+            }
+        }
+        subcatSelect.innerHTML = subHtml;
+    }
+
+    fetchDashboardStats();
+}
+
+function resetDashboardFilters() {
+    const catSelect = document.getElementById('dash-filter-cat');
+    const subcatSelect = document.getElementById('dash-filter-subcat');
+    const metodoSelect = document.getElementById('dash-filter-metodo');
+    const estadoSelect = document.getElementById('dash-filter-estado');
+    const searchInput = document.getElementById('input-search-ranking');
+
+    if (catSelect) catSelect.value = 'all';
+    if (subcatSelect) subcatSelect.innerHTML = '<option value="all">-- Todas las Subcategorías --</option>';
+    if (metodoSelect) metodoSelect.value = 'all';
+    if (estadoSelect) estadoSelect.value = 'all';
+    if (searchInput) searchInput.value = '';
+
+    fetchDashboardStats();
+}
+
+function setRubroViewMode(mode) {
+    dashboardRubroViewMode = mode;
+    const btnCat = document.getElementById('btn-view-rubro-cat');
+    const btnSub = document.getElementById('btn-view-rubro-sub');
+    const titleEl = document.getElementById('title-chart-rubro');
+
+    if (mode === 'categoria') {
+        if (btnCat) {
+            btnCat.style.background = 'var(--primary-accent)';
+            btnCat.style.color = '#ffffff';
+            btnCat.style.border = 'none';
+        }
+        if (btnSub) {
+            btnSub.style.background = '#f1f5f9';
+            btnSub.style.color = '#475569';
+            btnSub.style.border = '1px solid #cbd5e1';
+        }
+        if (titleEl) titleEl.textContent = 'Gastos por Rubro Principal';
+    } else {
+        if (btnSub) {
+            btnSub.style.background = 'var(--primary-accent)';
+            btnSub.style.color = '#ffffff';
+            btnSub.style.border = 'none';
+        }
+        if (btnCat) {
+            btnCat.style.background = '#f1f5f9';
+            btnCat.style.color = '#475569';
+            btnCat.style.border = '1px solid #cbd5e1';
+        }
+        if (titleEl) titleEl.textContent = 'Gastos por Subcategoría';
+    }
+
+    if (dashboardRawData) {
+        renderRubroChart(dashboardRawData);
+    }
+}
 
 async function fetchDashboardStats() {
     try {
-        const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
-        const res = await fetch('/api/dashboard/stats' + param);
+        const catVal = document.getElementById('dash-filter-cat')?.value || 'all';
+        const subcatVal = document.getElementById('dash-filter-subcat')?.value || 'all';
+        const metodoVal = document.getElementById('dash-filter-metodo')?.value || 'all';
+        const estadoVal = document.getElementById('dash-filter-estado')?.value || 'all';
+
+        const params = new URLSearchParams();
+        if (currentMonth && currentMonth !== 'all') params.append('mes', currentMonth);
+        if (catVal && catVal !== 'all') params.append('categoria', catVal);
+        if (subcatVal && subcatVal !== 'all') params.append('subcategoria', subcatVal);
+        if (metodoVal && metodoVal !== 'all') params.append('metodo_pago', metodoVal);
+        if (estadoVal && estadoVal !== 'all') params.append('estado', estadoVal);
+
+        const url = '/api/dashboard/stats?' + params.toString();
+        const res = await fetch(url);
         const data = await res.json();
+        dashboardRawData = data;
+        currentRankingList = data.ranking_proveedores || [];
+
+        // Actualizar mini KPIs
+        const resumen = data.resumen || {};
+        const kpiTot = document.getElementById('dash-kpi-total');
+        const kpiPag = document.getElementById('dash-kpi-pagado');
+        const kpiPen = document.getElementById('dash-kpi-pendiente');
+        const kpiComp = document.getElementById('dash-kpi-comprobantes');
+        const kpiProv = document.getElementById('dash-kpi-proveedores');
+
+        if (kpiTot) kpiTot.textContent = formatCurrency(resumen.total_facturado);
+        if (kpiPag) kpiPag.textContent = formatCurrency(resumen.total_pagado);
+        if (kpiPen) kpiPen.textContent = formatCurrency(resumen.total_pendiente);
+        if (kpiComp) kpiComp.textContent = (resumen.total_comprobantes || 0).toLocaleString('es-AR');
+        if (kpiProv) kpiProv.textContent = (resumen.total_proveedores || 0).toLocaleString('es-AR');
+
+        populateDashboardFilterCategories();
         renderDashboardCharts(data);
+        renderRankingTable();
+        if (data.mapa_calor || data.heatmap) {
+            renderHeatmap(data.mapa_calor || data.heatmap);
+        }
     } catch (e) {
         console.error("Error cargando estadísticas del dashboard:", e);
     }
@@ -821,7 +1069,7 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 4. Gráfico Top Proveedores
+    // 4. Gráfico Top Proveedores (del Filtro Actual)
     const ctxTop = document.getElementById('chart-top-proveedores');
     if (ctxTop) {
         if (chartTop) chartTop.destroy();
@@ -829,13 +1077,23 @@ function renderDashboardCharts(data) {
         const topLabels = topList.map(t => t.display_name);
         const topValues = topList.map(t => t.total);
 
+        const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
+        const titleTopEl = document.getElementById('title-top-proveedores');
+        const subTopEl = document.getElementById('sub-top-proveedores');
+        if (titleTopEl) {
+            titleTopEl.textContent = (filterCat && filterCat !== 'all') ? `Top Proveedores (${filterCat})` : 'Top Proveedores';
+        }
+        if (subTopEl) {
+            subTopEl.textContent = (filterCat && filterCat !== 'all') ? `Proveedores con mayor facturación en ${filterCat}` : 'Mayores importes facturados';
+        }
+
         chartTop = new Chart(ctxTop, {
             type: 'bar',
             data: {
-                labels: topLabels,
+                labels: topLabels.length ? topLabels : ['Sin Proveedores'],
                 datasets: [{
                     label: 'Gasto Total',
-                    data: topValues,
+                    data: topValues.length ? topValues : [0],
                     backgroundColor: 'rgba(124, 58, 237, 0.75)',
                     borderColor: '#7c3aed',
                     borderWidth: 1,
@@ -873,44 +1131,415 @@ function renderDashboardCharts(data) {
         });
     }
 
-    // 5. Gráfico por Rubro / Categoría de Proveedor (Carnes, Verdulería, Limpieza, etc.)
-    const ctxRubro = document.getElementById('chart-rubro');
-    if (ctxRubro) {
-        if (chartRubro) chartRubro.destroy();
-        const rubroObj = data.gastos_rubro || {};
-        const rubroLabels = Object.keys(rubroObj);
-        const rubroValues = Object.values(rubroObj);
+    // 5. Gráfico por Rubro / Subcategoría
+    renderRubroChart(data);
+}
 
-        chartRubro = new Chart(ctxRubro, {
-            type: 'doughnut',
-            data: {
-                labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
-                datasets: [{
-                    data: rubroValues.length ? rubroValues : [0],
-                    backgroundColor: [
-                        '#e11d48', '#059669', '#2563eb', '#d97706',
-                        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
-                        '#84cc16', '#ec4899', '#6366f1', '#14b8a6'
-                    ],
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
+function renderRubroChart(data) {
+    const ctxRubro = document.getElementById('chart-rubro');
+    if (!ctxRubro || typeof Chart === 'undefined') return;
+    if (chartRubro) chartRubro.destroy();
+
+    const isSub = (dashboardRubroViewMode === 'subcategoria');
+    const rubroObj = isSub ? (data.gastos_subrubro || {}) : (data.gastos_rubro || {});
+    const rubroLabels = Object.keys(rubroObj);
+    const rubroValues = Object.values(rubroObj);
+
+    const palette = [
+        '#e11d48', '#059669', '#2563eb', '#d97706',
+        '#7c3aed', '#0891b2', '#ea580c', '#4b5563',
+        '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
+        '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'
+    ];
+
+    chartRubro = new Chart(ctxRubro, {
+        type: 'doughnut',
+        data: {
+            labels: rubroLabels.length ? rubroLabels : ['Sin Datos'],
+            datasets: [{
+                data: rubroValues.length ? rubroValues : [0],
+                backgroundColor: palette.slice(0, Math.max(rubroLabels.length, 1)),
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onClick: (evt, elements) => {
+                if (elements && elements.length > 0) {
+                    const idx = elements[0].index;
+                    const clickedLabel = rubroLabels[idx];
+                    if (!clickedLabel || clickedLabel === 'Sin Datos') return;
+
+                    if (isSub && clickedLabel.includes('>')) {
+                        const parts = clickedLabel.split('>').map(s => s.trim());
+                        const parentCat = parts[0];
+                        const subCat = parts[1];
+                        const catSelect = document.getElementById('dash-filter-cat');
+                        if (catSelect) {
+                            catSelect.value = parentCat;
+                            onDashboardCategoryChange();
+                            setTimeout(() => {
+                                const subSelect = document.getElementById('dash-filter-subcat');
+                                if (subSelect) {
+                                    subSelect.value = subCat;
+                                    fetchDashboardStats();
+                                }
+                            }, 100);
+                        }
+                        showToast(`Filtrando por subcategoría: ${clickedLabel}`, 'info');
+                    } else {
+                        const catSelect = document.getElementById('dash-filter-cat');
+                        if (catSelect) {
+                            catSelect.value = clickedLabel;
+                            onDashboardCategoryChange();
+                            showToast(`Filtrando ranking por rubro: ${clickedLabel}`, 'info');
+                        }
+                    }
+                }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'bottom', labels: { font: { weight: 'bold', family: 'Albert Sans' } } },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return context.label + ': ' + formatCurrency(context.raw);
-                            }
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        font: { weight: 'bold', family: 'Albert Sans' },
+                        boxWidth: 14,
+                        padding: 12
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.label + ': ' + formatCurrency(context.raw);
                         }
                     }
                 }
             }
-        });
+        }
+    });
+}
+
+function renderRankingTable() {
+    const tbody = document.getElementById('tbl-ranking-body');
+    if (!tbody) return;
+
+    const searchInput = document.getElementById('input-search-ranking');
+    const searchTerm = normalizeSearchText(searchInput ? searchInput.value : '');
+    const limitVal = document.getElementById('select-ranking-limit')?.value || '25';
+
+    let list = [...currentRankingList];
+
+    if (searchTerm) {
+        list = list.filter(p =>
+            normalizeSearchText(p.razon_social).includes(searchTerm) ||
+            normalizeSearchText(p.display_name).includes(searchTerm) ||
+            normalizeSearchText(p.alias).includes(searchTerm) ||
+            normalizeSearchText(p.cuit).includes(searchTerm) ||
+            normalizeSearchText(p.categoria || p.rubro).includes(searchTerm) ||
+            normalizeSearchText(p.subcategoria).includes(searchTerm)
+        );
+    }
+
+    const totalCount = list.length;
+    const badge = document.getElementById('ranking-count-badge');
+    const filterCat = document.getElementById('dash-filter-cat')?.value || 'all';
+    const filterSub = document.getElementById('dash-filter-subcat')?.value || 'all';
+
+    if (badge) {
+        badge.textContent = `${totalCount} proveedor${totalCount === 1 ? '' : 'es'}`;
+    }
+
+    const headerTitle = document.getElementById('ranking-header-title');
+    const headerSub = document.getElementById('ranking-header-subtitle');
+    if (headerTitle) {
+        if (filterCat && filterCat !== 'all') {
+            const subPart = (filterSub && filterSub !== 'all') ? ` > ${filterSub}` : '';
+            headerTitle.textContent = `🏆 Ranking de Consumo en ${filterCat}${subPart}`;
+        } else {
+            headerTitle.textContent = '🏆 Ranking de Consumo & Facturación por Proveedor';
+        }
+    }
+    if (headerSub) {
+        if (filterCat && filterCat !== 'all') {
+            headerSub.textContent = `Proveedores ordenados por facturación en el rubro ${filterCat}.`;
+        } else {
+            headerSub.textContent = 'Listado ordenado por mayor volumen de facturación según los filtros aplicados.';
+        }
+    }
+
+    if (limitVal !== 'all') {
+        const numLimit = parseInt(limitVal, 10);
+        if (!isNaN(numLimit)) list = list.slice(0, numLimit);
+    }
+
+    if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 2.5rem;">No se encontraron proveedores para los filtros seleccionados.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = list.map(p => {
+        let rankBadge = `<span style="font-weight: 800; color: #64748b; font-size: 0.9rem;">#${p.rank}</span>`;
+        if (p.rank === 1) rankBadge = `<span style="background: #fef08a; color: #854d0e; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-crown"></i> #1</span>`;
+        else if (p.rank === 2) rankBadge = `<span style="background: #f1f5f9; color: #334155; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #2</span>`;
+        else if (p.rank === 3) rankBadge = `<span style="background: #ffedd5; color: #9a3412; padding: 3px 8px; border-radius: 999px; font-weight: 800; font-size: 0.85rem;"><i class="fa-solid fa-medal"></i> #3</span>`;
+
+        const hasAlias = Boolean(p.alias && p.alias.trim());
+        const mainName = hasAlias ? p.alias : (p.display_name || p.razon_social);
+        const subName = hasAlias ? (p.display_name || p.razon_social) : '';
+        const catName = p.categoria || p.rubro || 'General';
+        const totalAmount = p.total_neto !== undefined ? p.total_neto : p.total;
+
+        return `
+            <tr>
+                <td style="text-align: center;">${rankBadge}</td>
+                <td>
+                    <div style="font-weight: 800; color: #0f172a; font-size: 0.95rem;">${escapeHtml(mainName)}</div>
+                    ${subName ? `<div style="font-size: 0.76rem; color: #64748b; font-weight: 500;">${escapeHtml(subName)}</div>` : ''}
+                    <div style="font-family: monospace; font-size: 0.74rem; color: #94a3b8;">${escapeHtml(p.cuit || '')}</div>
+                </td>
+                <td>
+                    <span class="badge" style="background: #eff6ff; color: #1d4ed8; font-weight: 700; font-size: 0.78rem; padding: 3px 8px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                        ${escapeHtml(catName)}
+                    </span>
+                </td>
+                <td>
+                    ${p.subcategoria ? `
+                        <span class="badge" style="background: #f8fafc; color: #475569; font-weight: 600; font-size: 0.76rem; padding: 2px 7px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                            ${escapeHtml(p.subcategoria)}
+                        </span>
+                    ` : `<span style="color: #cbd5e1; font-size: 0.8rem;">-</span>`}
+                </td>
+                <td style="text-align: center;">
+                    <span style="background: #f1f5f9; color: #334155; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 999px;">
+                        ${p.comprobantes_count || p.cantidad_facturas || 0}
+                    </span>
+                </td>
+                <td style="text-align: right; font-weight: 800; color: #0f172a; font-size: 0.95rem; vertical-align: middle;">
+                    <div>${formatCurrency(totalAmount)}</div>
+                    ${(p.total_nc && p.total_nc > 0) ? `
+                        <div style="font-size: 0.74rem; color: #64748b; font-weight: 600; margin-top: 2px;" title="Facturado Bruto: ${formatCurrency(p.total_bruto)} | Notas de Crédito: -${formatCurrency(p.total_nc)}">
+                            Bruto: ${formatCurrency(p.total_bruto)}
+                        </div>
+                    ` : ''}
+                </td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="flex: 1; background: #f1f5f9; border-radius: 999px; height: 7px; overflow: hidden;">
+                            <div style="background: var(--primary-accent); height: 100%; width: ${Math.min(p.porcentaje || 0, 100)}%; border-radius: 999px;"></div>
+                        </div>
+                        <span style="font-size: 0.78rem; font-weight: 700; color: #475569; min-width: 42px; text-align: right;">${p.porcentaje || 0}%</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function filterRankingTable(term) {
+    renderRankingTable();
+}
+
+// ==========================================
+// MAPA DE CALOR: RECEPCIÓN DE FACTURAS POR DÍA
+// ==========================================
+
+function renderHeatmap(mapaCalor) {
+    const section = document.getElementById('section-heatmap-facturas');
+    if (!section) return;
+
+    if (!mapaCalor) {
+        mapaCalor = {
+            total_facturas: 0,
+            dias_semana: [],
+            fechas: [],
+            dia_pico: { nombre: '-', cantidad: 0 },
+            fecha_record: { fecha: '-', cantidad: 0 }
+        };
+    }
+
+    const totalFacturas = mapaCalor.total_facturas || 0;
+    const diasSemana = mapaCalor.dias_semana || [];
+    const fechas = mapaCalor.fechas || [];
+    const diaPico = mapaCalor.dia_pico || { nombre: '-', cantidad: 0 };
+    const fechaRecord = mapaCalor.fecha_record || { fecha: '-', cantidad: 0 };
+
+    const isSingleMonth = currentMonth && currentMonth !== 'all';
+    const periodoTexto = isSingleMonth ? 'del mes' : 'del período';
+
+    // 1. Badge del encabezado y KPIs
+    const badgeCount = document.getElementById('heatmap-total-count');
+    if (badgeCount) badgeCount.textContent = totalFacturas.toLocaleString('es-AR');
+
+    const totalBadge = document.getElementById('heatmap-total-badge');
+    if (totalBadge) {
+        totalBadge.innerHTML = `<i class="fa-solid fa-receipt" style="margin-right: 5px;"></i> Facturas totales ${periodoTexto}: <strong style="margin-left: 4px; color: #1d4ed8;">${totalFacturas.toLocaleString('es-AR')}</strong>`;
+    }
+
+    const kpiTotal = document.getElementById('heatmap-kpi-total');
+    if (kpiTotal) kpiTotal.textContent = totalFacturas.toLocaleString('es-AR');
+
+    const kpiTotalSub = document.getElementById('heatmap-kpi-total-sub');
+    if (kpiTotalSub) kpiTotalSub.textContent = isSingleMonth ? 'Comprobantes en el mes seleccionado' : 'Comprobantes en todo el histórico';
+
+    const kpiPico = document.getElementById('heatmap-kpi-diapico');
+    if (kpiPico) {
+        kpiPico.textContent = diaPico.cantidad > 0 ? `${diaPico.nombre} (${diaPico.cantidad})` : '-';
+    }
+    const kpiPicoSub = document.getElementById('heatmap-kpi-diapico-sub');
+    if (kpiPicoSub) {
+        const pctPico = totalFacturas > 0 ? ((diaPico.cantidad / totalFacturas) * 100).toFixed(1) : '0';
+        kpiPicoSub.textContent = diaPico.cantidad > 0 ? `${pctPico}% de todas las facturas` : 'Sin comprobantes';
+    }
+
+    const kpiRecord = document.getElementById('heatmap-kpi-record');
+    if (kpiRecord) {
+        if (fechaRecord.fecha && fechaRecord.fecha !== '-' && fechaRecord.cantidad > 0) {
+            const parts = fechaRecord.fecha.split('-');
+            const fechaFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : fechaRecord.fecha;
+            kpiRecord.textContent = `${fechaFmt} (${fechaRecord.cantidad})`;
+        } else {
+            kpiRecord.textContent = '-';
+        }
+    }
+
+    const activeDays = fechas.filter(f => f.cantidad > 0).length || (totalFacturas > 0 ? 1 : 0);
+    const avgPerDay = activeDays > 0 ? (totalFacturas / activeDays).toFixed(1) : '0';
+    const kpiProm = document.getElementById('heatmap-kpi-promedio');
+    if (kpiProm) kpiProm.textContent = `${avgPerDay} / día`;
+
+    const kpiPromSub = document.getElementById('heatmap-kpi-promedio-sub');
+    if (kpiPromSub) {
+        kpiPromSub.textContent = `${activeDays} día${activeDays === 1 ? '' : 's'} con recepción registrada`;
+    }
+
+    // 2. Renderizar Cuadrícula de 7 Días de la Semana
+    const weekdaysGrid = document.getElementById('heatmap-weekdays-grid');
+    if (weekdaysGrid) {
+        const maxDow = Math.max(...diasSemana.map(d => d.cantidad), 1);
+
+        weekdaysGrid.innerHTML = diasSemana.map(d => {
+            const cant = d.cantidad || 0;
+            const pct = d.porcentaje || 0;
+            const ratio = maxDow > 0 ? (cant / maxDow) : 0;
+            const isPico = Boolean(d.es_pico);
+
+            let plural = d.nombre.toLowerCase();
+            if (d.nombre === 'Sábado') plural = 'sábados';
+            else if (d.nombre === 'Domingo') plural = 'domingos';
+            else if (!plural.endsWith('s')) plural += 's';
+
+            let cardBg = '#ffffff';
+            let borderColor = '#e2e8f0';
+            let barColor = 'linear-gradient(90deg, #3b82f6, #2563eb)';
+            let badgeHtml = '';
+            let shadowStyle = 'box-shadow: 0 1px 3px rgba(0,0,0,0.02);';
+
+            if (isPico && cant > 0) {
+                cardBg = '#fffaf5';
+                borderColor = '#f97316';
+                barColor = 'linear-gradient(90deg, #f97316, #ea580c)';
+                shadowStyle = 'box-shadow: 0 4px 12px rgba(249, 115, 22, 0.15);';
+                badgeHtml = `<span style="background: #ea580c; color: #ffffff; font-size: 0.68rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.4px;"><i class="fa-solid fa-fire"></i> Pico</span>`;
+            } else if (ratio >= 0.7 && cant > 0) {
+                cardBg = '#f5f7ff';
+                borderColor = '#a5b4fc';
+                barColor = 'linear-gradient(90deg, #6366f1, #4f46e5)';
+            } else if (ratio >= 0.35 && cant > 0) {
+                cardBg = '#f8fafc';
+                borderColor = '#cbd5e1';
+                barColor = 'linear-gradient(90deg, #60a5fa, #3b82f6)';
+            } else if (cant === 0) {
+                cardBg = '#f8fafc';
+                borderColor = '#e2e8f0';
+                barColor = '#cbd5e1';
+            }
+
+            return `
+                <div style="background: ${cardBg}; border: 1.5px solid ${borderColor}; border-radius: 10px; padding: 0.9rem; display: flex; flex-direction: column; justify-content: space-between; position: relative; transition: all 0.2s ease; ${shadowStyle}">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-weight: 800; font-size: 0.88rem; color: #0f172a;">${d.nombre}</span>
+                            ${badgeHtml}
+                        </div>
+                        <div style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 4px;">
+                            <span style="font-size: 1.5rem; font-weight: 800; color: ${isPico ? '#ea580c' : '#0f172a'};">${cant}</span>
+                            <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">facturas</span>
+                        </div>
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #475569; margin-bottom: 8px; line-height: 1.25;">
+                            Todos los ${plural} ${periodoTexto}: <strong style="color: ${isPico ? '#c2410c' : '#0f172a'};">${cant}</strong>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="background: #e2e8f0; height: 6px; border-radius: 999px; overflow: hidden; margin-bottom: 6px;">
+                            <div style="width: ${Math.round(ratio * 100)}%; height: 100%; background: ${barColor}; border-radius: 999px;"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #64748b; font-weight: 600;">
+                            <span>${pct}% del total</span>
+                            <span style="font-weight: 700; color: #334155;">${formatCurrency(d.monto)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 3. Renderizar Cuadrícula Calendario Día a Día
+    const calGrid = document.getElementById('heatmap-calendar-grid');
+    if (calGrid) {
+        if (!fechas || fechas.length === 0) {
+            calGrid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #64748b; padding: 1.5rem; font-size: 0.85rem; font-weight: 600;">No hay fechas registradas con facturas para los filtros seleccionados.</div>`;
+            return;
+        }
+
+        const maxFechaCant = Math.max(...fechas.map(f => f.cantidad), 1);
+        const dowAbbr = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+
+        calGrid.innerHTML = fechas.map(f => {
+            const cnt = f.cantidad || 0;
+            const ratio = maxFechaCant > 0 ? (cnt / maxFechaCant) : 0;
+            const diaNombre = dowAbbr[f.dow] || '';
+
+            let bg = '#f8fafc';
+            let border = '#e2e8f0';
+            let textColor = '#64748b';
+            let numColor = '#0f172a';
+
+            if (cnt >= 15) {
+                bg = '#ea580c';
+                border = '#c2410c';
+                textColor = '#ffedd5';
+                numColor = '#ffffff';
+            } else if (cnt >= 8) {
+                bg = '#6366f1';
+                border = '#4f46e5';
+                textColor = '#e0e7ff';
+                numColor = '#ffffff';
+            } else if (cnt >= 4) {
+                bg = '#dbeafe';
+                border = '#93c5fd';
+                textColor = '#1e40af';
+                numColor = '#1e3a8a';
+            } else if (cnt >= 1) {
+                bg = '#eff6ff';
+                border = '#bfdbfe';
+                textColor = '#3b82f6';
+                numColor = '#1d4ed8';
+            }
+
+            const parts = f.fecha.split('-');
+            const diaNum = parts.length === 3 ? parseInt(parts[2], 10) : f.dia_num;
+            const fechaStrFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : f.fecha;
+            const tooltip = `Fecha: ${fechaStrFmt} (${diaNombre})&#10;Facturas recibidas: ${cnt}&#10;Monto: ${formatCurrency(f.monto)}`;
+
+            return `
+                <div title="${tooltip}" style="background: ${bg}; border: 1px solid ${border}; border-radius: 8px; padding: 6px 4px; text-align: center; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;" onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.08)';" onmouseleave="this.style.transform='none'; this.style.boxShadow='none';">
+                    <div style="font-size: 0.65rem; font-weight: 700; color: ${textColor}; text-transform: uppercase;">${diaNombre} ${diaNum}</div>
+                    <div style="font-size: 0.95rem; font-weight: 800; color: ${numColor}; margin-top: 2px;">${cnt > 0 ? cnt : '-'}</div>
+                    <div style="font-size: 0.62rem; font-weight: 600; color: ${textColor}; opacity: 0.9;">${cnt === 1 ? 'fac.' : 'facs.'}</div>
+                </div>
+            `;
+        }).join('');
     }
 }
 
@@ -1094,7 +1723,7 @@ async function loadProveedoresAlias() {
 }
 
 function filterAliasTable(search) {
-    const term = (search || '').toLowerCase().trim();
+    const term = normalizeSearchText(search);
     if (!term) {
         const badge = document.getElementById('alias-count-badge');
         if (badge) badge.textContent = `${allProveedoresList.length} proveedores`;
@@ -1102,11 +1731,11 @@ function filterAliasTable(search) {
         return;
     }
     const filtered = allProveedoresList.filter(p => 
-        (p.nombre || '').toLowerCase().includes(term) ||
-        (p.alias || '').toLowerCase().includes(term) ||
-        (p.cuit || '').toLowerCase().includes(term) ||
-        (p.categoria || '').toLowerCase().includes(term) ||
-        (p.subcategoria || '').toLowerCase().includes(term)
+        normalizeSearchText(p.nombre).includes(term) ||
+        normalizeSearchText(p.alias).includes(term) ||
+        normalizeSearchText(p.cuit).includes(term) ||
+        normalizeSearchText(p.categoria).includes(term) ||
+        normalizeSearchText(p.subcategoria).includes(term)
     );
     const badge = document.getElementById('alias-count-badge');
     if (badge) badge.textContent = `${filtered.length} coincidentes de ${allProveedoresList.length}`;
@@ -1278,6 +1907,10 @@ function switchTab(tabId) {
 
     if (tabId === 'tab-arca') document.getElementById('btn-tab-arca').classList.add('active');
     if (tabId === 'tab-cuentas') document.getElementById('btn-tab-cuentas').classList.add('active');
+    if (tabId === 'tab-no-registrados') {
+        document.getElementById('btn-tab-no-registrados').classList.add('active');
+        loadPagosNoRegistradosCloud();
+    }
     if (tabId === 'tab-metodos') document.getElementById('btn-tab-metodos').classList.add('active');
     if (tabId === 'tab-dashboard') {
         document.getElementById('btn-tab-dashboard').classList.add('active');
@@ -1298,7 +1931,7 @@ async function triggerManualSync(silent = false) {
     }
 
     try {
-        const res = await fetch('/api/firebase/full_resync', { method: 'POST' });
+        const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
         const data = await res.json();
         if (!silent) {
             showToast('Nube sincronizada con éxito', 'success');
@@ -1316,6 +1949,7 @@ async function triggerManualSync(silent = false) {
 let lastKnownRemoteUpdateCloud = null;
 
 async function pollSyncStatus() {
+    if (document.hidden) return;
     try {
         const res = await fetch('/api/firebase/status');
         const data = await res.json();
@@ -1349,3 +1983,216 @@ async function pollSyncStatus() {
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
 });
+
+// ==========================================
+// SECCIÓN: PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
+// ==========================================
+
+let pagosNoRegistradosData = [];
+
+async function loadPagosNoRegistradosCloud() {
+    try {
+        const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
+        const res = await fetch('/api/pagos_no_registrados' + param);
+        const data = await res.json();
+        pagosNoRegistradosData = data.pagos || [];
+
+        const elTotal = document.getElementById('pnr-stat-total');
+        if (elTotal) elTotal.textContent = formatCurrency(data.total_monto || 0);
+
+        const elCant = document.getElementById('pnr-stat-cantidad');
+        if (elCant) elCant.textContent = `${data.cantidad || 0} pagos`;
+
+        populatePnrProveedoresDatalist();
+        renderPagosNoRegistradosTable();
+    } catch (e) {
+        console.error("Error cargando pagos no registrados:", e);
+    }
+}
+
+function populatePnrProveedoresDatalist() {
+    const datalist = document.getElementById('list-pnr-proveedores');
+    if (!datalist) return;
+
+    const namesSet = new Set();
+    Object.values(aliasMap || {}).forEach(al => {
+        if (al && al.trim()) namesSet.add(al.trim());
+    });
+    (arcaData || []).forEach(c => {
+        if (c.denominacion_emisor && c.denominacion_emisor.trim()) {
+            namesSet.add(c.denominacion_emisor.trim());
+        }
+    });
+    (pagosNoRegistradosData || []).forEach(p => {
+        if (p.proveedor && p.proveedor.trim()) {
+            namesSet.add(p.proveedor.trim());
+        }
+    });
+
+    datalist.innerHTML = Array.from(namesSet)
+        .sort((a, b) => a.localeCompare(b))
+        .map(n => `<option value="${escapeHTML(n)}">`)
+        .join('');
+}
+
+function filterPagosNoRegistrados(term) {
+    renderPagosNoRegistradosTable(term);
+}
+
+function renderPagosNoRegistradosTable(filterTerm = '') {
+    const tbody = document.getElementById('tbl-pagos-no-registrados-body');
+    if (!tbody) return;
+
+    const term = normalizeSearchText(filterTerm || document.getElementById('pnr-search-input')?.value || '');
+
+    const filtered = (pagosNoRegistradosData || []).filter(p => {
+        if (!term) return true;
+        const prov = normalizeSearchText(p.proveedor || '');
+        const mot = normalizeSearchText(p.motivo || '');
+        const fec = normalizeSearchText(p.fecha || '');
+        return prov.includes(term) || mot.includes(term) || fec.includes(term);
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 2.5rem 1rem; color: #64748b;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem; color: #cbd5e1;"><i class="fa-solid fa-receipt"></i></div>
+                    <strong style="color: #334155;">No hay pagos no registrados en este período</strong>
+                    <p style="margin: 4px 0 0; font-size: 0.8rem; color: #94a3b8;">Usa el botón "+ Crear Nuevo Pago" para registrar gastos fuera de ARCA.</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(p => `
+        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;">
+            <td style="padding: 0.75rem 1rem; font-weight: 600; color: #334155; font-size: 0.85rem; white-space: nowrap;">
+                <i class="fa-solid fa-calendar-day" style="color: #94a3b8; font-size: 0.75rem; margin-right: 4px;"></i> ${escapeHTML(p.fecha || '-')}
+            </td>
+            <td style="padding: 0.75rem 1rem; font-weight: 700; color: #0f172a; font-size: 0.88rem;">
+                ${escapeHTML(p.proveedor || '-')}
+            </td>
+            <td style="padding: 0.75rem 1rem; font-size: 0.84rem; color: #64748b; font-weight: 500;">
+                ${p.motivo ? escapeHTML(p.motivo) : '<em style="color: #94a3b8;">Sin motivo detallado</em>'}
+            </td>
+            <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 800; color: #1e293b; font-size: 0.95rem; white-space: nowrap;">
+                ${formatCurrency(p.monto || 0)}
+            </td>
+            <td style="padding: 0.75rem 1rem; text-align: center;">
+                <div style="display: inline-flex; gap: 6px;">
+                    <button class="btn btn-sm" onclick="openModalPagoNoRegistrado(${p.id})" title="Editar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; border-radius: 6px; cursor: pointer;">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="btn btn-sm" onclick="handleDeletePagoNoRegistrado(${p.id})" title="Eliminar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); color: #dc2626; border-radius: 6px; cursor: pointer;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openModalPagoNoRegistrado(id = null) {
+    const modal = document.getElementById('modal-pago-no-registrado');
+    const form = document.getElementById('form-pago-no-registrado');
+    const title = document.getElementById('modal-pnr-title');
+    if (!modal || !form) return;
+
+    populatePnrProveedoresDatalist();
+
+    if (id) {
+        const item = (pagosNoRegistradosData || []).find(x => x.id === id);
+        if (!item) return;
+        if (title) title.innerHTML = `<i class="fa-solid fa-pen-to-square" style="color: #2563eb;"></i> Editar Pago No Registrado`;
+        document.getElementById('pnr-id').value = item.id;
+        document.getElementById('pnr-fecha').value = item.fecha || new Date().toISOString().slice(0, 10);
+        document.getElementById('pnr-proveedor').value = item.proveedor || '';
+        document.getElementById('pnr-monto').value = item.monto || '';
+        document.getElementById('pnr-motivo').value = item.motivo || '';
+    } else {
+        if (title) title.innerHTML = `<i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Nuevo Pago No Registrado`;
+        form.reset();
+        document.getElementById('pnr-id').value = '';
+        document.getElementById('pnr-fecha').value = new Date().toISOString().slice(0, 10);
+    }
+
+    modal.style.display = 'flex';
+}
+
+function closeModalPagoNoRegistrado() {
+    const modal = document.getElementById('modal-pago-no-registrado');
+    if (modal) modal.style.display = 'none';
+}
+
+async function handleSavePagoNoRegistrado(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-pnr');
+    const id = document.getElementById('pnr-id').value;
+    const fecha = document.getElementById('pnr-fecha').value;
+    const proveedor = document.getElementById('pnr-proveedor').value.trim();
+    const monto = parseFloat(document.getElementById('pnr-monto').value);
+    const motivo = document.getElementById('pnr-motivo').value.trim();
+
+    if (!proveedor) {
+        showToast('El nombre del proveedor es obligatorio', 'error');
+        return;
+    }
+    if (isNaN(monto) || monto <= 0) {
+        showToast('Ingrese un monto válido mayor a 0', 'error');
+        return;
+    }
+
+    const payload = { fecha, proveedor, monto, motivo };
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Guardando...`;
+    }
+
+    try {
+        const url = id ? `/api/pagos_no_registrados/${id}` : '/api/pagos_no_registrados';
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(id ? 'Pago actualizado con éxito' : 'Pago no registrado creado exitosamente', 'success');
+            closeModalPagoNoRegistrado();
+            await fetchAllData();
+        } else {
+            showToast(data.error || 'Error al guardar el pago', 'error');
+        }
+    } catch (err) {
+        showToast('Error de conexión al guardar pago', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fa-solid fa-check"></i> Guardar Pago`;
+        }
+    }
+}
+
+async function handleDeletePagoNoRegistrado(id) {
+    if (!confirm('¿Confirma eliminar este pago no registrado? Esta acción impactará en el total consolidado.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/pagos_no_registrados/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Pago no registrado eliminado', 'success');
+            await fetchAllData();
+        } else {
+            showToast(data.error || 'Error al eliminar', 'error');
+        }
+    } catch (e) {
+        showToast('Error de conexión al eliminar', 'error');
+    }
+}
+

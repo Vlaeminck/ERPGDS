@@ -144,7 +144,9 @@ La base de datos contiene **14 tablas relacionales**:
     - `id`, `fecha`, `monto`, `medio_pago` ('Efectivo', 'MercadoPago', 'Banco'), `motivo`, `responsable`, `comentario`, `origen`, `uuid`, `updated_at`, `sync_status`.
 13. **`categorias_gastos`**:
     - `id`, `nombre` (TEXT NOT NULL), `padre_id` (INTEGER, para subcategorías), `icono`, `color`, `uuid` (UNIQUE), `updated_at`, `sync_status`.
-14. **`configuraciones`**:
+14. **`pagos_no_registrados`**:
+    - `id`, `fecha`, `proveedor`, `monto`, `motivo`, `categoria`, `metodo_pago`, `uuid` (UNIQUE), `updated_at`, `sync_status`. Gastos directos o pagos a proveedores en negro / fuera de ARCA que suman al costo total del período.
+15. **`configuraciones`**:
     - `clave` (TEXT PRIMARY KEY), `valor`.
 
 ---
@@ -178,7 +180,7 @@ La base de datos contiene **14 tablas relacionales**:
 - `POST /api/firebase/full_resync`: Reconciliación completa forzada contra Firestore (uso manual exclusivo para resolución de inconsistencias o mantenimiento).
 
 ### 🧾 Compras ARCA & Cuentas por Pagar
-- `GET /api/arca_compras?mes=YYYY-MM`: Lista de compras ARCA para el período.
+- `GET /api/arca_compras?mes=YYYY-MM`: Lista de compras ARCA para el período (incluye `total_bruto`, `total_nc`, `total_neto`, `total_no_registrados` y `total_consolidado`).
 - `POST /api/arca_compras/<id>/marcar_pago`: Registra pago asignando categoría obligatoria (*Pinamar, Leloir, Socios*) y método.
 - `POST /api/arca_compras/<id>/desmarcar_pago`: Revierte el pago de un comprobante.
 - `POST /api/arca_compras/<id>/toggle_recibida`: Alterna el estado de factura física recibida.
@@ -186,6 +188,12 @@ La base de datos contiene **14 tablas relacionales**:
 - `POST /api/arca_compras/import_excel`: Importación masiva desde archivo Excel.
 - `GET /api/cuentas_por_pagar?mes=YYYY-MM`: Reporte de saldos adeudados por proveedor.
 - `POST /api/cuentas_por_pagar/registrar_pago`: Pago de saldo en cuenta corriente.
+
+### 💵 Pagos No Registrados (Gastos fuera de ARCA)
+- `GET /api/pagos_no_registrados?mes=YYYY-MM`: Lista de gastos no facturados del mes con totales consolidados.
+- `POST /api/pagos_no_registrados`: Registra un nuevo pago fuera de ARCA (fecha, proveedor, monto, motivo), guarda al proveedor en el catálogo y sincroniza con Firestore.
+- `PUT /api/pagos_no_registrados/<id>`: Actualiza los datos de un pago no registrado existente.
+- `DELETE /api/pagos_no_registrados/<id>`: Elimina el registro local y remotamente en Firestore.
 
 ---
 

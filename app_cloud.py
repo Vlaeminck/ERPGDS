@@ -18,9 +18,9 @@ try:
 except Exception as e:
     print(f"[CloudApp] Error al inicializar base de datos: {e}")
 
-# Iniciar motor de sincronización con la nube (Intervalo: 30 segundos)
+# Iniciar motor de sincronización con la nube (Intervalo: 15 segundos)
 try:
-    firebase_sync.start_sync_engine(interval=30)
+    firebase_sync.start_sync_engine(interval=15)
 except Exception as e:
     print(f"[CloudApp] Error al iniciar Firebase Sync Engine: {e}")
 
@@ -28,7 +28,9 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'gds-erp-cloud-stakeholder-secret-key-2026')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max
 
-STAKEHOLDER_PIN = os.environ.get('STAKEHOLDER_PIN', '1234')
+_env_pin = str(os.environ.get('STAKEHOLDER_PIN', '')).strip()
+# Si la variable de entorno no está seteada o quedó con el valor anterior '1234', forzar '2203'
+STAKEHOLDER_PIN = _env_pin if _env_pin and _env_pin != '1234' else '2203'
 
 
 # ==========================================
@@ -46,6 +48,8 @@ def login_required(f):
 
 @app.route('/')
 def index():
+    # Limpiar autenticación previa para requerir la contraseña en cada ingreso a la página
+    session.pop('authenticated', None)
     return render_template('stakeholders.html')
 
 
@@ -61,9 +65,11 @@ def api_auth_login():
     data = request.json or {}
     pin = str(data.get('pin', '')).strip()
     
-    if pin and pin == STAKEHOLDER_PIN:
+    # Validar el PIN: debe coincidir con 2203 (o STAKEHOLDER_PIN si se configuró otro distinto a 1234). Nunca aceptar 1234.
+    valid_pin = '2203' if STAKEHOLDER_PIN == '1234' else STAKEHOLDER_PIN
+    if pin and (pin == valid_pin or pin == '2203') and pin != '1234':
         session['authenticated'] = True
-        session.permanent = True
+        session.permanent = False
         return jsonify({"success": True, "message": "Acceso concedido"})
     return jsonify({"success": False, "message": "PIN incorrecto"}), 401
 
@@ -85,7 +91,7 @@ def api_firebase_status():
 
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
-    firebase_sync.sync_cycle()
+    firebase_sync.sync_cycle(force_pull=True)
     return jsonify(firebase_sync.get_sync_status())
 
 
@@ -104,7 +110,8 @@ def api_meses_disponibles():
     
     queries = [
         "SELECT DISTINCT strftime('%Y-%m', fecha_emision) FROM arca_compras_csv WHERE fecha_emision IS NOT NULL AND fecha_emision != ''",
-        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM proveedores_cuentas_pagar WHERE fecha IS NOT NULL AND fecha != ''"
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM proveedores_cuentas_pagar WHERE fecha IS NOT NULL AND fecha != ''",
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM pagos_no_registrados WHERE fecha IS NOT NULL AND fecha != ''"
     ]
     
     meses_set = set()
@@ -156,7 +163,7 @@ def api_arca_compras():
     tot_imp = tot_imp or 0
     tot_iva = tot_iva or 0
     
-    AFIP_NC_CODES = {'3', '8', '13', '15', '53', '03', '08', '003', '008', '013', '053'}
+    AFIP_NC_CODES = {'3', '8', '13', '53', '03', '08', '013', '053', '112', '113', '114'}
     def _is_nc(tipo):
         t = str(tipo or '').strip().lower()
         return t in AFIP_NC_CODES or ('nota' in t and ('cr' in t or 'credito' in t)) or t == 'nc'
@@ -164,27 +171,54 @@ def api_arca_compras():
     for r in rows:
         r['is_nc'] = _is_nc(r.get('tipo_comprobante'))
 
+    # Totales Neto, Bruto y Notas de Crédito
+    total_bruto = sum(float(r.get('imp_total') or 0) for r in rows if not r.get('is_nc'))
+    total_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('is_nc'))
+    total_neto = total_bruto - total_nc
+
+    total_iva_bruto = sum(float(r.get('total_iva') or 0) for r in rows if not r.get('is_nc'))
+    total_iva_nc = sum(float(r.get('total_iva') or 0) for r in rows if r.get('is_nc'))
+    total_iva_neto = total_iva_bruto - total_iva_nc
+
     pendientes = sum(1 for r in rows if r.get('estado') == 'Pendiente')
     pagados_count = sum(1 for r in rows if r.get('estado') == 'Pagado')
-    pagados_total = sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado')
+    
+    pagados_bruto = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') == 'Pagado' and not r.get('is_nc'))
+    pagados_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') == 'Pagado' and r.get('is_nc'))
+    pagados_total = pagados_bruto - pagados_nc
+
+    pendientes_bruto = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') != 'Pagado' and not r.get('is_nc'))
+    pendientes_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') != 'Pagado' and r.get('is_nc'))
+    pendientes_total = pendientes_bruto - pendientes_nc
+
     retroactivas_count = sum(1 for r in rows if r.get('es_retroactiva') == 1)
     nc_count = sum(1 for r in rows if r.get('is_nc'))
 
     # Métricas por método de pago para stakeholders
     pagos_por_metodo = {
-        "Efectivo": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and 'Efectivo' in str(r.get('metodo_pago', ''))),
-        "Galicia": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and 'Galicia' in str(r.get('metodo_pago', ''))),
-        "Mercado Pago": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and 'Mercado' in str(r.get('metodo_pago', ''))),
-        "Tarjeta crédito": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and 'Tarjeta' in str(r.get('metodo_pago', '')))
+        "Efectivo": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Efectivo' in str(r.get('metodo_pago', ''))),
+        "Galicia": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Galicia' in str(r.get('metodo_pago', ''))),
+        "Mercado Pago": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Mercado' in str(r.get('metodo_pago', ''))),
+        "Tarjeta crédito": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Tarjeta' in str(r.get('metodo_pago', '')))
     }
 
     # Métricas por categoría de pago
     pagos_por_categoria = {
-        "Pinamar": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Pinamar'),
-        "Leloir": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Leloir'),
-        "Socios": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Socios'),
-        "Sin Categorizar": sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado' and not r.get('categoria_pago'))
+        "Pinamar": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Pinamar'),
+        "Leloir": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Leloir'),
+        "Socios": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Socios'),
+        "Sin Categorizar": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and not r.get('categoria_pago'))
     }
+
+    # Totales de Pagos No Registrados (Gastos no facturados)
+    if mes and mes != 'all':
+        cursor.execute("SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados WHERE fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados")
+    pnr_row = cursor.fetchone()
+    total_no_registrados = float(pnr_row[0] or 0) if pnr_row else 0.0
+    cantidad_no_registrados = int(pnr_row[1] or 0) if pnr_row else 0
+    total_consolidado = total_neto + total_no_registrados
 
     alias_map = db_manager.get_suppliers_alias_map()
     conn.close()
@@ -194,17 +228,114 @@ def api_arca_compras():
         "alias_map": alias_map,
         "resumen": {
             "total_compras": len(rows),
-            "total_importe": tot_imp,
-            "total_iva": tot_iva,
+            "total_importe": round(total_neto, 2),
+            "total_neto": round(total_neto, 2),
+            "total_bruto": round(total_bruto, 2),
+            "total_nc": round(total_nc, 2),
+            "total_no_registrados": round(total_no_registrados, 2),
+            "cantidad_no_registrados": cantidad_no_registrados,
+            "total_consolidado": round(total_consolidado, 2),
+            "total_iva": round(total_iva_neto, 2),
+            "total_iva_neto": round(total_iva_neto, 2),
+            "total_iva_bruto": round(total_iva_bruto, 2),
+            "total_iva_nc": round(total_iva_nc, 2),
             "pendientes": pendientes,
+            "pendientes_total": round(pendientes_total, 2),
+            "pendientes_bruto": round(pendientes_bruto, 2),
+            "pendientes_nc": round(pendientes_nc, 2),
             "pagados": pagados_count,
-            "pagados_total": pagados_total,
+            "pagados_total": round(pagados_total, 2),
+            "pagados_bruto": round(pagados_bruto, 2),
+            "pagados_nc": round(pagados_nc, 2),
             "retroactivas": retroactivas_count,
             "notas_credito": nc_count,
             "pagos_por_metodo": pagos_por_metodo,
             "pagos_por_categoria": pagos_por_categoria
         }
     })
+
+
+# ==========================================
+# RUTAS PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
+# ==========================================
+
+@app.route('/api/pagos_no_registrados', methods=['GET'])
+def api_get_pagos_no_registrados():
+    mes = request.args.get('mes')
+    pagos = db_manager.get_pagos_no_registrados(mes)
+    tot, cnt = db_manager.get_total_pagos_no_registrados(mes)
+    return jsonify({
+        "success": True,
+        "pagos": pagos,
+        "total_monto": round(tot, 2),
+        "cantidad": cnt
+    })
+
+@app.route('/api/pagos_no_registrados', methods=['POST'])
+def api_create_pago_no_registrado():
+    data = request.get_json() or {}
+    fecha = (data.get('fecha') or datetime.now().strftime('%Y-%m-%d')).strip()
+    proveedor = (data.get('proveedor') or '').strip()
+    try:
+        monto = float(data.get('monto') or 0)
+    except (ValueError, TypeError):
+        monto = 0.0
+    motivo = (data.get('motivo') or '').strip()
+    categoria = (data.get('categoria') or '').strip()
+    metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
+
+    if not proveedor:
+        return jsonify({"success": False, "error": "El nombre del proveedor es obligatorio"}), 400
+    if monto <= 0:
+        return jsonify({"success": False, "error": "El monto debe ser mayor a 0"}), 400
+
+    new_id, doc_uuid = db_manager.add_pago_no_registrado(fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    try:
+        firebase_sync.sync_cycle()
+    except Exception as e_sync:
+        print(f"[Sync] Error sync tras agregar pago no registrado: {e_sync}")
+
+    return jsonify({
+        "success": True,
+        "id": new_id,
+        "uuid": doc_uuid,
+        "message": "Pago no registrado guardado exitosamente"
+    })
+
+@app.route('/api/pagos_no_registrados/<int:item_id>', methods=['DELETE'])
+def api_delete_pago_no_registrado(item_id):
+    doc_uuid = db_manager.delete_pago_no_registrado(item_id)
+    if doc_uuid:
+        try:
+            firebase_sync.delete_document('pagos_no_registrados', doc_uuid)
+            firebase_sync.sync_cycle()
+        except Exception as e_sync:
+            print(f"[Sync] Error sync delete pago no registrado: {e_sync}")
+    return jsonify({"success": True, "message": "Pago eliminado exitosamente"})
+
+@app.route('/api/pagos_no_registrados/<int:item_id>', methods=['PUT'])
+def api_update_pago_no_registrado(item_id):
+    data = request.get_json() or {}
+    fecha = (data.get('fecha') or datetime.now().strftime('%Y-%m-%d')).strip()
+    proveedor = (data.get('proveedor') or '').strip()
+    try:
+        monto = float(data.get('monto') or 0)
+    except (ValueError, TypeError):
+        monto = 0.0
+    motivo = (data.get('motivo') or '').strip()
+    categoria = (data.get('categoria') or '').strip()
+    metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
+
+    if not proveedor or monto <= 0:
+        return jsonify({"success": False, "error": "Proveedor y monto válido son requeridos"}), 400
+
+    doc_uuid = db_manager.update_pago_no_registrado(item_id, fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    try:
+        firebase_sync.sync_cycle()
+    except Exception as e_sync:
+        print(f"[Sync] Error sync update pago no registrado: {e_sync}")
+
+    return jsonify({"success": True, "uuid": doc_uuid, "message": "Pago actualizado exitosamente"})
 
 
 @app.route('/api/arca_compras/<int:item_id>/marcar_pago', methods=['POST'])
@@ -681,8 +812,8 @@ def api_arca_import_excel():
                 cursor.execute("SELECT * FROM arca_compras_csv WHERE id = ?", (row_id,))
                 existing_row = cursor.fetchone()
 
-            if not existing_row and cae_val and pv_val and nro_comp_val:
-                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND punto_venta = ? AND nro_comprobante = ?", (cae_val, pv_val, nro_comp_val))
+            if not existing_row and cae_val:
+                cursor.execute("SELECT * FROM arca_compras_csv WHERE cae = ? AND cae != ''", (cae_val,))
                 existing_row = cursor.fetchone()
 
             if not existing_row and cuit and pv_val and nro_comp_val:
@@ -787,7 +918,7 @@ def api_cuentas_por_pagar():
     
     if mes and mes != 'all':
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar WHERE fecha LIKE ? ORDER BY id DESC", (f"{mes}%",))
-        rows = [dict(r) for r in cursor.fetchall()]
+        raw_rows = [dict(r) for r in cursor.fetchall()]
         
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE mes = ?", (mes,))
         tot_fact = cursor.fetchone()[0] or 0
@@ -795,70 +926,80 @@ def api_cuentas_por_pagar():
         tot_pag = cursor.fetchone()[0] or 0
     else:
         cursor.execute("SELECT * FROM proveedores_cuentas_pagar ORDER BY id DESC")
-        rows = [dict(r) for r in cursor.fetchall()]
+        raw_rows = [dict(r) for r in cursor.fetchall()]
         
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv")
         tot_fact = cursor.fetchone()[0] or 0
         cursor.execute("SELECT SUM(imp_total) FROM arca_compras_csv WHERE estado = 'Pagado'")
         tot_pag = cursor.fetchone()[0] or 0
         
-    # Cruzar montos de facturas con arca_compras_csv si vienen con 0 o None
-    for r in rows:
-        if not r['monto_total'] or r['monto_total'] == 0:
-            match = re.search(r'(\d+)\s*-\s*(\d+)', str(r['factura_numero']))
-            if match:
-                pv = int(match.group(1))
-                nro = int(match.group(2))
-                cursor.execute("""
-                    SELECT imp_total, fecha_emision, denominacion_emisor 
-                    FROM arca_compras_csv 
-                    WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
-                    ORDER BY id DESC LIMIT 1
-                """, (pv, nro))
-                arca_r = cursor.fetchone()
-                if arca_r:
-                    monto = float(arca_r['imp_total'] or 0)
-                    fecha = arca_r['fecha_emision'] or r['fecha']
-                    r['monto_total'] = monto
-                    r['fecha'] = fecha
-                    cursor.execute("UPDATE proveedores_cuentas_pagar SET monto_total = ?, fecha = ? WHERE id = ?", (monto, fecha, r['id']))
-    conn.commit()
-
-    # Agrupar por Proveedor para mostrar Totales Acumulados y Desglose
-    prov_map = {}
-    for r in rows:
-        p_name = r['proveedor_nombre'] or "Desconocido"
-        if p_name not in prov_map:
-            prov_map[p_name] = {
-                "proveedor_nombre": p_name,
-                "total_acumulado": 0.0,
-                "total_pendiente": 0.0,
-                "cantidad_facturas": 0,
-                "fecha": r['fecha'],
-                "categoria_pago": r.get('categoria_pago', ''),
-                "estado": "Pagado",
-                "facturas": []
-            }
-        monto_val = float(r.get('monto_total') or 0.0)
-        prov_map[p_name]["total_acumulado"] += monto_val
-        if r['estado'] != 'Pagado':
-            prov_map[p_name]["total_pendiente"] += monto_val
-            prov_map[p_name]["estado"] = "Pendiente"
-        prov_map[p_name]["cantidad_facturas"] += 1
-        prov_map[p_name]["facturas"].append(r)
-        if r.get('categoria_pago'):
-            prov_map[p_name]["categoria_pago"] = r['categoria_pago']
-        if r.get('fecha') and str(r['fecha']) > str(prov_map[p_name]["fecha"]):
-            prov_map[p_name]["fecha"] = r['fecha']
-
-    proveedores_list = list(prov_map.values())
-    proveedores_list.sort(key=lambda x: x['total_acumulado'], reverse=True)
-
     pendiente = tot_fact - tot_pag
+
+    from collections import defaultdict
+    grouped = defaultdict(lambda: {
+        "proveedor_nombre": "",
+        "total_acumulado": 0.0,
+        "total_pendiente": 0.0,
+        "total_pagado": 0.0,
+        "cantidad_facturas": 0,
+        "fecha": "",
+        "categoria_pago": "",
+        "estado": "Pendiente",
+        "facturas": []
+    })
+
+    for r in raw_rows:
+        prov = r.get('proveedor_nombre') or 'Desconocido'
+        g = grouped[prov]
+        g['proveedor_nombre'] = prov
+        monto = float(r.get('monto_total') or 0.0)
+        pagado = float(r.get('monto_pagado') or 0.0)
+        is_paid = r.get('estado') == 'Pagado'
+        
+        g['total_acumulado'] += monto
+        if is_paid:
+            g['total_pagado'] += monto
+        else:
+            g['total_pendiente'] += (monto - pagado if monto > pagado else monto)
+            
+        g['cantidad_facturas'] += 1
+        if not g['fecha'] or str(r.get('fecha', '')) > str(g['fecha']):
+            g['fecha'] = r.get('fecha') or ''
+        if r.get('categoria_pago') and not g['categoria_pago']:
+            g['categoria_pago'] = r.get('categoria_pago')
+            
+        g['facturas'].append({
+            "id": r.get('id'),
+            "factura_numero": r.get('factura_numero'),
+            "fecha": r.get('fecha'),
+            "monto_total": monto,
+            "monto_pagado": pagado,
+            "estado": r.get('estado', 'Pendiente'),
+            "medio_pago": r.get('medio_pago', ''),
+            "fecha_pago": r.get('fecha_pago', ''),
+            "categoria_pago": r.get('categoria_pago', '')
+        })
+
+    proveedores_lista = []
+    for prov, g in grouped.items():
+        if g['cantidad_facturas'] > 0:
+            if g['total_pendiente'] <= 0 and g['total_pagado'] > 0:
+                g['estado'] = 'Pagado'
+            elif g['total_pagado'] > 0 and g['total_pendiente'] > 0:
+                g['estado'] = 'Parcial'
+            else:
+                g['estado'] = 'Pendiente'
+        g['total_acumulado'] = round(g['total_acumulado'], 2)
+        g['total_pendiente'] = round(g['total_pendiente'], 2)
+        g['total_pagado'] = round(g['total_pagado'], 2)
+        proveedores_lista.append(g)
+
+    proveedores_lista.sort(key=lambda x: x['total_acumulado'], reverse=True)
+
     conn.close()
     return jsonify({
-        "cuentas": rows,
-        "proveedores": proveedores_list,
+        "proveedores": proveedores_lista,
+        "cuentas": raw_rows,
         "resumen": {
             "total_facturado": tot_fact,
             "total_pagado": tot_pag,
@@ -979,10 +1120,15 @@ def api_proveedores_alias():
         if not nombre:
             return jsonify({"success": False, "message": "El nombre del proveedor es obligatorio"}), 400
             
-        db_manager.update_supplier_alias(nombre, alias)
-        if categoria is not None:
-            db_manager.update_supplier_category(nombre, str(categoria).strip(), str(subcategoria or '').strip())
-            
+        ok = db_manager.update_supplier_meta(
+            nombre, 
+            alias=alias, 
+            categoria=str(categoria).strip() if categoria is not None else None, 
+            subcategoria=str(subcategoria).strip() if subcategoria is not None else None
+        )
+        if not ok:
+            return jsonify({"success": False, "message": f"Proveedor '{nombre}' no encontrado"}), 404
+
         firebase_sync.sync_cycle()
         return jsonify({"success": True, "message": f"Datos guardados correctamente para {nombre}"})
     else:
@@ -992,21 +1138,26 @@ def api_proveedores_alias():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def api_dashboard_stats():
-    mes = request.args.get('mes')
-    categoria = request.args.get('categoria')
-    subcategoria = request.args.get('subcategoria')
-    metodo_pago = request.args.get('metodo_pago')
-    estado = request.args.get('estado')
-    
+    mes = request.args.get('mes', '').strip()
+    categoria_filtro = request.args.get('categoria', '').strip()
+    subcategoria_filtro = request.args.get('subcategoria', '').strip()
+    metodo_filtro = request.args.get('metodo_pago', '').strip()
+    estado_filtro = request.args.get('estado', '').strip()
+
     conn = db_manager.get_connection()
     cursor = conn.cursor()
 
-    # 1. Evolución mensual (Todos los meses con compras)
-    cursor.execute('''
+    SQL_IS_NC_C = "(c.tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(c.tipo_comprobante) LIKE '%credito%' OR LOWER(c.tipo_comprobante) LIKE '%nota%cr%' OR LOWER(c.tipo_comprobante) = 'nc')"
+    SQL_IS_NC = "(tipo_comprobante IN ('3','8','13','53','03','08','013','053','112','113','114') OR LOWER(tipo_comprobante) LIKE '%credito%' OR LOWER(tipo_comprobante) LIKE '%nota%cr%' OR LOWER(tipo_comprobante) = 'nc')"
+
+    # 1. Evolución mensual global (todos los meses con compras)
+    cursor.execute(f'''
         SELECT mes, 
-               SUM(imp_total) as total_facturado,
-               SUM(CASE WHEN estado = 'Pagado' THEN imp_total ELSE 0 END) as total_pagado,
-               SUM(CASE WHEN estado != 'Pagado' THEN imp_total ELSE 0 END) as total_pendiente
+               SUM(CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) as total_facturado,
+               SUM(CASE WHEN NOT {SQL_IS_NC} THEN imp_total ELSE 0 END) as total_bruto,
+               SUM(CASE WHEN {SQL_IS_NC} THEN imp_total ELSE 0 END) as total_nc,
+               SUM(CASE WHEN estado = 'Pagado' THEN (CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN estado != 'Pagado' THEN (CASE WHEN {SQL_IS_NC} THEN -imp_total ELSE imp_total END) ELSE 0 END) as total_pendiente
         FROM arca_compras_csv
         WHERE mes IS NOT NULL AND mes != ''
         GROUP BY mes
@@ -1016,162 +1167,319 @@ def api_dashboard_stats():
     evolucion_mensual = {
         "meses": [r['mes'] for r in evolucion_rows],
         "facturado": [round(float(r['total_facturado'] or 0), 2) for r in evolucion_rows],
+        "bruto": [round(float(r['total_bruto'] or 0), 2) for r in evolucion_rows],
+        "nc": [round(float(r['total_nc'] or 0), 2) for r in evolucion_rows],
         "pagado": [round(float(r['total_pagado'] or 0), 2) for r in evolucion_rows],
         "pendiente": [round(float(r['total_pendiente'] or 0), 2) for r in evolucion_rows]
     }
 
-    # Dynamic WHERE filters
+    # Construcción dinámica de filtros WHERE
     where_clauses = ["1=1"]
     params = []
 
     if mes and mes != 'all':
         where_clauses.append("c.mes = ?")
         params.append(mes)
-    if categoria and categoria != 'all':
-        where_clauses.append("COALESCE(NULLIF(p.categoria, ''), 'General') = ?")
-        params.append(categoria)
-    if subcategoria and subcategoria != 'all':
-        where_clauses.append("COALESCE(NULLIF(p.subcategoria, ''), 'General') = ?")
-        params.append(subcategoria)
-    if metodo_pago and metodo_pago != 'all':
+
+    if categoria_filtro and categoria_filtro != 'all':
+        where_clauses.append("COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') = ? COLLATE NOCASE")
+        params.append(categoria_filtro)
+
+    if subcategoria_filtro and subcategoria_filtro != 'all':
+        where_clauses.append("COALESCE(NULLIF(TRIM(p.subcategoria), ''), 'Sin Subcategoría') = ? COLLATE NOCASE")
+        params.append(subcategoria_filtro)
+
+    if metodo_filtro and metodo_filtro != 'all':
         where_clauses.append("c.metodo_pago = ?")
-        params.append(metodo_pago)
-    if estado and estado != 'all':
-        where_clauses.append("c.estado = ?")
-        params.append(estado)
+        params.append(metodo_filtro)
 
-    where_str = " AND ".join(where_clauses)
+    if estado_filtro and estado_filtro != 'all':
+        if estado_filtro == 'Pagado':
+            where_clauses.append("c.estado = 'Pagado'")
+        elif estado_filtro == 'Pendiente':
+            where_clauses.append("c.estado != 'Pagado'")
 
-    base_join = '''
+    where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    # Where clause solo para filtro de mes
+    where_mes_only = "WHERE c.mes = ?" if (mes and mes != 'all') else "WHERE 1=1"
+    params_mes_only = (mes,) if (mes and mes != 'all') else ()
+
+    # 2. Desglose por Rubro / Categoría Principal (para el mes seleccionado)
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') as rubro,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total,
+               COUNT(c.id) as comprobantes_count
         FROM arca_compras_csv c
         LEFT JOIN proveedores p ON (
-            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(REPLACE(c.nro_doc_emisor, '-', ''), ' ', '') = REPLACE(REPLACE(p.cuit, '-', ''), ' ', ''))
-            OR (c.denominacion_emisor = p.nombre COLLATE NOCASE)
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
         )
-    '''
-
-    # Resumen General / KPIs
-    cursor.execute(f'''
-        SELECT 
-            COUNT(*) as cant_comprobantes,
-            COUNT(DISTINCT c.denominacion_emisor) as cant_proveedores,
-            SUM(c.imp_total) as total_facturado,
-            SUM(CASE WHEN c.estado = 'Pagado' THEN c.imp_total ELSE 0 END) as total_pagado,
-            SUM(CASE WHEN c.estado != 'Pagado' THEN c.imp_total ELSE 0 END) as total_pendiente
-        {base_join}
-        WHERE {where_str}
-    ''', tuple(params))
-    res_row = cursor.fetchone()
-    resumen = {
-        "cant_comprobantes": res_row['cant_comprobantes'] or 0,
-        "cant_proveedores": res_row['cant_proveedores'] or 0,
-        "total_facturado": round(float(res_row['total_facturado'] or 0), 2),
-        "total_pagado": round(float(res_row['total_pagado'] or 0), 2),
-        "total_pendiente": round(float(res_row['total_pendiente'] or 0), 2)
-    }
-
-    # Desglose por Rubro / Categoría
-    cursor.execute(f'''
-        SELECT COALESCE(NULLIF(p.categoria, ''), 'General') as rubro,
-               SUM(c.imp_total) as total
-        {base_join}
-        WHERE {where_str}
+        {where_mes_only}
         GROUP BY rubro
         ORDER BY total DESC
-    ''', tuple(params))
+    ''', params_mes_only)
     rubro_rows = cursor.fetchall()
     gastos_rubro = {r['rubro']: round(float(r['total'] or 0), 2) for r in rubro_rows}
 
-    # Desglose por Subrubro / Subcategoría
-    cursor.execute(f'''
-        SELECT COALESCE(NULLIF(p.subcategoria, ''), 'General') as subrubro,
-               SUM(c.imp_total) as total
-        {base_join}
-        WHERE {where_str}
-        GROUP BY subrubro
-        ORDER BY total DESC
-    ''', tuple(params))
-    subrubro_rows = cursor.fetchall()
-    gastos_subrubro = {r['subrubro']: round(float(r['total'] or 0), 2) for r in subrubro_rows}
+    # 3. Desglose por Subcategoría (para el mes seleccionado o categoría filtrada)
+    subcat_where_sql = "WHERE " + " AND ".join(where_clauses) if categoria_filtro and categoria_filtro != 'all' else where_mes_only
+    subcat_params = params if categoria_filtro and categoria_filtro != 'all' else params_mes_only
 
-    # Desglose por Categoría de Pago
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(TRIM(p.categoria), ''), 'General') as rubro,
+               COALESCE(NULLIF(TRIM(p.subcategoria), ''), 'Sin Subcategoría') as subrubro,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total,
+               COUNT(c.id) as comprobantes_count
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {subcat_where_sql}
+        GROUP BY rubro, subrubro
+        ORDER BY total DESC
+    ''', subcat_params)
+    subcat_rows = cursor.fetchall()
+    gastos_subrubro = {}
+    for r in subcat_rows:
+        label = f"{r['rubro']} > {r['subrubro']}" if r['subrubro'] != 'Sin Subcategoría' else r['rubro']
+        gastos_subrubro[label] = round(float(r['total'] or 0), 2)
+
+    # 4. Desglose por Categoría de Pago (Pinamar / Leloir / Socios)
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(c.categoria_pago, ''), 'Sin Categorizar') as cat,
-               SUM(c.imp_total) as total
-        {base_join}
-        WHERE {where_str} AND c.estado = 'Pagado'
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.estado = 'Pagado'
         GROUP BY cat
-    ''', tuple(params))
+    ''', params)
     cat_rows = cursor.fetchall()
     gastos_categoria = {r['cat']: round(float(r['total'] or 0), 2) for r in cat_rows}
 
-    # Desglose por Método de Pago
+    # 5. Desglose por Método de Pago
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(c.metodo_pago, ''), 'Sin Definir') as metodo,
-               SUM(c.imp_total) as total
-        {base_join}
-        WHERE {where_str} AND c.estado = 'Pagado'
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.estado = 'Pagado'
         GROUP BY metodo
-    ''', tuple(params))
+    ''', params)
     metodo_rows = cursor.fetchall()
     gastos_metodo = {r['metodo']: round(float(r['total'] or 0), 2) for r in metodo_rows}
 
-    # Ranking completo de Proveedores por Consumo / Facturación
+    # 6. Totales y KPIs en el filtro actual
     cursor.execute(f'''
-        SELECT 
-            c.denominacion_emisor as razon_social,
-            c.nro_doc_emisor as cuit,
-            COALESCE(NULLIF(p.categoria, ''), 'General') as rubro,
-            COALESCE(NULLIF(p.subcategoria, ''), 'General') as subcategoria,
-            COALESCE(NULLIF(p.alias, ''), c.denominacion_emisor) as display_name,
-            COUNT(*) as cant_facturas,
-            SUM(c.imp_total) as total,
-            SUM(CASE WHEN c.estado != 'Pagado' THEN c.imp_total ELSE 0 END) as pendiente
-        {base_join}
-        WHERE {where_str}
-        GROUP BY c.denominacion_emisor, c.nro_doc_emisor
+        SELECT SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as gran_total,
+               SUM(CASE WHEN NOT {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_bruto,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_nc,
+               SUM(CASE WHEN c.estado = 'Pagado' THEN (CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) ELSE 0 END) as total_pagado,
+               SUM(CASE WHEN c.estado != 'Pagado' THEN (CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) ELSE 0 END) as total_pendiente,
+               COUNT(c.id) as total_comprobantes,
+               COUNT(DISTINCT c.denominacion_emisor) as total_proveedores
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql}
+    ''', params)
+    tot_row = cursor.fetchone()
+    gran_total = float(tot_row['gran_total'] or 0)
+    total_bruto = float(tot_row['total_bruto'] or 0)
+    total_nc = float(tot_row['total_nc'] or 0)
+    total_pagado = float(tot_row['total_pagado'] or 0)
+    total_pendiente = float(tot_row['total_pendiente'] or 0)
+    total_comprobantes = int(tot_row['total_comprobantes'] or 0)
+    total_proveedores_unicos = int(tot_row['total_proveedores'] or 0)
+
+    # 7. Ranking de Proveedores con Mayor Facturación / Consumo
+    cursor.execute(f'''
+        SELECT c.denominacion_emisor,
+               c.nro_doc_emisor,
+               MAX(p.nombre) as prov_nombre,
+               MAX(p.alias) as prov_alias,
+               COALESCE(NULLIF(MAX(p.categoria), ''), 'General') as categoria,
+               COALESCE(NULLIF(MAX(p.subcategoria), ''), '') as subcategoria,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total,
+               SUM(CASE WHEN NOT {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_bruto,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN c.imp_total ELSE 0 END) as total_nc,
+               COUNT(c.id) as comprobantes_count
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql}
+        GROUP BY c.denominacion_emisor
         ORDER BY total DESC
-    ''', tuple(params))
+    ''', params)
     ranking_rows = cursor.fetchall()
 
-    tot_fact = resumen['total_facturado'] or 1.0
-    ranking_proveedores = []
-    for idx, r in enumerate(ranking_rows, 1):
-        tot_prov = round(float(r['total'] or 0), 2)
-        pct = round((tot_prov / tot_fact) * 100, 2) if tot_fact > 0 else 0
-        ranking_proveedores.append({
-            "ranking": idx,
-            "razon_social": r['razon_social'] or 'Desconocido',
-            "cuit": r['cuit'] or '',
-            "display_name": r['display_name'] or r['razon_social'] or 'Desconocido',
-            "rubro": r['rubro'],
+    ranking_completo = []
+    for idx, r in enumerate(ranking_rows):
+        razon = r['denominacion_emisor'] or 'Desconocido'
+        alias = (r['prov_alias'] or '').strip()
+        cuit = r['nro_doc_emisor'] or ''
+        monto_neto = round(float(r['total'] or 0), 2)
+        monto_bruto = round(float(r['total_bruto'] or 0), 2)
+        monto_nc = round(float(r['total_nc'] or 0), 2)
+        pct = round((monto_neto / gran_total * 100), 1) if gran_total > 0 and monto_neto > 0 else 0.0
+
+        ranking_completo.append({
+            "rank": idx + 1,
+            "razon_social": razon,
+            "cuit": cuit,
+            "alias": alias,
+            "display_name": alias if alias else razon,
+            "categoria": r['categoria'],
             "subcategoria": r['subcategoria'],
-            "cant_facturas": r['cant_facturas'],
-            "total": tot_prov,
-            "porcentaje": pct,
-            "pendiente": round(float(r['pendiente'] or 0), 2)
+            "total": monto_neto,
+            "total_neto": monto_neto,
+            "total_bruto": monto_bruto,
+            "total_nc": monto_nc,
+            "comprobantes_count": int(r['comprobantes_count'] or 0),
+            "porcentaje": pct
         })
 
-    # Top 10 para compatibilidad con gráficos existentes
-    top_proveedores = ranking_proveedores[:10]
+    top_proveedores = ranking_completo[:10]
 
+    # 8. Mapa de Calor y Análisis de Recepción de Facturas por Día
+    cursor.execute(f'''
+        SELECT CAST(strftime('%w', SUBSTR(c.fecha_emision, 1, 10)) AS INTEGER) as dow,
+               COUNT(c.id) as cantidad,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total_monto
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.fecha_emision IS NOT NULL AND LENGTH(c.fecha_emision) >= 10
+        GROUP BY dow
+        ORDER BY dow ASC
+    ''', params)
+    dow_rows = cursor.fetchall()
+
+    dias_semana_info = [
+        {"dow": 1, "nombre": "Lunes"},
+        {"dow": 2, "nombre": "Martes"},
+        {"dow": 3, "nombre": "Miércoles"},
+        {"dow": 4, "nombre": "Jueves"},
+        {"dow": 5, "nombre": "Viernes"},
+        {"dow": 6, "nombre": "Sábado"},
+        {"dow": 0, "nombre": "Domingo"}
+    ]
+
+    dow_map = {int(r['dow']): (int(r['cantidad'] or 0), round(float(r['total_monto'] or 0), 2)) for r in dow_rows if r['dow'] is not None}
+    total_facturas_mapa = sum(v[0] for v in dow_map.values())
+    max_dow_cant = max((v[0] for v in dow_map.values()), default=0)
+
+    heatmap_dias_semana = []
+    dia_pico_nombre = "-"
+    dia_pico_cant = 0
+
+    for d in dias_semana_info:
+        cant, monto = dow_map.get(d['dow'], (0, 0.0))
+        pct = round((cant / total_facturas_mapa * 100), 1) if total_facturas_mapa > 0 else 0.0
+        is_pico = (cant == max_dow_cant and cant > 0)
+        if is_pico and dia_pico_nombre == "-":
+            dia_pico_nombre = d['nombre']
+            dia_pico_cant = cant
+
+        heatmap_dias_semana.append({
+            "dow": d['dow'],
+            "nombre": d['nombre'],
+            "cantidad": cant,
+            "monto": monto,
+            "porcentaje": pct,
+            "es_pico": is_pico
+        })
+
+    # Consulta por fecha individual para la cuadrícula calendario
+    cursor.execute(f'''
+        SELECT SUBSTR(c.fecha_emision, 1, 10) as fecha,
+               CAST(strftime('%w', SUBSTR(c.fecha_emision, 1, 10)) AS INTEGER) as dow,
+               CAST(strftime('%d', SUBSTR(c.fecha_emision, 1, 10)) AS INTEGER) as dia_num,
+               COUNT(c.id) as cantidad,
+               SUM(CASE WHEN {SQL_IS_NC_C} THEN -c.imp_total ELSE c.imp_total END) as total_monto
+        FROM arca_compras_csv c
+        LEFT JOIN proveedores p ON (
+            (c.nro_doc_emisor IS NOT NULL AND c.nro_doc_emisor != '' AND REPLACE(p.cuit, '-', '') = REPLACE(c.nro_doc_emisor, '-', ''))
+            OR (TRIM(c.denominacion_emisor) = TRIM(p.nombre) COLLATE NOCASE)
+        )
+        {where_sql} AND c.fecha_emision IS NOT NULL AND LENGTH(c.fecha_emision) >= 10
+        GROUP BY SUBSTR(c.fecha_emision, 1, 10)
+        ORDER BY fecha ASC
+    ''', params)
+    fechas_rows = cursor.fetchall()
+
+    heatmap_fechas = []
+    fecha_record = "-"
+    fecha_record_cant = 0
+    for r in fechas_rows:
+        cnt = int(r['cantidad'] or 0)
+        if cnt > fecha_record_cant:
+            fecha_record_cant = cnt
+            fecha_record = r['fecha']
+        heatmap_fechas.append({
+            "fecha": r['fecha'],
+            "dow": int(r['dow']) if r['dow'] is not None else 0,
+            "dia_num": int(r['dia_num']) if r['dia_num'] is not None else 0,
+            "cantidad": cnt,
+            "monto": round(float(r['total_monto'] or 0), 2)
+        })
+
+    mapa_calor = {
+        "total_facturas": total_facturas_mapa,
+        "dias_semana": heatmap_dias_semana,
+        "fechas": heatmap_fechas,
+        "dia_pico": {
+            "nombre": dia_pico_nombre,
+            "cantidad": dia_pico_cant
+        },
+        "fecha_record": {
+            "fecha": fecha_record,
+            "cantidad": fecha_record_cant
+        }
+    }
+
+    tree = db_manager.get_categories_tree()
     conn.close()
 
     return jsonify({
-        "resumen": resumen,
         "evolucion_mensual": evolucion_mensual,
         "gastos_categoria": gastos_categoria,
         "gastos_metodo": gastos_metodo,
         "gastos_rubro": gastos_rubro,
         "gastos_subrubro": gastos_subrubro,
-        "ranking_proveedores": ranking_proveedores,
         "top_proveedores": top_proveedores,
-        "filtros_aplicados": {
+        "ranking_proveedores": ranking_completo,
+        "mapa_calor": mapa_calor,
+        "resumen": {
+            "total_facturado": round(gran_total, 2),
+            "total_neto": round(gran_total, 2),
+            "total_bruto": round(total_bruto, 2),
+            "total_nc": round(total_nc, 2),
+            "total_pagado": round(total_pagado, 2),
+            "total_pendiente": round(total_pendiente, 2),
+            "total_comprobantes": total_comprobantes,
+            "total_proveedores": total_proveedores_unicos
+        },
+        "categorias_tree": tree,
+        "filtros_activos": {
             "mes": mes or 'all',
-            "categoria": categoria or 'all',
-            "subcategoria": subcategoria or 'all',
-            "metodo_pago": metodo_pago or 'all',
-            "estado": estado or 'all'
+            "categoria": categoria_filtro or 'all',
+            "subcategoria": subcategoria_filtro or 'all',
+            "metodo_pago": metodo_filtro or 'all',
+            "estado": estado_filtro or 'all'
         }
     })
 

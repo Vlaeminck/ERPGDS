@@ -22,7 +22,7 @@ except Exception as e:
     print(f"Error al inicializar DB control interno: {e}")
 
 try:
-    firebase_sync.start_sync_engine(interval=30)
+    firebase_sync.start_sync_engine(interval=15)
 except Exception as e:
     print(f"Error al iniciar Firebase Sync Engine: {e}")
 
@@ -39,7 +39,7 @@ def api_firebase_status():
 
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
-    firebase_sync.sync_cycle()
+    firebase_sync.sync_cycle(force_pull=True)
     return jsonify(firebase_sync.get_sync_status())
 
 @app.route('/api/firebase/full_resync', methods=['POST', 'GET'])
@@ -1946,7 +1946,8 @@ def api_meses_disponibles():
         "SELECT DISTINCT strftime('%Y-%m', fecha) FROM estacionamiento_diario WHERE fecha IS NOT NULL AND fecha != ''",
         "SELECT DISTINCT strftime('%Y-%m', fecha) FROM caja_chica_movimientos WHERE fecha IS NOT NULL AND fecha != ''",
         "SELECT DISTINCT strftime('%Y-%m', fecha) FROM proveedores_cuentas_pagar WHERE fecha IS NOT NULL AND fecha != ''",
-        "SELECT DISTINCT strftime('%Y-%m', fecha_emision) FROM arca_compras_csv WHERE fecha_emision IS NOT NULL AND fecha_emision != ''"
+        "SELECT DISTINCT strftime('%Y-%m', fecha_emision) FROM arca_compras_csv WHERE fecha_emision IS NOT NULL AND fecha_emision != ''",
+        "SELECT DISTINCT strftime('%Y-%m', fecha) FROM pagos_no_registrados WHERE fecha IS NOT NULL AND fecha != ''"
     ]
     
     meses_set = set()
@@ -2212,7 +2213,7 @@ def api_arca_compras():
     tot_imp = tot_imp or 0
     tot_iva = tot_iva or 0
     
-    AFIP_NC_CODES = {'3', '8', '13', '15', '53', '03', '08', '003', '008', '013', '053'}
+    AFIP_NC_CODES = {'3', '8', '13', '15', '53', '03', '08', '003', '008', '013', '053', '112', '113', '114'}
     def _is_nc(tipo):
         t = str(tipo or '').strip().lower()
         return t in AFIP_NC_CODES or ('nota' in t and ('cr' in t or 'credito' in t)) or t == 'nc'
@@ -2220,27 +2221,166 @@ def api_arca_compras():
     for r in rows:
         r['is_nc'] = _is_nc(r.get('tipo_comprobante'))
 
-    # Contar pendientes, pagados, retroactivas y notas de crédito
+    # Totales Neto, Bruto y Notas de Crédito
+    total_bruto = sum(float(r.get('imp_total') or 0) for r in rows if not r.get('is_nc'))
+    total_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('is_nc'))
+    total_neto = total_bruto - total_nc
+
+    total_iva_bruto = sum(float(r.get('total_iva') or 0) for r in rows if not r.get('is_nc'))
+    total_iva_nc = sum(float(r.get('total_iva') or 0) for r in rows if r.get('is_nc'))
+    total_iva_neto = total_iva_bruto - total_iva_nc
+
+    # Contar pendientes, pagados, retroactivas y notas de crédito (netos de NC)
     pendientes = sum(1 for r in rows if r.get('estado') == 'Pendiente')
     pagados_count = sum(1 for r in rows if r.get('estado') == 'Pagado')
-    pagados_total = sum(r.get('imp_total', 0) for r in rows if r.get('estado') == 'Pagado')
+    
+    pagados_bruto = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') == 'Pagado' and not r.get('is_nc'))
+    pagados_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') == 'Pagado' and r.get('is_nc'))
+    pagados_total = pagados_bruto - pagados_nc
+
+    pendientes_bruto = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') != 'Pagado' and not r.get('is_nc'))
+    pendientes_nc = sum(float(r.get('imp_total') or 0) for r in rows if r.get('estado') != 'Pagado' and r.get('is_nc'))
+    pendientes_total = pendientes_bruto - pendientes_nc
+
     retroactivas_count = sum(1 for r in rows if r.get('es_retroactiva') == 1)
     nc_count = sum(1 for r in rows if r.get('is_nc'))
 
+    # Métricas por método de pago
+    pagos_por_metodo = {
+        "Efectivo": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Efectivo' in str(r.get('metodo_pago', ''))),
+        "Galicia": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Galicia' in str(r.get('metodo_pago', ''))),
+        "Mercado Pago": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Mercado' in str(r.get('metodo_pago', ''))),
+        "Tarjeta crédito": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and 'Tarjeta' in str(r.get('metodo_pago', '')))
+    }
+
+    # Métricas por categoría de pago
+    pagos_por_categoria = {
+        "Pinamar": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Pinamar'),
+        "Leloir": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Leloir'),
+        "Socios": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and r.get('categoria_pago') == 'Socios'),
+        "Sin Categorizar": sum(float(r.get('imp_total') or 0) * (-1 if r.get('is_nc') else 1) for r in rows if r.get('estado') == 'Pagado' and not r.get('categoria_pago'))
+    }
+
+    # Totales de Pagos No Registrados (Gastos no facturados)
+    if mes and mes != 'all':
+        cursor.execute("SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados WHERE fecha LIKE ?", (f"{mes}%",))
+    else:
+        cursor.execute("SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados")
+    pnr_row = cursor.fetchone()
+    total_no_registrados = float(pnr_row[0] or 0) if pnr_row else 0.0
+    cantidad_no_registrados = int(pnr_row[1] or 0) if pnr_row else 0
+    total_consolidado = total_neto + total_no_registrados
+
+    alias_map = db_manager.get_suppliers_alias_map()
     conn.close()
     return jsonify({
         "compras": rows,
+        "alias_map": alias_map,
         "resumen": {
             "total_compras": len(rows),
-            "total_importe": tot_imp,
-            "total_iva": tot_iva,
+            "total_importe": round(total_neto, 2),
+            "total_neto": round(total_neto, 2),
+            "total_bruto": round(total_bruto, 2),
+            "total_nc": round(total_nc, 2),
+            "total_no_registrados": round(total_no_registrados, 2),
+            "cantidad_no_registrados": cantidad_no_registrados,
+            "total_consolidado": round(total_consolidado, 2),
+            "total_iva": round(total_iva_neto, 2),
+            "total_iva_neto": round(total_iva_neto, 2),
+            "total_iva_bruto": round(total_iva_bruto, 2),
+            "total_iva_nc": round(total_iva_nc, 2),
             "pendientes": pendientes,
+            "pendientes_total": round(pendientes_total, 2),
             "pagados": pagados_count,
-            "pagados_total": pagados_total,
+            "pagados_total": round(pagados_total, 2),
             "retroactivas": retroactivas_count,
-            "notas_credito": nc_count
+            "notas_credito": nc_count,
+            "pagos_por_metodo": pagos_por_metodo,
+            "pagos_por_categoria": pagos_por_categoria
         }
     })
+
+# ==========================================
+# RUTAS PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
+# ==========================================
+
+@app.route('/api/pagos_no_registrados', methods=['GET'])
+def api_get_pagos_no_registrados():
+    mes = request.args.get('mes')
+    pagos = db_manager.get_pagos_no_registrados(mes)
+    tot, cnt = db_manager.get_total_pagos_no_registrados(mes)
+    return jsonify({
+        "success": True,
+        "pagos": pagos,
+        "total_monto": round(tot, 2),
+        "cantidad": cnt
+    })
+
+@app.route('/api/pagos_no_registrados', methods=['POST'])
+def api_create_pago_no_registrado():
+    data = request.get_json() or {}
+    fecha = (data.get('fecha') or datetime.now().strftime('%Y-%m-%d')).strip()
+    proveedor = (data.get('proveedor') or '').strip()
+    try:
+        monto = float(data.get('monto') or 0)
+    except (ValueError, TypeError):
+        monto = 0.0
+    motivo = (data.get('motivo') or '').strip()
+    categoria = (data.get('categoria') or '').strip()
+    metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
+
+    if not proveedor:
+        return jsonify({"success": False, "error": "El nombre del proveedor es obligatorio"}), 400
+    if monto <= 0:
+        return jsonify({"success": False, "error": "El monto debe ser mayor a 0"}), 400
+
+    new_id, doc_uuid = db_manager.add_pago_no_registrado(fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    try:
+        firebase_sync.sync_cycle()
+    except Exception as e_sync:
+        print(f"[Sync] Error sync tras agregar pago no registrado: {e_sync}")
+
+    return jsonify({
+        "success": True,
+        "id": new_id,
+        "uuid": doc_uuid,
+        "message": "Pago no registrado guardado exitosamente"
+    })
+
+@app.route('/api/pagos_no_registrados/<int:item_id>', methods=['DELETE'])
+def api_delete_pago_no_registrado(item_id):
+    doc_uuid = db_manager.delete_pago_no_registrado(item_id)
+    if doc_uuid:
+        try:
+            firebase_sync.delete_document('pagos_no_registrados', doc_uuid)
+            firebase_sync.sync_cycle()
+        except Exception as e_sync:
+            print(f"[Sync] Error sync delete pago no registrado: {e_sync}")
+    return jsonify({"success": True, "message": "Pago eliminado exitosamente"})
+
+@app.route('/api/pagos_no_registrados/<int:item_id>', methods=['PUT'])
+def api_update_pago_no_registrado(item_id):
+    data = request.get_json() or {}
+    fecha = (data.get('fecha') or datetime.now().strftime('%Y-%m-%d')).strip()
+    proveedor = (data.get('proveedor') or '').strip()
+    try:
+        monto = float(data.get('monto') or 0)
+    except (ValueError, TypeError):
+        monto = 0.0
+    motivo = (data.get('motivo') or '').strip()
+    categoria = (data.get('categoria') or '').strip()
+    metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
+
+    if not proveedor or monto <= 0:
+        return jsonify({"success": False, "error": "Proveedor y monto válido son requeridos"}), 400
+
+    doc_uuid = db_manager.update_pago_no_registrado(item_id, fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    try:
+        firebase_sync.sync_cycle()
+    except Exception as e_sync:
+        print(f"[Sync] Error sync update pago no registrado: {e_sync}")
+
+    return jsonify({"success": True, "uuid": doc_uuid, "message": "Pago actualizado exitosamente"})
 
 
 @app.route('/api/arca_compras/<int:item_id>/marcar_pago', methods=['POST'])

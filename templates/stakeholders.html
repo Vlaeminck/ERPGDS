@@ -272,12 +272,37 @@
             justify-content: space-between;
             align-items: center;
         }
+        .btn-copy-transparent {
+            background: transparent;
+            border: none;
+            padding: 3px 6px;
+            cursor: pointer;
+            color: #94a3b8;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            line-height: 1;
+            transition: all 0.15s ease;
+            vertical-align: middle;
+        }
+
+        .btn-copy-transparent:hover {
+            color: var(--primary-accent, #2563eb);
+            background: rgba(37, 99, 235, 0.08);
+            transform: scale(1.08);
+        }
+
+        .btn-copy-transparent:active {
+            transform: scale(0.92);
+        }
     </style>
 </head>
 
 <body>
     <!-- Auth Gate Modal -->
-    <div id="auth-modal" class="auth-overlay" style="display: none;">
+    <div id="auth-modal" class="auth-overlay">
         <div class="auth-card">
             <div style="width: 50px; height: 50px; background: rgba(37, 99, 235, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; color: var(--primary-accent); font-size: 1.3rem;">
                 <i class="fa-solid fa-lock"></i>
@@ -320,9 +345,10 @@
             </div>
 
             <!-- Botón de Modo Privacidad -->
-            <button class="btn btn-sm" id="btn-privacy-toggle" onclick="togglePrivacyMode()" title="Modo Privacidad: Ocultar o mostrar montos con asteriscos" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+            <button class="btn btn-sm" id="btn-privacy-toggle" onclick="togglePrivacyMode()" title="Modo Privacidad: Ocultar o mostrar montos con asteriscos" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+
                 <i class="fa-solid fa-eye-slash" id="privacy-icon"></i>
-                <span id="privacy-text" style="font-size: 0.8rem;">Ocultar</span>
+                <span id="privacy-text" style="font-size: 0.8rem;">Ocultar Montos</span>
             </button>
 
             <button class="btn btn-sm" onclick="triggerManualSync()" title="Forzar sincronización inmediata y reconciliación" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer;">
@@ -341,21 +367,45 @@
         
         <!-- Summary Cards (KPIs) -->
         <section class="kpi-grid">
-            <div class="kpi-card" style="border-left: 4px solid #2563eb;">
-                <div class="kpi-title">Total Compras del Mes</div>
-                <div class="kpi-value" id="kpi-total-facturado">$ 0</div>
+            <div class="kpi-card" style="border-left: 4px solid #2563eb; position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                    <div class="kpi-title" style="margin-bottom: 0;">Total Compras del Mes</div>
+                    <button type="button" class="btn btn-sm" onclick="openModalPagoNoRegistrado()" title="Crear nuevo pago no registrado" style="padding: 2px 8px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid fa-plus"></i> Pago No Reg.
+                    </button>
+                </div>
+                <div class="kpi-value" id="kpi-total-facturado" style="color: #1e293b; font-size: 1.65rem; font-weight: 800; line-height: 1.2;">$ 0</div>
+
+                <!-- Desglose explícito solicitado por el usuario -->
+                <div style="display: flex; flex-direction: column; gap: 3px; margin: 8px 0; padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.76rem; font-weight: 600;">
+                    <div style="display: flex; justify-content: space-between; color: #475569;">
+                        <span>Monto Real (Facturado Bruto):</span>
+                        <span id="kpi-sub-total-bruto" style="font-weight: 700; color: #1e293b;">$ 0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; color: #dc2626;">
+                        <span>Restando Notas de Crédito:</span>
+                        <span id="kpi-sub-total-neto" style="font-weight: 700;">$ 0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; color: #2563eb;">
+                        <span>+ Pagos No Registrados:</span>
+                        <span id="kpi-sub-total-no-registrados" style="font-weight: 700;">$ 0</span>
+                    </div>
+                </div>
+
                 <div class="kpi-sub" id="kpi-count-facturas">0 comprobantes emitidos</div>
             </div>
 
             <div class="kpi-card" style="border-left: 4px solid #f59e0b;">
                 <div class="kpi-title">Pendiente de Pago</div>
                 <div class="kpi-value" id="kpi-total-pendiente" style="color: #d97706;">$ 0</div>
+                <div id="kpi-pendiente-sub-details" style="font-size: 0.78rem; color: #64748b; font-weight: 600; margin: 2px 0 3px; display: none;"></div>
                 <div class="kpi-sub" id="kpi-count-pendientes">0 facturas por pagar</div>
             </div>
 
             <div class="kpi-card" style="border-left: 4px solid #10b981;">
                 <div class="kpi-title">Total Pagado</div>
                 <div class="kpi-value" id="kpi-total-pagado" style="color: #059669;">$ 0</div>
+                <div id="kpi-pagado-sub-details" style="font-size: 0.78rem; color: #64748b; font-weight: 600; margin: 2px 0 3px; display: none;"></div>
                 <div class="kpi-sub" id="kpi-count-pagados">0 facturas abonadas</div>
             </div>
 
@@ -373,6 +423,9 @@
             </button>
             <button class="nav-tab-btn" onclick="switchTab('tab-cuentas')" id="btn-tab-cuentas">
                 <i class="fa-solid fa-building-columns"></i> Cuentas por Pagar (Saldos)
+            </button>
+            <button class="nav-tab-btn" onclick="switchTab('tab-no-registrados')" id="btn-tab-no-registrados">
+                <i class="fa-solid fa-hand-holding-dollar"></i> Pagos no registrados
             </button>
             <button class="nav-tab-btn" onclick="switchTab('tab-metodos')" id="btn-tab-metodos">
                 <i class="fa-solid fa-chart-pie"></i> Desglose por Método & Categoría
@@ -404,6 +457,11 @@
                             <option value="recibida">Recibidas Físicas</option>
                             <option value="no_recibida">Faltantes Físicas</option>
                         </select>
+
+                        <div style="position: relative; width: 240px;">
+                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.8rem; pointer-events: none;"></i>
+                            <input type="text" id="arca-cloud-search-provider" class="form-control" placeholder="Buscar proveedor / alias..." oninput="renderArcaCloudTable()" style="width: 100%; padding: 0.42rem 0.6rem 0.42rem 2rem; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: 1px solid #cbd5e1;">
+                        </div>
                     </div>
 
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -447,7 +505,14 @@
         <!-- TAB 2: CUENTAS POR PAGAR -->
         <section id="tab-cuentas" class="tab-content" style="display: none;">
             <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
-                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Cuentas por Pagar a Proveedores</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0;">Cuentas por Pagar a Proveedores</h3>
+                    <div style="position: relative; width: 260px;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.82rem; pointer-events: none;"></i>
+                        <input type="text" id="cuentas-cloud-search-provider" class="form-control" placeholder="Buscar proveedor..." oninput="filterCuentasPagarCloud(this.value)" style="width: 100%; padding: 0.45rem 0.75rem 0.45rem 2rem; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: 1px solid #cbd5e1;">
+                    </div>
+                </div>
+
                 <div style="max-height: 480px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
                     <table class="data-table" style="width: 100%; border-collapse: collapse;">
                         <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
@@ -465,6 +530,68 @@
                             <tr>
                                 <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">
                                     Cargando cuentas por pagar...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: PAGOS NO REGISTRADOS -->
+        <section id="tab-no-registrados" class="tab-content" style="display: none;">
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <!-- Header Actions & Filters -->
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div>
+                        <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Pagos no Registrados
+                        </h3>
+                        <p style="font-size: 0.82rem; color: #64748b; margin: 3px 0 0; font-weight: 500;">
+                            Gastos directos, compras en efectivo y pagos a proveedores no facturados o fuera de ARCA.
+                        </p>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <button class="btn btn-sm" onclick="openModalPagoNoRegistrado()" style="background: #2563eb; color: #ffffff; border: none; font-weight: 700; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(37,99,235,0.25);">
+                            <i class="fa-solid fa-plus"></i> Crear Nuevo Pago
+                        </button>
+
+                        <div style="position: relative; width: 260px;">
+                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.82rem; pointer-events: none;"></i>
+                            <input type="text" id="pnr-search-input" class="form-control" placeholder="Buscar proveedor o motivo..." oninput="filterPagosNoRegistrados(this.value)" style="width: 100%; padding: 0.45rem 0.75rem 0.45rem 2rem; font-size: 0.85rem; font-weight: 600; border-radius: 8px; border: 1px solid #cbd5e1;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resumen de la sección -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.2rem;">
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 0.9rem 1.1rem;">
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #1e40af; text-transform: uppercase;">Total Pagos No Registrados</span>
+                        <div style="font-size: 1.35rem; font-weight: 800; color: #1d4ed8; margin-top: 3px;" id="pnr-stat-total">$ 0</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.9rem 1.1rem;">
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase;">Cantidad de Pagos</span>
+                        <div style="font-size: 1.35rem; font-weight: 800; color: #1e293b; margin-top: 3px;" id="pnr-stat-cantidad">0 pagos</div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Pagos No Registrados -->
+                <div style="max-height: 520px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
+                            <tr>
+                                <th style="width: 120px;">Fecha</th>
+                                <th>Proveedor</th>
+                                <th>Motivo / Concepto</th>
+                                <th style="text-align: right; width: 160px;">Monto</th>
+                                <th style="text-align: center; width: 110px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-pagos-no-registrados-body">
+                            <tr>
+                                <td colspan="5" style="text-align: center; padding: 2rem; color: #64748b;">
+                                    Cargando pagos no registrados...
                                 </td>
                             </tr>
                         </tbody>
@@ -554,8 +681,87 @@
             </div>
         </section>
 
-        <!-- TAB 4: DASHBOARD DE GRÁFICOS -->
+        <!-- TAB 4: DASHBOARD DE GRÁFICOS & RANKING DE CONSUMO -->
         <section id="tab-dashboard" class="tab-content" style="display: none;">
+            
+            <!-- BARRA DE FILTROS AVANZADOS DEL DASHBOARD -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-filter" style="color: var(--primary-accent); font-size: 1.1rem;"></i>
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: #0f172a;">Filtros de Análisis & Ranking de Consumo</h3>
+                    </div>
+                    <button class="btn btn-sm" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 700; border-radius: 8px; padding: 6px 12px; cursor: pointer;" onclick="resetDashboardFilters()">
+                        <i class="fa-solid fa-rotate-left"></i> Limpiar Filtros
+                    </button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                    <!-- Filtro Categoría / Rubro -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Rubro / Categoría:</label>
+                        <select id="dash-filter-cat" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="onDashboardCategoryChange()">
+                            <option value="all">-- Todos los Rubros --</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Subcategoría -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Subcategoría:</label>
+                        <select id="dash-filter-subcat" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="fetchDashboardStats()">
+                            <option value="all">-- Todas las Subcategorías --</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Método de Pago -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Método de Pago:</label>
+                        <select id="dash-filter-metodo" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="fetchDashboardStats()">
+                            <option value="all">-- Todos los Métodos --</option>
+                            <option value="Efectivo">🟩 Efectivo</option>
+                            <option value="Galicia">🟧 Galicia</option>
+                            <option value="Mercado Pago">🟦 Mercado Pago</option>
+                            <option value="Tarjeta crédito">🟪 Tarjeta de Crédito</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Estado de Pago -->
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">Estado de Pago:</label>
+                        <select id="dash-filter-estado" class="form-control" style="width: 100%; padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600;" onchange="fetchDashboardStats()">
+                            <option value="all">-- Todos los Estados --</option>
+                            <option value="Pagado">✅ Pagados</option>
+                            <option value="Pendiente">⏳ Pendientes</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Resumen KPI Mini-Cards del Filtro -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #f1f5f9;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Total Filtrado</span>
+                        <div id="dash-kpi-total" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px;">$ 0</div>
+                    </div>
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #15803d; font-weight: 700; text-transform: uppercase;">Total Pagado</span>
+                        <div id="dash-kpi-pagado" style="font-size: 1.15rem; font-weight: 800; color: #16a34a; margin-top: 2px;">$ 0</div>
+                    </div>
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #b45309; font-weight: 700; text-transform: uppercase;">Total Pendiente</span>
+                        <div id="dash-kpi-pendiente" style="font-size: 1.15rem; font-weight: 800; color: #d97706; margin-top: 2px;">$ 0</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Comprobantes</span>
+                        <div id="dash-kpi-comprobantes" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px;">0</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Proveedores Únicos</span>
+                        <div id="dash-kpi-proveedores" style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-top: 2px;">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GRÁFICOS -->
             <div class="dashboard-grid">
                 <!-- Gráfico 1: Evolución Mensual -->
                 <div class="chart-card">
@@ -590,28 +796,182 @@
                     </div>
                 </div>
 
-                <!-- Gráfico 4: Top 10 Proveedores -->
+                <!-- Gráfico 4: Top Proveedores -->
                 <div class="chart-card">
                     <div class="chart-card-title">
-                        <span><i class="fa-solid fa-ranking-star" style="color: var(--purple-accent);"></i> Top Proveedores</span>
-                        <small style="color: #64748b; font-weight: 600;">Mayores importes facturados</small>
+                        <span><i class="fa-solid fa-ranking-star" style="color: var(--purple-accent);"></i> <span id="title-top-proveedores">Top Proveedores</span></span>
+                        <small id="sub-top-proveedores" style="color: #64748b; font-weight: 600;">Mayores importes facturados</small>
                     </div>
                     <div style="height: 280px; position: relative;">
                         <canvas id="chart-top-proveedores"></canvas>
                     </div>
                 </div>
 
-                <!-- Gráfico 5: Desglose por Rubro / Categoría de Proveedor -->
+                <!-- Gráfico 5: Desglose por Rubro / Subcategoría de Proveedor -->
                 <div class="chart-card" style="grid-column: 1 / -1;">
-                    <div class="chart-card-title">
-                        <span><i class="fa-solid fa-tags" style="color: #06b6d4;"></i> Gastos por Rubro / Categoría de Proveedor</span>
-                        <small style="color: #64748b; font-weight: 600;">Carnes, Verdulería, Limpieza, Papelería, Bebidas, etc.</small>
+                    <div class="chart-card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <span><i class="fa-solid fa-tags" style="color: #06b6d4;"></i> <span id="title-chart-rubro">Gastos por Rubro / Categoría de Proveedor</span></span>
+                            <small style="color: #64748b; font-weight: 600; display: block; margin-top: 2px;">💡 Haga clic en un sector del gráfico para filtrar automáticamente el ranking por ese rubro.</small>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button id="btn-view-rubro-cat" class="btn btn-sm" style="background: var(--primary-accent); color: #ffffff; border: none; font-weight: 700; border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; cursor: pointer;" onclick="setRubroViewMode('categoria')">
+                                <i class="fa-solid fa-layer-group"></i> Por Rubro Principal
+                            </button>
+                            <button id="btn-view-rubro-sub" class="btn btn-sm" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 700; border-radius: 6px; padding: 4px 10px; font-size: 0.78rem; cursor: pointer;" onclick="setRubroViewMode('subcategoria')">
+                                <i class="fa-solid fa-sitemap"></i> Por Subcategoría
+                            </button>
+                        </div>
                     </div>
-                    <div style="height: 300px; position: relative;">
+                    <div style="height: 320px; position: relative;">
                         <canvas id="chart-rubro"></canvas>
                     </div>
                 </div>
             </div>
+
+            <!-- SECCIÓN: RANKING DETALLADO DE CONSUMO POR PROVEEDOR -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;" id="ranking-header-title">🏆 Ranking de Consumo & Facturación por Proveedor</h3>
+                            <span id="ranking-count-badge" class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.8rem; padding: 3px 8px; border-radius: 999px;">0 proveedores</span>
+                        </div>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;" id="ranking-header-subtitle">Listado ordenado por mayor volumen de facturación según los filtros aplicados.</p>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <div style="width: 260px; max-width: 100%;">
+                            <input type="text" id="input-search-ranking" class="form-control" placeholder="🔍 Buscar en ranking..." oninput="filterRankingTable(this.value)" style="width: 100%; padding: 0.45rem 0.75rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem;">
+                        </div>
+                        <select id="select-ranking-limit" class="form-control" style="padding: 0.45rem 0.65rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 700; font-size: 0.85rem;" onchange="renderRankingTable()">
+                            <option value="10">Top 10</option>
+                            <option value="25" selected>Top 25</option>
+                            <option value="50">Top 50</option>
+                            <option value="all">Todos</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="max-height: 540px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 5;">
+                            <tr>
+                                <th style="width: 60px; text-align: center;"># Rank</th>
+                                <th style="min-width: 240px;">Proveedor / Nombre de Fantasía</th>
+                                <th style="min-width: 140px;">Rubro</th>
+                                <th style="min-width: 130px;">Subcategoría</th>
+                                <th style="width: 110px; text-align: center;">Facturas</th>
+                                <th style="min-width: 160px; text-align: right;">Total Facturado</th>
+                                <th style="min-width: 160px;">% del Total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-ranking-body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Cargando ranking...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: MAPA DE CALOR & ANÁLISIS DE RECEPCIÓN DE FACTURAS -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);" id="section-heatmap-facturas">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 1rem;">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: #fff7ed; color: #ea580c; font-size: 1.1rem; border: 1px solid #fed7aa;">
+                                <i class="fa-solid fa-fire-flame-curved"></i>
+                            </span>
+                            <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0; color: #0f172a;" id="heatmap-header-title">🔥 Mapa de Calor: Recepción de Facturas por Día</h3>
+                        </div>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;" id="heatmap-header-subtitle">
+                            Distribución y concentración de comprobantes recibidos según día de la semana y frecuencia diaria.
+                        </p>
+                    </div>
+
+                    <!-- Badge de Facturas Totales -->
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span id="heatmap-total-badge" class="badge" style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-weight: 800; font-size: 0.85rem; padding: 6px 14px; border-radius: 999px;">
+                            <i class="fa-solid fa-receipt" style="margin-right: 5px;"></i> Facturas totales del mes: <strong id="heatmap-total-count" style="margin-left: 4px; color: #1d4ed8;">0</strong>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- KPI Mini Resumen del Mapa de Calor -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 1.5rem;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Facturas Totales</div>
+                        <div id="heatmap-kpi-total" style="font-size: 1.35rem; font-weight: 800; color: #0f172a; margin-top: 3px;">0</div>
+                        <div id="heatmap-kpi-total-sub" style="font-size: 0.74rem; color: #64748b; font-weight: 600; margin-top: 2px;">Comprobantes en el período</div>
+                    </div>
+
+                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #c2410c; text-transform: uppercase; letter-spacing: 0.5px;">Día con Más Facturas</div>
+                        <div id="heatmap-kpi-diapico" style="font-size: 1.35rem; font-weight: 800; color: #ea580c; margin-top: 3px;">-</div>
+                        <div id="heatmap-kpi-diapico-sub" style="font-size: 0.74rem; color: #9a3412; font-weight: 600; margin-top: 2px;">Día pico de la semana</div>
+                    </div>
+
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.5px;">Fecha Récord</div>
+                        <div id="heatmap-kpi-record" style="font-size: 1.35rem; font-weight: 800; color: #2563eb; margin-top: 3px;">-</div>
+                        <div id="heatmap-kpi-record-sub" style="font-size: 0.74rem; color: #1e40af; font-weight: 600; margin-top: 2px;">Día individual con más ingresos</div>
+                    </div>
+
+                    <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 10px; padding: 0.85rem 1rem;">
+                        <div style="font-size: 0.74rem; font-weight: 700; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.5px;">Promedio por Día Activo</div>
+                        <div id="heatmap-kpi-promedio" style="font-size: 1.35rem; font-weight: 800; color: #7c3aed; margin-top: 3px;">0</div>
+                        <div id="heatmap-kpi-promedio-sub" style="font-size: 0.74rem; color: #6d28d9; font-weight: 600; margin-top: 2px;">Facturas por día con registros</div>
+                    </div>
+                </div>
+
+                <!-- CONTENEDOR 1: TARJETAS TIPO MAPA DE CALOR POR DÍA DE LA SEMANA -->
+                <div style="margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                        <h4 style="font-size: 0.95rem; font-weight: 800; color: #1e293b; margin: 0;">
+                            <i class="fa-solid fa-chart-column" style="color: #6366f1;"></i> Frecuencia por Día de la Semana
+                        </h4>
+                        <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Intensidad de recepción acumulada</span>
+                    </div>
+
+                    <div id="heatmap-weekdays-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                        <!-- Renderizado dinámico desde JS con los 7 días (Lunes a Domingo) -->
+                    </div>
+                </div>
+
+                <!-- CONTENEDOR 2: CALENDARIO TÉRMICO MENSUAL (Día a Día) -->
+                <div id="heatmap-calendar-container" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1.25rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <h4 style="font-size: 0.92rem; font-weight: 800; color: #1e293b; margin: 0;">
+                                <i class="fa-solid fa-calendar-check" style="color: #0ea5e9;"></i> Cuadrícula Térmica de Días del Mes
+                            </h4>
+                            <p style="font-size: 0.76rem; color: #64748b; margin: 2px 0 0; font-weight: 600;">
+                                Visualización diaria de recepción de facturas. Posa el cursor sobre un día para ver detalles.
+                            </p>
+                        </div>
+
+                        <!-- Leyenda de Intensidad -->
+                        <div style="display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #64748b; font-weight: 700;">
+                            <span>Menos</span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #f1f5f9; border: 1px solid #cbd5e1;" title="0 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #e0e7ff; border: 1px solid #c7d2fe;" title="1 - 3 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #a5b4fc; border: 1px solid #818cf8;" title="4 - 7 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #6366f1; border: 1px solid #4f46e5;" title="8 - 14 facturas"></span>
+                            <span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #ea580c; border: 1px solid #c2410c;" title="15+ facturas"></span>
+                            <span>Más</span>
+                        </div>
+                    </div>
+
+                    <div id="heatmap-calendar-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(65px, 1fr)); gap: 8px;">
+                        <!-- Días del mes renderizados dinámicamente -->
+                    </div>
+                </div>
+
+            </div>
+
         </section>
 
         <!-- TAB 5: CONFIGURACIÓN DE PROVEEDORES & ALIAS & CATEGORÍAS -->
@@ -658,7 +1018,7 @@
                             <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0;">Asignación de Alias & Categorías de Proveedores</h3>
                             <span id="alias-count-badge" class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.8rem; padding: 3px 8px; border-radius: 999px;">Cargando...</span>
                         </div>
-                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;">Asigne nombres amigables (ej: "PEPE CONGELADOS") y asigne su rubro/categoría para análisis de gastos.</p>
+                        <p style="color: #64748b; font-size: 0.85rem; margin: 4px 0 0;">Asigne nombre de fantasía y asigne su rubro/categoría para análisis de gastos.</p>
                     </div>
 
                     <div style="width: 320px; max-width: 100%;">
@@ -743,6 +1103,70 @@
                 <button type="submit" class="btn-portal-primary" id="btn-confirmar-pago-gen" style="width: 100%; padding: 0.8rem; font-size: 1rem;">
                     <i class="fa-solid fa-check"></i> Confirmar y Registrar Pago
                 </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Crear / Editar Pago No Registrado -->
+    <div id="modal-pago-no-registrado" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center;">
+        <div class="modal-card" style="background: #ffffff; border-radius: 14px; max-width: 480px; width: 90%; padding: 1.8rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem;">
+                <div>
+                    <h3 id="modal-pnr-title" style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Nuevo Pago No Registrado
+                    </h3>
+                    <p style="margin: 3px 0 0; font-size: 0.8rem; color: #64748b;">Gasto fuera del circuito fiscal ARCA.</p>
+                </div>
+                <button type="button" onclick="closeModalPagoNoRegistrado()" style="background: none; border: none; font-size: 1.2rem; color: #94a3b8; cursor: pointer; padding: 4px;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form id="form-pago-no-registrado" onsubmit="handleSavePagoNoRegistrado(event)">
+                <input type="hidden" id="pnr-id" value="">
+
+                <!-- 1. Fecha -->
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-calendar" style="color: #64748b;"></i> Fecha:
+                    </label>
+                    <input type="date" id="pnr-fecha" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required>
+                </div>
+
+                <!-- 2. Proveedor -->
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-truck" style="color: #2563eb;"></i> Nombre del Proveedor <span style="color: #dc2626;">*</span>:
+                    </label>
+                    <input type="text" id="pnr-proveedor" class="form-control" list="list-pnr-proveedores" placeholder="Ej: Carnicería Don Juan" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required autocomplete="off">
+                    <datalist id="list-pnr-proveedores"></datalist>
+                    <small style="font-size: 0.74rem; color: #64748b; margin-top: 3px; display: block;">Se registrará automáticamente en la lista de proveedores del sistema.</small>
+                </div>
+
+                <!-- 3. Monto -->
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-dollar-sign" style="color: #059669;"></i> Monto ($) <span style="color: #dc2626;">*</span>:
+                    </label>
+                    <input type="number" id="pnr-monto" class="form-control" step="0.01" min="0.01" placeholder="0.00" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 700; font-size: 1rem;" required>
+                </div>
+
+                <!-- 4. Motivo / Detalle (Opcional) -->
+                <div style="margin-bottom: 1.4rem;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-comment-dots" style="color: #64748b;"></i> Motivo / Detalle <span style="color: #94a3b8; font-weight: 500;">(Opcional)</span>:
+                    </label>
+                    <input type="text" id="pnr-motivo" class="form-control" placeholder="Ej: Flete efectivo, insumos urgentes, adelanto..." style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 500;">
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" class="btn btn-secondary" onclick="closeModalPagoNoRegistrado()" style="padding: 0.55rem 1rem; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-primary" id="btn-save-pnr" style="background: #2563eb; color: #ffffff; border: none; font-weight: 700; padding: 0.55rem 1.25rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-check"></i> Guardar Pago
+                    </button>
+                </div>
             </form>
         </div>
     </div>

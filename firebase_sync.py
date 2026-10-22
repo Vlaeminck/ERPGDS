@@ -36,7 +36,8 @@ SYNC_TABLES = [
     'proveedores',
     'facturas_procesadas',
     'retiros_recaudacion',
-    'categorias_gastos'
+    'categorias_gastos',
+    'pagos_no_registrados'
 ]
 
 def find_credentials_file():
@@ -121,6 +122,44 @@ def init_firebase():
 
 CLIENT_INSTANCE_ID = uuid.uuid4().hex
 _listener_registered = False
+_last_routine_pull_ts = 0.0
+
+def has_pending_local_changes():
+    """Verifica en SQLite si existe al menos un registro pendiente por sincronizar (sync_status = 0)."""
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        for tbl in SYNC_TABLES:
+            try:
+                cursor.execute(f"SELECT 1 FROM {tbl} WHERE sync_status = 0 LIMIT 1")
+                if cursor.fetchone():
+                    conn.close()
+                    return True
+            except Exception:
+                pass
+        conn.close()
+    except Exception:
+        pass
+    return False
+
+def count_pending_local_changes():
+    """Retorna la cantidad total de registros pendientes de subida en SQLite local."""
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        total = 0
+        for tbl in SYNC_TABLES:
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM {tbl} WHERE sync_status = 0")
+                row = cursor.fetchone()
+                if row:
+                    total += row[0]
+            except Exception:
+                pass
+        conn.close()
+        return total
+    except Exception:
+        return 0
 
 def _setup_realtime_listener():
     global _listener_registered
@@ -134,7 +173,9 @@ def _setup_realtime_listener():
             try:
                 data = None
                 if doc_snapshots and len(doc_snapshots) > 0:
-                    data = doc_snapshots[0].to_dict()
+                    snap = doc_snapshots[0]
+                    if getattr(snap, 'exists', True):
+                        data = snap.to_dict()
                 elif changes and len(changes) > 0:
                     data = changes[0].document.to_dict()
 
@@ -151,7 +192,7 @@ def _setup_realtime_listener():
                     return
 
                 print(f"[FirebaseSync] Novedad remota detectada en tiempo real ({remote_last}). Ejecutando Pull delta...", flush=True)
-                pull_remote_changes(_already_locked=True)
+                pull_remote_changes(force_full=False, known_remote_change=remote_last, _already_locked=True)
             finally:
                 _sync_lock.release()
 
@@ -160,11 +201,15 @@ def _setup_realtime_listener():
         _listener_registered = True
         print("[FirebaseSync] Escuchador de eventos remotos en tiempo real (on_snapshot) activo.", flush=True)
     except Exception as e:
+        _listener_registered = False
         print(f"[FirebaseSync] Aviso: Listener realtime no pudo iniciarse (se usará polling de global_state): {e}", flush=True)
 
 def push_local_changes(_already_locked=False):
     """Sube registros nuevos o actualizados (sync_status = 0) desde SQLite a Firebase."""
     if not _firestore_db:
+        return 0
+
+    if not has_pending_local_changes():
         return 0
 
     if not _already_locked:
@@ -226,13 +271,19 @@ def push_local_changes(_already_locked=False):
         if total_pushed > 0:
             try:
                 now_iso = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                # 1. Notificar a Firestore sync_metadata/global_state para despertar al listener de la otra instancia
+                _firestore_db.collection('sync_metadata').document('global_state').set({
+                    'last_change': now_iso,
+                    'sender_id': CLIENT_INSTANCE_ID
+                })
+                # 2. Registrar en la BD local que ya estamos al día con este cambio
                 cursor.execute('''
                     INSERT INTO configuraciones (clave, valor) VALUES (?, ?)
                     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
                 ''', ('last_pulled_global_state', now_iso))
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e_meta:
+                print(f"[FirebaseSync] Aviso actualizando global_state tras push: {e_meta}", flush=True)
 
         conn.close()
         return total_pushed
@@ -343,7 +394,7 @@ def reconcile_with_firestore(table=None, _already_locked=False):
         if not _already_locked:
             _sync_lock.release()
 
-def pull_remote_changes(force_full=False, _already_locked=False):
+def pull_remote_changes(force_full=False, known_remote_change=None, _already_locked=False):
     """Descarga e integra deltas por tabla desde Firebase a SQLite local de forma ultra-optimizada."""
     if not _firestore_db:
         if not init_firebase():
@@ -369,8 +420,8 @@ def pull_remote_changes(force_full=False, _already_locked=False):
             except Exception:
                 force_full = True
 
-        remote_last_change = None
-        if not force_full:
+        remote_last_change = known_remote_change
+        if not force_full and not remote_last_change:
             try:
                 g_doc = _firestore_db.collection('sync_metadata').document('global_state').get()
                 if g_doc.exists:
@@ -554,8 +605,14 @@ def check_initial_hydration():
     except Exception as e:
         print(f"[FirebaseSync] Error en hidratación inicial: {e}", flush=True)
 
-def sync_cycle():
-    """Un ciclo completo de sincronización (Push + Pull delta)."""
+def sync_cycle(force_pull=False):
+    """
+    Un ciclo completo e inteligente de sincronización:
+    - Push: Solo si existen registros locales pendientes (sync_status = 0) verificados en SQLite local.
+    - Pull: Solo si se solicita expresamente (force_pull=True), si pasaron >= 30 min (heartbeat de seguridad con realtime activo),
+            o si pasaron >= 2 min en caso de que el listener en tiempo real haya fallado (fallback).
+    """
+    global _last_routine_pull_ts
     if not _firestore_db:
         if not init_firebase():
             return
@@ -563,8 +620,31 @@ def sync_cycle():
         print("[FirebaseSync] Timeout esperando sync_lock en sync_cycle.", flush=True)
         return
     try:
-        pushed = push_local_changes(_already_locked=True)
-        pulled = pull_remote_changes(force_full=False, _already_locked=True)
+        # 1. PUSH local changes: Solo si realmente hay datos pendientes en SQLite
+        pushed = 0
+        if has_pending_local_changes():
+            pushed = push_local_changes(_already_locked=True)
+
+        # 2. PULL remote changes:
+        # Si force_pull=True (p.ej. botón manual en UI), se fuerza pull.
+        # En reposo nocturno o inactividad diurna con listener activo: 0 lecturas innecesarias.
+        now = time.time()
+        should_pull = force_pull
+        if not should_pull:
+            if not _listener_registered:
+                # Fallback sin listener: polling cada 2 minutos
+                if now - _last_routine_pull_ts >= 120:
+                    should_pull = True
+            else:
+                # Listener en tiempo real activo: latido preventivo esporádico cada 30 minutos
+                if now - _last_routine_pull_ts >= 1800:
+                    should_pull = True
+
+        pulled = 0
+        if should_pull:
+            pulled = pull_remote_changes(force_full=False, _already_locked=True)
+            _last_routine_pull_ts = now
+
         SYNC_STATUS["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if SYNC_STATUS["mode"] == "ERROR" and "Cuota" in str(SYNC_STATUS.get("message", "")):
             SYNC_STATUS["mode"] = "ONLINE_SYNC"
@@ -574,8 +654,8 @@ def sync_cycle():
     finally:
         _sync_lock.release()
 
-def _sync_worker_loop(interval=30):
-    print(f"[FirebaseSync] Hilo de sincronización iniciado (Intervalo: {interval}s).", flush=True)
+def _sync_worker_loop(interval=15):
+    print(f"[FirebaseSync] Hilo de sincronización inteligente iniciado (Intervalo de sondeo local: {interval}s).", flush=True)
     if not _firestore_db:
         init_firebase()
     if _firestore_db:
@@ -586,12 +666,12 @@ def _sync_worker_loop(interval=30):
             init_firebase()
         if _firestore_db:
             try:
-                sync_cycle()
+                sync_cycle(force_pull=False)
             except Exception as e:
                 print(f"[FirebaseSync] Error en ciclo de sincronización: {e}", flush=True)
         time.sleep(interval)
 
-def start_sync_engine(interval=30):
+def start_sync_engine(interval=15):
     global _sync_thread
     init_firebase()
     if _sync_thread is None or not _sync_thread.is_alive():

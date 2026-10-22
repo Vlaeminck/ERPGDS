@@ -383,6 +383,22 @@ def init_db(seed_samples=False):
     except Exception as e:
         print(f"[db_manager] Error inicializando categorias_gastos: {e}")
 
+    # Tabla 14: Pagos No Registrados (Gastos no facturados / en negro fuera de circuito ARCA)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS pagos_no_registrados (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha TEXT NOT NULL,
+        proveedor TEXT NOT NULL,
+        monto REAL DEFAULT 0,
+        motivo TEXT DEFAULT '',
+        categoria TEXT DEFAULT '',
+        metodo_pago TEXT DEFAULT 'Efectivo',
+        uuid TEXT UNIQUE,
+        updated_at TEXT,
+        sync_status INTEGER DEFAULT 0
+    )
+    ''')
+
     # Migración de columna origen si no existe
     cursor.execute("PRAGMA table_info(retiros_recaudacion)")
     cols = [r[1] for r in cursor.fetchall()]
@@ -394,7 +410,8 @@ def init_db(seed_samples=False):
         'recaudacion_diaria', 'estacionamiento_diario', 'estacionamiento_gastos',
         'caja_chica_movimientos', 'caja_chica_arqueo', 'gastos_fijos',
         'proveedores_cuentas_pagar', 'arca_compras_csv', 'proveedores',
-        'facturas_procesadas', 'retiros_recaudacion'
+        'facturas_procesadas', 'retiros_recaudacion', 'categorias_gastos',
+        'pagos_no_registrados'
     ]
     import uuid as uuid_mod
     import datetime as dt_mod
@@ -1590,6 +1607,126 @@ def resolve_cae_conflict(cae, keep_id, delete_id=None):
             "success": False,
             "message": f"Error al resolver conflicto de CAE: {str(e)}"
         }
+    finally:
+        conn.close()
+
+# ========================================================
+# GESTIÓN DE PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
+# ========================================================
+
+def ensure_supplier_exists(nombre):
+    """Si el proveedor no existe en el catálogo, lo inserta automáticamente para recordarlo."""
+    if not nombre or not str(nombre).strip():
+        return
+    nombre_clean = str(nombre).strip()
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM proveedores WHERE LOWER(TRIM(nombre)) = LOWER(?)", (nombre_clean,))
+        if not cursor.fetchone():
+            import datetime as _dt
+            import uuid as _uuid
+            now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            prov_uuid = _uuid.uuid4().hex
+            cursor.execute('''
+                INSERT INTO proveedores (nombre, categoria, uuid, updated_at, sync_status)
+                VALUES (?, 'General', ?, ?, 0)
+            ''', (nombre_clean, prov_uuid, now_iso))
+            conn.commit()
+    except Exception as e:
+        print(f"[db_manager] Error en ensure_supplier_exists: {e}", flush=True)
+    finally:
+        conn.close()
+
+def get_pagos_no_registrados(mes=None):
+    """Obtiene los pagos no registrados ordenados por fecha descendente, opcionalmente filtrados por mes (YYYY-MM)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        if mes and mes != 'all':
+            cursor.execute("SELECT * FROM pagos_no_registrados WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC", (f"{mes}%",))
+        else:
+            cursor.execute("SELECT * FROM pagos_no_registrados ORDER BY fecha DESC, id DESC")
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
+def get_total_pagos_no_registrados(mes=None):
+    """Retorna (suma_montos, cantidad) de pagos no registrados para un mes o el histórico."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        if mes and mes != 'all':
+            cursor.execute("SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados WHERE fecha LIKE ?", (f"{mes}%",))
+        else:
+            cursor.execute("SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados")
+        row = cursor.fetchone()
+        tot = float(row[0] or 0) if row else 0.0
+        cnt = int(row[1] or 0) if row else 0
+        return tot, cnt
+    finally:
+        conn.close()
+
+def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo'):
+    """Inserta un pago no registrado en SQLite y asegura que el proveedor quede guardado en el catálogo."""
+    import uuid as _uuid
+    import datetime as _dt
+    now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    rec_uuid = _uuid.uuid4().hex
+    
+    prov_clean = (proveedor or '').strip()
+    if prov_clean:
+        ensure_supplier_exists(prov_clean)
+        
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO pagos_no_registrados (fecha, proveedor, monto, motivo, categoria, metodo_pago, uuid, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        ''', (fecha, prov_clean, float(monto or 0), motivo or '', categoria or '', metodo_pago or 'Efectivo', rec_uuid, now_iso))
+        conn.commit()
+        new_id = cursor.lastrowid
+        return new_id, rec_uuid
+    finally:
+        conn.close()
+
+def delete_pago_no_registrado(pago_id):
+    """Elimina un pago no registrado por ID y retorna su uuid para la sincronización remota."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    doc_uuid = None
+    try:
+        cursor.execute("SELECT uuid FROM pagos_no_registrados WHERE id = ?", (pago_id,))
+        row = cursor.fetchone()
+        if row:
+            doc_uuid = row['uuid']
+            cursor.execute("DELETE FROM pagos_no_registrados WHERE id = ?", (pago_id,))
+            conn.commit()
+        return doc_uuid
+    finally:
+        conn.close()
+
+def update_pago_no_registrado(pago_id, fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo'):
+    """Actualiza un pago no registrado existente."""
+    import datetime as _dt
+    now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    prov_clean = (proveedor or '').strip()
+    if prov_clean:
+        ensure_supplier_exists(prov_clean)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE pagos_no_registrados
+            SET fecha = ?, proveedor = ?, monto = ?, motivo = ?, categoria = ?, metodo_pago = ?, updated_at = ?, sync_status = 0
+            WHERE id = ?
+        ''', (fecha, prov_clean, float(monto or 0), motivo or '', categoria or '', metodo_pago or 'Efectivo', now_iso, pago_id))
+        conn.commit()
+        cursor.execute("SELECT uuid FROM pagos_no_registrados WHERE id = ?", (pago_id,))
+        row = cursor.fetchone()
+        return row['uuid'] if row else None
     finally:
         conn.close()
 
