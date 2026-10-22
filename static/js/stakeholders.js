@@ -277,6 +277,7 @@ async function fetchAllData() {
     await Promise.all([
         fetchArcaComprasCloud(),
         fetchCuentasPagarCloud(),
+        loadPagosNoRegistradosCloud(),
         fetchDashboardStats()
     ]);
 }
@@ -296,7 +297,29 @@ async function fetchArcaComprasCloud() {
 
         // Actualizar KPIs
         const resStats = data.resumen || {};
-        document.getElementById('kpi-total-facturado').textContent = formatCurrency(resStats.total_importe || 0);
+
+        // 1. Monto total sumando los pagos no registrados (Consolidado Principal)
+        const totalConsolidado = resStats.total_consolidado !== undefined ? resStats.total_consolidado : (resStats.total_neto || 0);
+        document.getElementById('kpi-total-facturado').textContent = formatCurrency(totalConsolidado);
+
+        // 2. Monto real del mes (Facturado Bruto antes de NC)
+        const elSubBruto = document.getElementById('kpi-sub-total-bruto');
+        if (elSubBruto) elSubBruto.textContent = formatCurrency(resStats.total_bruto || 0);
+
+        // 3. Monto total restando las notas de crédito (Neto ARCA)
+        const elSubNeto = document.getElementById('kpi-sub-total-neto');
+        if (elSubNeto) {
+            const ncDesc = resStats.total_nc ? ` (-${formatCurrency(resStats.total_nc)})` : '';
+            elSubNeto.textContent = `${formatCurrency(resStats.total_neto || 0)}${ncDesc}`;
+        }
+
+        // 4. Monto de pagos no registrados
+        const elSubPnr = document.getElementById('kpi-sub-total-no-registrados');
+        if (elSubPnr) {
+            const cntPnr = resStats.cantidad_no_registrados || 0;
+            elSubPnr.textContent = `+${formatCurrency(resStats.total_no_registrados || 0)} (${cntPnr} pagos)`;
+        }
+
         document.getElementById('kpi-count-facturas').textContent = `${resStats.total_compras || 0} comprobantes emitidos`;
 
         const pendienteImp = (resStats.total_importe || 0) - (resStats.pagados_total || 0);
@@ -1884,6 +1907,10 @@ function switchTab(tabId) {
 
     if (tabId === 'tab-arca') document.getElementById('btn-tab-arca').classList.add('active');
     if (tabId === 'tab-cuentas') document.getElementById('btn-tab-cuentas').classList.add('active');
+    if (tabId === 'tab-no-registrados') {
+        document.getElementById('btn-tab-no-registrados').classList.add('active');
+        loadPagosNoRegistradosCloud();
+    }
     if (tabId === 'tab-metodos') document.getElementById('btn-tab-metodos').classList.add('active');
     if (tabId === 'tab-dashboard') {
         document.getElementById('btn-tab-dashboard').classList.add('active');
@@ -1956,3 +1983,216 @@ async function pollSyncStatus() {
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
 });
+
+// ==========================================
+// SECCIÓN: PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
+// ==========================================
+
+let pagosNoRegistradosData = [];
+
+async function loadPagosNoRegistradosCloud() {
+    try {
+        const param = currentMonth && currentMonth !== 'all' ? '?mes=' + currentMonth : '';
+        const res = await fetch('/api/pagos_no_registrados' + param);
+        const data = await res.json();
+        pagosNoRegistradosData = data.pagos || [];
+
+        const elTotal = document.getElementById('pnr-stat-total');
+        if (elTotal) elTotal.textContent = formatCurrency(data.total_monto || 0);
+
+        const elCant = document.getElementById('pnr-stat-cantidad');
+        if (elCant) elCant.textContent = `${data.cantidad || 0} pagos`;
+
+        populatePnrProveedoresDatalist();
+        renderPagosNoRegistradosTable();
+    } catch (e) {
+        console.error("Error cargando pagos no registrados:", e);
+    }
+}
+
+function populatePnrProveedoresDatalist() {
+    const datalist = document.getElementById('list-pnr-proveedores');
+    if (!datalist) return;
+
+    const namesSet = new Set();
+    Object.values(aliasMap || {}).forEach(al => {
+        if (al && al.trim()) namesSet.add(al.trim());
+    });
+    (arcaData || []).forEach(c => {
+        if (c.denominacion_emisor && c.denominacion_emisor.trim()) {
+            namesSet.add(c.denominacion_emisor.trim());
+        }
+    });
+    (pagosNoRegistradosData || []).forEach(p => {
+        if (p.proveedor && p.proveedor.trim()) {
+            namesSet.add(p.proveedor.trim());
+        }
+    });
+
+    datalist.innerHTML = Array.from(namesSet)
+        .sort((a, b) => a.localeCompare(b))
+        .map(n => `<option value="${escapeHTML(n)}">`)
+        .join('');
+}
+
+function filterPagosNoRegistrados(term) {
+    renderPagosNoRegistradosTable(term);
+}
+
+function renderPagosNoRegistradosTable(filterTerm = '') {
+    const tbody = document.getElementById('tbl-pagos-no-registrados-body');
+    if (!tbody) return;
+
+    const term = normalizeSearchText(filterTerm || document.getElementById('pnr-search-input')?.value || '');
+
+    const filtered = (pagosNoRegistradosData || []).filter(p => {
+        if (!term) return true;
+        const prov = normalizeSearchText(p.proveedor || '');
+        const mot = normalizeSearchText(p.motivo || '');
+        const fec = normalizeSearchText(p.fecha || '');
+        return prov.includes(term) || mot.includes(term) || fec.includes(term);
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 2.5rem 1rem; color: #64748b;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem; color: #cbd5e1;"><i class="fa-solid fa-receipt"></i></div>
+                    <strong style="color: #334155;">No hay pagos no registrados en este período</strong>
+                    <p style="margin: 4px 0 0; font-size: 0.8rem; color: #94a3b8;">Usa el botón "+ Crear Nuevo Pago" para registrar gastos fuera de ARCA.</p>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(p => `
+        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;">
+            <td style="padding: 0.75rem 1rem; font-weight: 600; color: #334155; font-size: 0.85rem; white-space: nowrap;">
+                <i class="fa-solid fa-calendar-day" style="color: #94a3b8; font-size: 0.75rem; margin-right: 4px;"></i> ${escapeHTML(p.fecha || '-')}
+            </td>
+            <td style="padding: 0.75rem 1rem; font-weight: 700; color: #0f172a; font-size: 0.88rem;">
+                ${escapeHTML(p.proveedor || '-')}
+            </td>
+            <td style="padding: 0.75rem 1rem; font-size: 0.84rem; color: #64748b; font-weight: 500;">
+                ${p.motivo ? escapeHTML(p.motivo) : '<em style="color: #94a3b8;">Sin motivo detallado</em>'}
+            </td>
+            <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 800; color: #1e293b; font-size: 0.95rem; white-space: nowrap;">
+                ${formatCurrency(p.monto || 0)}
+            </td>
+            <td style="padding: 0.75rem 1rem; text-align: center;">
+                <div style="display: inline-flex; gap: 6px;">
+                    <button class="btn btn-sm" onclick="openModalPagoNoRegistrado(${p.id})" title="Editar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; border-radius: 6px; cursor: pointer;">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="btn btn-sm" onclick="handleDeletePagoNoRegistrado(${p.id})" title="Eliminar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); color: #dc2626; border-radius: 6px; cursor: pointer;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openModalPagoNoRegistrado(id = null) {
+    const modal = document.getElementById('modal-pago-no-registrado');
+    const form = document.getElementById('form-pago-no-registrado');
+    const title = document.getElementById('modal-pnr-title');
+    if (!modal || !form) return;
+
+    populatePnrProveedoresDatalist();
+
+    if (id) {
+        const item = (pagosNoRegistradosData || []).find(x => x.id === id);
+        if (!item) return;
+        if (title) title.innerHTML = `<i class="fa-solid fa-pen-to-square" style="color: #2563eb;"></i> Editar Pago No Registrado`;
+        document.getElementById('pnr-id').value = item.id;
+        document.getElementById('pnr-fecha').value = item.fecha || new Date().toISOString().slice(0, 10);
+        document.getElementById('pnr-proveedor').value = item.proveedor || '';
+        document.getElementById('pnr-monto').value = item.monto || '';
+        document.getElementById('pnr-motivo').value = item.motivo || '';
+    } else {
+        if (title) title.innerHTML = `<i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Nuevo Pago No Registrado`;
+        form.reset();
+        document.getElementById('pnr-id').value = '';
+        document.getElementById('pnr-fecha').value = new Date().toISOString().slice(0, 10);
+    }
+
+    modal.style.display = 'flex';
+}
+
+function closeModalPagoNoRegistrado() {
+    const modal = document.getElementById('modal-pago-no-registrado');
+    if (modal) modal.style.display = 'none';
+}
+
+async function handleSavePagoNoRegistrado(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-pnr');
+    const id = document.getElementById('pnr-id').value;
+    const fecha = document.getElementById('pnr-fecha').value;
+    const proveedor = document.getElementById('pnr-proveedor').value.trim();
+    const monto = parseFloat(document.getElementById('pnr-monto').value);
+    const motivo = document.getElementById('pnr-motivo').value.trim();
+
+    if (!proveedor) {
+        showToast('El nombre del proveedor es obligatorio', 'error');
+        return;
+    }
+    if (isNaN(monto) || monto <= 0) {
+        showToast('Ingrese un monto válido mayor a 0', 'error');
+        return;
+    }
+
+    const payload = { fecha, proveedor, monto, motivo };
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Guardando...`;
+    }
+
+    try {
+        const url = id ? `/api/pagos_no_registrados/${id}` : '/api/pagos_no_registrados';
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(id ? 'Pago actualizado con éxito' : 'Pago no registrado creado exitosamente', 'success');
+            closeModalPagoNoRegistrado();
+            await fetchAllData();
+        } else {
+            showToast(data.error || 'Error al guardar el pago', 'error');
+        }
+    } catch (err) {
+        showToast('Error de conexión al guardar pago', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fa-solid fa-check"></i> Guardar Pago`;
+        }
+    }
+}
+
+async function handleDeletePagoNoRegistrado(id) {
+    if (!confirm('¿Confirma eliminar este pago no registrado? Esta acción impactará en el total consolidado.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/pagos_no_registrados/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Pago no registrado eliminado', 'success');
+            await fetchAllData();
+        } else {
+            showToast(data.error || 'Error al eliminar', 'error');
+        }
+    } catch (e) {
+        showToast('Error de conexión al eliminar', 'error');
+    }
+}
+

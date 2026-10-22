@@ -759,6 +759,62 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- Sección Pagos No Registrados (Gastos no Facturados) -->
+                <div class="glass-card" style="margin-top: 2rem; padding: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                                <i class="fa-solid fa-hand-holding-dollar" style="color: var(--primary-color);"></i> Pagos no Registrados (Gastos Fuera de ARCA)
+                            </h3>
+                            <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0 0;">
+                                Gastos en efectivo, directos y pagos a proveedores no facturados que impactan en el costo total del mes.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <button class="btn btn-primary btn-sm" onclick="openModalLocalPagoNoRegistrado()" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700;">
+                                <i class="fa-solid fa-plus"></i> Crear Nuevo Pago
+                            </button>
+                            <input type="text" id="local-pnr-search" class="form-control" placeholder="Buscar proveedor o motivo..." oninput="filterLocalPagosNoRegistrados(this.value)" style="width: 220px; font-size: 0.85rem; padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.2rem;">
+                        <div class="glass-card stat-card" style="padding: 1rem;">
+                            <div class="stat-details">
+                                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Total Pagos No Registrados</span>
+                                <p class="stat-number" id="local-pnr-stat-total" style="font-size: 1.35rem; margin: 4px 0 0; color: #2563eb;">$0</p>
+                            </div>
+                        </div>
+                        <div class="glass-card stat-card" style="padding: 1rem;">
+                            <div class="stat-details">
+                                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Cantidad de Pagos</span>
+                                <p class="stat-number" id="local-pnr-stat-cantidad" style="font-size: 1.35rem; margin: 4px 0 0;">0 pagos</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 120px;">Fecha</th>
+                                    <th>Proveedor</th>
+                                    <th>Motivo / Concepto</th>
+                                    <th style="text-align: right; width: 160px;">Monto</th>
+                                    <th style="text-align: center; width: 100px;">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-local-pagos-no-registrados-body">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">
+                                        Sin pagos no registrados cargados en este período.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- Tab: Alivios & Conciliación de Recaudación -->
@@ -2286,6 +2342,58 @@
                 <button type="button" class="btn btn-primary" id="btn-save-modal-retiro"><i
                         class="fa-solid fa-floppy-disk"></i> Guardar Retiro</button>
             </div>
+    <!-- Modal Local: Crear / Editar Pago No Registrado -->
+    <div id="modal-local-pago-no-registrado" class="modal-overlay"
+        style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); z-index: 10000; align-items: center; justify-content: center;">
+        <div class="glass-card"
+            style="width: 480px; max-width: 92vw; padding: 2rem; border: 1px solid var(--border-color); background: var(--card-bg); box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.8rem;">
+                <h3 id="modal-local-pnr-title"
+                    style="margin: 0; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; color: var(--text-primary);">
+                    <i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Nuevo Pago No Registrado
+                </h3>
+                <button type="button" class="btn btn-secondary btn-icon" onclick="closeModalLocalPagoNoRegistrado()"><i
+                        class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <form id="form-local-pago-no-registrado" onsubmit="handleSaveLocalPagoNoRegistrado(event)">
+                <input type="hidden" id="local-pnr-id" value="">
+
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.85rem; font-weight: 600;">Fecha</label>
+                        <input type="date" class="form-control" id="local-pnr-fecha" style="width: 100%;" required>
+                    </div>
+
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.85rem; font-weight: 600;">Proveedor <span style="color: #ef4444;">*</span></label>
+                        <input type="text" class="form-control" id="local-pnr-proveedor" list="list-local-pnr-proveedores"
+                            placeholder="Ej: Carnicería Don Juan" style="width: 100%;" required autocomplete="off">
+                        <datalist id="list-local-pnr-proveedores"></datalist>
+                        <small style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 3px; display: block;">Se registrará automáticamente en la lista de proveedores.</small>
+                    </div>
+
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.85rem; font-weight: 600;">Monto ($) <span style="color: #ef4444;">*</span></label>
+                        <input type="number" step="0.01" min="0.01" class="form-control" id="local-pnr-monto"
+                            placeholder="0.00" style="width: 100%; font-weight: 700;" required>
+                    </div>
+
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.85rem; font-weight: 600;">Motivo / Detalle <span style="color: var(--text-secondary); font-weight: 400;">(Opcional)</span></label>
+                        <input type="text" class="form-control" id="local-pnr-motivo"
+                            placeholder="Ej: Flete en efectivo, insumos..." style="width: 100%;">
+                    </div>
+                </div>
+
+                <div class="modal-footer"
+                    style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem; display: flex; justify-content: flex-end; gap: 8px;">
+                    <button type="button" class="btn btn-secondary" onclick="closeModalLocalPagoNoRegistrado()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btn-save-local-pnr"><i
+                            class="fa-solid fa-floppy-disk"></i> Guardar Pago</button>
+                </div>
+            </form>
         </div>
     </div>
 

@@ -36,7 +36,8 @@ SYNC_TABLES = [
     'proveedores',
     'facturas_procesadas',
     'retiros_recaudacion',
-    'categorias_gastos'
+    'categorias_gastos',
+    'pagos_no_registrados'
 ]
 
 def find_credentials_file():

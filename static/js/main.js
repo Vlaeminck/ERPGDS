@@ -1905,6 +1905,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
             }
 
+            fetchLocalPagosNoRegistrados();
+
             const tbody = document.getElementById('tbl-cuentas-pagar-body');
             const proveedores = data.proveedores || [];
             const rawCuentas = data.cuentas || [];
@@ -2072,6 +2074,155 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (e) {
             showToast("Error de red", "error");
+        }
+    };
+
+    // ==========================================
+    // PAGOS NO REGISTRADOS (Local)
+    // ==========================================
+    let localPagosNoRegistrados = [];
+
+    window.fetchLocalPagosNoRegistrados = async function () {
+        try {
+            const url = '/api/pagos_no_registrados' + (currentSelectedMonth ? '?mes=' + currentSelectedMonth : '');
+            const res = await fetch(url);
+            const data = await res.json();
+            localPagosNoRegistrados = data.pagos || [];
+
+            const elTotal = document.getElementById('local-pnr-stat-total');
+            if (elTotal) elTotal.textContent = formatCurrency(data.total_monto || 0);
+
+            const elCant = document.getElementById('local-pnr-stat-cantidad');
+            if (elCant) elCant.textContent = `${data.cantidad || 0} pagos`;
+
+            populateLocalPnrDatalist();
+            renderLocalPagosNoRegistrados();
+        } catch (e) {
+            console.error("Error cargando pagos no registrados locales:", e);
+        }
+    };
+
+    function populateLocalPnrDatalist() {
+        const datalist = document.getElementById('list-local-pnr-proveedores');
+        if (!datalist) return;
+        const set = new Set();
+        (localPagosNoRegistrados || []).forEach(p => {
+            if (p.proveedor) set.add(p.proveedor.trim());
+        });
+        datalist.innerHTML = Array.from(set).map(n => `<option value="${escapeHtml(n)}">`).join('');
+    }
+
+    window.filterLocalPagosNoRegistrados = function (term) {
+        renderLocalPagosNoRegistrados(term);
+    };
+
+    function renderLocalPagosNoRegistrados(term = '') {
+        const tbody = document.getElementById('tbl-local-pagos-no-registrados-body');
+        if (!tbody) return;
+
+        const q = (term || document.getElementById('local-pnr-search')?.value || '').toLowerCase().trim();
+        const filtered = (localPagosNoRegistrados || []).filter(p => {
+            if (!q) return true;
+            return (p.proveedor || '').toLowerCase().includes(q) || (p.motivo || '').toLowerCase().includes(q) || (p.fecha || '').includes(q);
+        });
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">Sin pagos no registrados cargados en este período</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(p => `
+            <tr>
+                <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">${escapeHtml(p.fecha || '-')}</td>
+                <td><strong>${escapeHtml(p.proveedor || '-')}</strong></td>
+                <td style="color: var(--text-secondary); font-size: 0.85rem;">${p.motivo ? escapeHtml(p.motivo) : '<em>-</em>'}</td>
+                <td style="text-align: right; font-weight: 700;">${formatCurrency(p.monto || 0)}</td>
+                <td style="text-align: center;">
+                    <button class="btn btn-secondary btn-sm" onclick="handleDeleteLocalPagoNoRegistrado(${p.id})" title="Eliminar Pago" style="color: #ef4444; padding: 3px 7px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    window.openModalLocalPagoNoRegistrado = function () {
+        const modal = document.getElementById('modal-local-pago-no-registrado');
+        const form = document.getElementById('form-local-pago-no-registrado');
+        if (!modal || !form) return;
+        form.reset();
+        document.getElementById('local-pnr-id').value = '';
+        document.getElementById('local-pnr-fecha').value = new Date().toISOString().slice(0, 10);
+        modal.style.display = 'flex';
+    };
+
+    window.closeModalLocalPagoNoRegistrado = function () {
+        const modal = document.getElementById('modal-local-pago-no-registrado');
+        if (modal) modal.style.display = 'none';
+    };
+
+    window.handleSaveLocalPagoNoRegistrado = async function (e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-save-local-pnr');
+        const id = document.getElementById('local-pnr-id').value;
+        const fecha = document.getElementById('local-pnr-fecha').value;
+        const proveedor = document.getElementById('local-pnr-proveedor').value.trim();
+        const monto = parseFloat(document.getElementById('local-pnr-monto').value);
+        const motivo = document.getElementById('local-pnr-motivo').value.trim();
+
+        if (!proveedor) {
+            showToast('El nombre del proveedor es obligatorio', 'error');
+            return;
+        }
+        if (isNaN(monto) || monto <= 0) {
+            showToast('Ingrese un monto válido', 'error');
+            return;
+        }
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Guardando...`;
+        }
+
+        try {
+            const res = await fetch('/api/pagos_no_registrados', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fecha, proveedor, monto, motivo })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Pago no registrado guardado exitosamente');
+                closeModalLocalPagoNoRegistrado();
+                fetchLocalPagosNoRegistrados();
+                fetchCuentasPorPagar();
+            } else {
+                showToast(data.error || 'Error al guardar', 'error');
+            }
+        } catch (err) {
+            showToast('Error de conexión', 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> Guardar Pago`;
+            }
+        }
+    };
+
+    window.handleDeleteLocalPagoNoRegistrado = async function (id) {
+        if (!confirm('¿Confirma eliminar este pago no registrado?')) return;
+        try {
+            const res = await fetch(`/api/pagos_no_registrados/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Pago eliminado exitosamente');
+                fetchLocalPagosNoRegistrados();
+                fetchCuentasPorPagar();
+            } else {
+                showToast(data.error || 'Error al eliminar', 'error');
+            }
+        } catch (e) {
+            showToast('Error de conexión', 'error');
         }
     };
 
