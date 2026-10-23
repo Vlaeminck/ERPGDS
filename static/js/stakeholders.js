@@ -75,6 +75,7 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 }
+const escapeHTML = escapeHtml;
 
 function normalizeSearchText(str) {
     return String(str || '')
@@ -302,23 +303,24 @@ async function fetchArcaComprasCloud() {
         const totalConsolidado = resStats.total_consolidado !== undefined ? resStats.total_consolidado : (resStats.total_neto || 0);
         document.getElementById('kpi-total-facturado').textContent = formatCurrency(totalConsolidado);
 
-        // 2. Monto real del mes (Facturado Bruto antes de NC)
-        const elSubBruto = document.getElementById('kpi-sub-total-bruto');
-        if (elSubBruto) elSubBruto.textContent = formatCurrency(resStats.total_bruto || 0);
+        // Tooltip con desglose completo para mantener la tarjeta acotada y elegante
+        const brutoStr = formatCurrency(resStats.total_bruto || 0);
+        const ncStr = formatCurrency(resStats.total_nc || 0);
+        const netoStr = formatCurrency(resStats.total_neto || 0);
+        const pnrStr = formatCurrency(resStats.total_no_registrados || 0);
+        const pnrCnt = resStats.cantidad_no_registrados || 0;
+        const totalStr = formatCurrency(totalConsolidado);
 
-        // 3. Monto total restando las notas de crédito (Neto ARCA)
-        const elSubNeto = document.getElementById('kpi-sub-total-neto');
-        if (elSubNeto) {
-            const ncDesc = resStats.total_nc ? ` (-${formatCurrency(resStats.total_nc)})` : '';
-            elSubNeto.textContent = `${formatCurrency(resStats.total_neto || 0)}${ncDesc}`;
-        }
+        const tooltipCompras = `Monto Real (Facturado Bruto): ${brutoStr}\n` +
+                               `Menos Notas de Crédito: -${ncStr}\n` +
+                               `Neto Facturado ARCA: ${netoStr}\n` +
+                               `Más Pagos No Registrados: +${pnrStr} (${pnrCnt} pagos)\n` +
+                               `Total Consolidado: ${totalStr}`;
 
-        // 4. Monto de pagos no registrados
-        const elSubPnr = document.getElementById('kpi-sub-total-no-registrados');
-        if (elSubPnr) {
-            const cntPnr = resStats.cantidad_no_registrados || 0;
-            elSubPnr.textContent = `+${formatCurrency(resStats.total_no_registrados || 0)} (${cntPnr} pagos)`;
-        }
+        const elTooltip = document.getElementById('kpi-tooltip-compras');
+        if (elTooltip) elTooltip.setAttribute('title', tooltipCompras);
+        const elCard = document.getElementById('kpi-card-compras');
+        if (elCard) elCard.setAttribute('title', tooltipCompras);
 
         document.getElementById('kpi-count-facturas').textContent = `${resStats.total_compras || 0} comprobantes emitidos`;
 
@@ -329,7 +331,14 @@ async function fetchArcaComprasCloud() {
         document.getElementById('kpi-total-pagado').textContent = formatCurrency(resStats.pagados_total || 0);
         document.getElementById('kpi-count-pagados').textContent = `${resStats.pagados || 0} facturas abonadas`;
 
-        document.getElementById('kpi-count-nc-retro').textContent = `${resStats.notas_credito || 0} NC / ${resStats.retroactivas || 0} Retros`;
+        const ncCnt = resStats.notas_credito || 0;
+        const retroCnt = resStats.retroactivas || 0;
+        document.getElementById('kpi-count-nc-retro').textContent = `${ncCnt} NC / ${retroCnt} Retros`;
+        const tooltipNc = `Notas de Crédito: ${ncCnt} comprobantes (-${ncStr})\nFacturas Retroactivas: ${retroCnt} comprobantes`;
+        const elTooltipNc = document.getElementById('kpi-tooltip-nc-retro');
+        if (elTooltipNc) elTooltipNc.setAttribute('title', tooltipNc);
+        const elCardNc = document.getElementById('kpi-card-nc-retro');
+        if (elCardNc) elCardNc.setAttribute('title', tooltipNc);
 
         // Actualizar valores de desglose de métodos
         const mObj = resStats.pagos_por_metodo || {};
@@ -2016,22 +2025,22 @@ function populatePnrProveedoresDatalist() {
 
     const namesSet = new Set();
     Object.values(aliasMap || {}).forEach(al => {
-        if (al && al.trim()) namesSet.add(al.trim());
+        if (al && String(al).trim()) namesSet.add(String(al).trim());
     });
     (arcaData || []).forEach(c => {
-        if (c.denominacion_emisor && c.denominacion_emisor.trim()) {
-            namesSet.add(c.denominacion_emisor.trim());
+        if (c.denominacion_emisor && String(c.denominacion_emisor).trim()) {
+            namesSet.add(String(c.denominacion_emisor).trim());
         }
     });
     (pagosNoRegistradosData || []).forEach(p => {
-        if (p.proveedor && p.proveedor.trim()) {
-            namesSet.add(p.proveedor.trim());
+        if (p.proveedor && String(p.proveedor).trim()) {
+            namesSet.add(String(p.proveedor).trim());
         }
     });
 
     datalist.innerHTML = Array.from(namesSet)
         .sort((a, b) => a.localeCompare(b))
-        .map(n => `<option value="${escapeHTML(n)}">`)
+        .map(n => `<option value="${escapeHtml(n)}">`)
         .join('');
 }
 
@@ -2069,13 +2078,13 @@ function renderPagosNoRegistradosTable(filterTerm = '') {
     tbody.innerHTML = filtered.map(p => `
         <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;">
             <td style="padding: 0.75rem 1rem; font-weight: 600; color: #334155; font-size: 0.85rem; white-space: nowrap;">
-                <i class="fa-solid fa-calendar-day" style="color: #94a3b8; font-size: 0.75rem; margin-right: 4px;"></i> ${escapeHTML(p.fecha || '-')}
+                <i class="fa-solid fa-calendar-day" style="color: #94a3b8; font-size: 0.75rem; margin-right: 4px;"></i> ${escapeHtml(p.fecha || '-')}
             </td>
             <td style="padding: 0.75rem 1rem; font-weight: 700; color: #0f172a; font-size: 0.88rem;">
-                ${escapeHTML(p.proveedor || '-')}
+                ${escapeHtml(p.proveedor || '-')}
             </td>
             <td style="padding: 0.75rem 1rem; font-size: 0.84rem; color: #64748b; font-weight: 500;">
-                ${p.motivo ? escapeHTML(p.motivo) : '<em style="color: #94a3b8;">Sin motivo detallado</em>'}
+                ${p.motivo ? escapeHtml(p.motivo) : '<em style="color: #94a3b8;">Sin motivo detallado</em>'}
             </td>
             <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 800; color: #1e293b; font-size: 0.95rem; white-space: nowrap;">
                 ${formatCurrency(p.monto || 0)}
@@ -2098,24 +2107,40 @@ function openModalPagoNoRegistrado(id = null) {
     const modal = document.getElementById('modal-pago-no-registrado');
     const form = document.getElementById('form-pago-no-registrado');
     const title = document.getElementById('modal-pnr-title');
-    if (!modal || !form) return;
+    if (!modal || !form) {
+        console.error("Modal o formulario de pago no registrado no encontrado en DOM");
+        return;
+    }
 
-    populatePnrProveedoresDatalist();
+    try {
+        populatePnrProveedoresDatalist();
+    } catch (err) {
+        console.warn("Aviso poblando datalist de proveedores:", err);
+    }
+
+    const todayLocal = new Date().toLocaleDateString('en-CA');
 
     if (id) {
         const item = (pagosNoRegistradosData || []).find(x => x.id === id);
         if (!item) return;
         if (title) title.innerHTML = `<i class="fa-solid fa-pen-to-square" style="color: #2563eb;"></i> Editar Pago No Registrado`;
-        document.getElementById('pnr-id').value = item.id;
-        document.getElementById('pnr-fecha').value = item.fecha || new Date().toISOString().slice(0, 10);
-        document.getElementById('pnr-proveedor').value = item.proveedor || '';
-        document.getElementById('pnr-monto').value = item.monto || '';
-        document.getElementById('pnr-motivo').value = item.motivo || '';
+        const elId = document.getElementById('pnr-id');
+        const elFecha = document.getElementById('pnr-fecha');
+        const elProv = document.getElementById('pnr-proveedor');
+        const elMonto = document.getElementById('pnr-monto');
+        const elMotivo = document.getElementById('pnr-motivo');
+        if (elId) elId.value = item.id;
+        if (elFecha) elFecha.value = item.fecha || todayLocal;
+        if (elProv) elProv.value = item.proveedor || '';
+        if (elMonto) elMonto.value = item.monto || '';
+        if (elMotivo) elMotivo.value = item.motivo || '';
     } else {
         if (title) title.innerHTML = `<i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Nuevo Pago No Registrado`;
         form.reset();
-        document.getElementById('pnr-id').value = '';
-        document.getElementById('pnr-fecha').value = new Date().toISOString().slice(0, 10);
+        const elId = document.getElementById('pnr-id');
+        const elFecha = document.getElementById('pnr-fecha');
+        if (elId) elId.value = '';
+        if (elFecha) elFecha.value = todayLocal;
     }
 
     modal.style.display = 'flex';
@@ -2195,4 +2220,23 @@ async function handleDeletePagoNoRegistrado(id) {
         showToast('Error de conexión al eliminar', 'error');
     }
 }
+
+// Exponer funciones globales para eventos inline en el HTML
+window.openModalPagoNoRegistrado = openModalPagoNoRegistrado;
+window.closeModalPagoNoRegistrado = closeModalPagoNoRegistrado;
+window.handleSavePagoNoRegistrado = handleSavePagoNoRegistrado;
+window.handleDeletePagoNoRegistrado = handleDeletePagoNoRegistrado;
+window.filterPagosNoRegistrados = filterPagosNoRegistrados;
+window.escapeHtml = escapeHtml;
+window.escapeHTML = escapeHtml;
+
+// Cerrar modal al hacer clic en el backdrop oscuro
+document.addEventListener('DOMContentLoaded', () => {
+    const modalPnr = document.getElementById('modal-pago-no-registrado');
+    if (modalPnr) {
+        modalPnr.addEventListener('click', (e) => {
+            if (e.target === modalPnr) closeModalPagoNoRegistrado();
+        });
+    }
+});
 
