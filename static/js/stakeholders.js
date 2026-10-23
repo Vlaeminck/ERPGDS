@@ -279,7 +279,9 @@ async function fetchAllData() {
         fetchArcaComprasCloud(),
         fetchCuentasPagarCloud(),
         loadPagosNoRegistradosCloud(),
-        fetchDashboardStats()
+        fetchDashboardStats(),
+        loadProveedoresAlias(),
+        loadCategories()
     ]);
 }
 
@@ -1941,23 +1943,34 @@ function switchTab(tabId) {
 async function triggerManualSync(silent = false) {
     const badge = document.getElementById('cloud-sync-badge');
     const text = document.getElementById('cloud-sync-text');
+    const syncBtn = document.getElementById('btn-manual-sync') || document.querySelector('button[onclick*="triggerManualSync"]');
     if (badge && text) {
         badge.classList.add('syncing');
         text.textContent = 'Sincronizando...';
+    }
+    if (syncBtn) {
+        syncBtn.disabled = true;
+        const icon = syncBtn.querySelector('i');
+        if (icon) icon.classList.add('fa-spin');
     }
 
     try {
         const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
         const data = await res.json();
+        await fetchAllData();
         if (!silent) {
-            showToast('Nube sincronizada con éxito', 'success');
+            showToast('Información sincronizada y actualizada al instante', 'success');
         }
-        fetchAllData();
     } catch (e) {
         if (!silent) {
             showToast('Error forzando sincronización', 'error');
         }
     } finally {
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            const icon = syncBtn.querySelector('i');
+            if (icon) icon.classList.remove('fa-spin');
+        }
         pollSyncStatus();
     }
 }

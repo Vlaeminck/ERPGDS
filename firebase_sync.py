@@ -9,6 +9,14 @@ import base64
 import db_manager
 import config
 
+# Forzar zona horaria de Argentina (UTC-3) en cualquier entorno (Windows local o Railway Linux)
+if hasattr(time, 'tzset'):
+    try:
+        os.environ['TZ'] = 'America/Argentina/Buenos_Aires'
+        time.tzset()
+    except Exception:
+        pass
+
 SYNC_STATUS = {
     "enabled": False,
     "mode": "OFFLINE_LOCAL",
@@ -394,7 +402,7 @@ def reconcile_with_firestore(table=None, _already_locked=False):
         if not _already_locked:
             _sync_lock.release()
 
-def pull_remote_changes(force_full=False, known_remote_change=None, _already_locked=False):
+def pull_remote_changes(force_full=False, known_remote_change=None, _already_locked=False, bypass_global_check=False, force_tables=None):
     """Descarga e integra deltas por tabla desde Firebase a SQLite local de forma ultra-optimizada."""
     if not _firestore_db:
         if not init_firebase():
@@ -421,7 +429,7 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                 force_full = True
 
         remote_last_change = known_remote_change
-        if not force_full and not remote_last_change:
+        if not force_full and not bypass_global_check and not remote_last_change:
             try:
                 g_doc = _firestore_db.collection('sync_metadata').document('global_state').get()
                 if g_doc.exists:
@@ -439,12 +447,24 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                         return 0
             except Exception as e:
                 print(f"[FirebaseSync] Aviso comprobando global_state: {e}", flush=True)
+        elif bypass_global_check and not remote_last_change:
+            try:
+                g_doc = _firestore_db.collection('sync_metadata').document('global_state').get()
+                if g_doc.exists:
+                    g_dict = g_doc.to_dict() or {}
+                    remote_last_change = str(g_dict.get('last_change') or '')
+            except Exception:
+                pass
 
         total_pulled = 0
         conn = db_manager.get_connection()
         cursor = conn.cursor()
 
         current_pull_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        force_tables_set = set(force_tables or [])
+        if bypass_global_check and not force_tables:
+            force_tables_set = {'proveedores', 'categorias_gastos', 'pagos_no_registrados'}
 
         for table in SYNC_TABLES:
             try:
@@ -455,12 +475,14 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                 cursor.execute(f"SELECT COUNT(*) FROM {table}")
                 cnt_tbl = cursor.fetchone()[0]
 
+                tbl_force_full = force_full or (table in force_tables_set)
+
                 # Leer timestamp guardado directamente en la misma conexión
                 cursor.execute("SELECT valor FROM configuraciones WHERE clave = ?", (f'last_pull_{table}',))
                 row_cfg = cursor.fetchone()
                 saved_ts = row_cfg['valor'] if row_cfg else ''
 
-                if not saved_ts and not force_full and cnt_tbl > 0:
+                if not saved_ts and not tbl_force_full and cnt_tbl > 0:
                     try:
                         cursor.execute(f"SELECT MAX(updated_at) as max_u FROM {table}")
                         r_max = cursor.fetchone()
@@ -474,8 +496,12 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                     except Exception:
                         pass
 
-                # Si force_full es True O la tabla local está vacía, se descarga completa de Firestore
-                last_ts = '' if (force_full or cnt_tbl == 0) else saved_ts
+                # Clamping anti-desfase / reloj futuro (ej. contaminación previa UTC):
+                if saved_ts and saved_ts > current_pull_time:
+                    saved_ts = ''
+
+                # Si tbl_force_full es True O la tabla local está vacía, se descarga completa de Firestore
+                last_ts = '' if (tbl_force_full or cnt_tbl == 0) else saved_ts
 
                 query = _firestore_db.collection(table)
                 if last_ts:
@@ -499,7 +525,7 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
 
                     if local_row:
                         local_updated = str(local_row['updated_at'] or '')
-                        if (remote_updated and remote_updated > local_updated) or force_full:
+                        if (remote_updated and remote_updated > local_updated) or tbl_force_full:
                             set_cols = [k for k in data.keys() if k not in ('id', 'uuid') and k in valid_cols]
                             if set_cols:
                                 set_clause = ", ".join([f"{k} = ?" for k in set_cols])
@@ -568,7 +594,7 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
         ''', ('last_pulled_global_state', state_val))
         conn.commit()
 
-        if total_pulled > 0:
+        if total_pulled > 0 or bypass_global_check:
             SYNC_STATUS["last_remote_update"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
             print(f"[FirebaseSync] Integrados {total_pulled} registros desde la nube a SQLite local.", flush=True)
 
@@ -605,7 +631,7 @@ def check_initial_hydration():
     except Exception as e:
         print(f"[FirebaseSync] Error en hidratación inicial: {e}", flush=True)
 
-def sync_cycle(force_pull=False):
+def sync_cycle(force_pull=False, force_tables=None, _caller='auto'):
     """
     Un ciclo completo e inteligente de sincronización:
     - Push: Solo si existen registros locales pendientes (sync_status = 0) verificados en SQLite local.
@@ -626,7 +652,7 @@ def sync_cycle(force_pull=False):
             pushed = push_local_changes(_already_locked=True)
 
         # 2. PULL remote changes:
-        # Si force_pull=True (p.ej. botón manual en UI), se fuerza pull.
+        # Si force_pull=True (p.ej. botón manual en UI), se fuerza pull con bypass_global_check=True
         # En reposo nocturno o inactividad diurna con listener activo: 0 lecturas innecesarias.
         now = time.time()
         should_pull = force_pull
@@ -642,7 +668,9 @@ def sync_cycle(force_pull=False):
 
         pulled = 0
         if should_pull:
-            pulled = pull_remote_changes(force_full=False, _already_locked=True)
+            bypass = force_pull
+            ftables = force_tables if force_tables is not None else (['proveedores', 'categorias_gastos', 'pagos_no_registrados'] if force_pull else None)
+            pulled = pull_remote_changes(force_full=False, _already_locked=True, bypass_global_check=bypass, force_tables=ftables)
             _last_routine_pull_ts = now
 
         SYNC_STATUS["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
