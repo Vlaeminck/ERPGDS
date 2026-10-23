@@ -304,6 +304,13 @@ def update_config_suppliers():
         with open(SUPPLIERS_PATH, 'w', encoding='utf-8') as f:
             json.dump(final_suppliers, f, indent=4, ensure_ascii=False)
             
+        try:
+            import firebase_sync
+            if firebase_sync.has_pending_local_changes():
+                firebase_sync.sync_cycle(force_pull=False)
+        except Exception as e_sync:
+            print(f"[update_suppliers] Aviso sincronizando con Firebase: {e_sync}")
+
         msg = f"¡Éxito! suppliers.json ha sido actualizado correctamente. {added_count} nuevos, {skipped_count} omitidos."
         print(msg)
         return {"success": True, "added": added_count, "skipped": skipped_count, "message": msg}

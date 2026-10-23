@@ -1,11 +1,20 @@
 import os
 import sys
+import time
 import io
 import re
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, jsonify, request, session, send_file
 from dotenv import load_dotenv
+
+# Forzar zona horaria de Argentina (UTC-3) en cualquier entorno (Windows local o Railway Linux)
+if hasattr(time, 'tzset'):
+    try:
+        os.environ['TZ'] = 'America/Argentina/Buenos_Aires'
+        time.tzset()
+    except Exception:
+        pass
 
 # Cargar variables de entorno si existe .env
 load_dotenv()
@@ -92,7 +101,8 @@ def api_firebase_status():
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
     firebase_sync.sync_cycle(force_pull=True)
-    return jsonify(firebase_sync.get_sync_status())
+    status = firebase_sync.get_sync_status()
+    return jsonify({"success": True, "message": "Sincronización forzada completada", **status})
 
 
 @app.route('/api/firebase/full_resync', methods=['POST', 'GET'])
