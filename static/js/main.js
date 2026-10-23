@@ -78,7 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (globalMonthSelect) {
         globalMonthSelect.addEventListener('change', (e) => {
             currentSelectedMonth = e.target.value;
-            isCuentasPagarExpanded = false;
             const subtitle = document.getElementById('global-month-subtitle');
             if (subtitle) subtitle.textContent = `Filtro mensual activo (${e.target.options[e.target.selectedIndex].text}). Todos los módulos muestran los registros de este período.`;
             switchTab(currentActiveTab);
@@ -89,7 +88,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnMonthAll) {
         btnMonthAll.addEventListener('click', () => {
             currentSelectedMonth = 'all';
-            isCuentasPagarExpanded = false;
             const subtitle = document.getElementById('global-month-subtitle');
             if (subtitle) subtitle.textContent = `Mostrando Histórico Completo de la empresa (sin filtro de mes).`;
             switchTab(currentActiveTab);
@@ -199,42 +197,30 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { }
     }
 
-    window.checkCloudSyncNow = async function (silent = false) {
+    window.checkCloudSyncNow = async function () {
         try {
-            const badge = document.getElementById('cloud-sync-badge');
-            const icon = document.getElementById('cloud-sync-icon');
-            const text = document.getElementById('cloud-sync-text');
-            if (badge && icon && text) {
-                badge.style.background = 'rgba(245, 158, 11, 0.15)';
-                badge.style.color = '#d97706';
-                badge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
-                icon.className = 'fa-solid fa-arrows-rotate fa-spin';
-                text.textContent = 'Sync Nube: Conectando...';
-            }
-
             const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
             const data = await res.json();
             fetchCloudSyncStatus();
-            if (!silent) {
-                if (data.mode === 'ONLINE_SYNC') {
-                    if (data.pending_count > 0) {
-                        showToast(`Sincronización en curso: ${data.progress_percent}% (${data.synced_count}/${data.total_count})`, "info");
-                    } else {
-                        showToast("¡Sincronización Cloud al 100% completada!");
-                    }
+            if (data.mode === 'ONLINE_SYNC') {
+                if (data.pending_count > 0) {
+                    showToast(`Sincronización en curso: ${data.progress_percent}% (${data.synced_count}/${data.total_count})`, "info");
                 } else {
-                    showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");
+                    showToast("¡Sincronización Cloud al 100% completada!");
                 }
+            } else {
+                showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");
             }
         } catch (e) {
-            if (!silent) {
-                showToast("Modo Local Activo", "info");
-            }
+            showToast("Modo Local Activo", "info");
         }
     };
 
     fetchCloudSyncStatus();
     setInterval(fetchCloudSyncStatus, 15000);
+    try {
+        fetch('/api/firebase/sync_now', { method: 'POST' }).then(() => fetchCloudSyncStatus()).catch(() => {});
+    } catch (_) {}
 
     allTabItems.forEach(link => {
         link.addEventListener('click', (e) => {
@@ -494,247 +480,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Audio Feedback y Controlador de Escáner Físico ---
-    function playLidReadySound() {
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-            osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12); // A5
-            gain.gain.setValueAtTime(0.18, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.38);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.38);
-        } catch (e) {}
-    }
-
-    let scannerPollInterval = null;
-    let lidReadyAnnounced = false;
-
-    function updateStep(stepId, state) {
-        const el = document.getElementById(stepId);
-        if (!el) return;
-        if (state === 'done') {
-            el.style.background = '#ecfdf5';
-            el.style.borderColor = '#a7f3d0';
-            el.style.color = '#065f46';
-            el.innerHTML = el.innerHTML.replace('fa-circle-dot', 'fa-circle-check').replace('fa-spinner fa-spin', 'fa-circle-check');
-        } else if (state === 'active') {
-            el.style.background = '#eff6ff';
-            el.style.borderColor = '#bfdbfe';
-            el.style.color = '#1d4ed8';
-            el.innerHTML = el.innerHTML.replace('fa-circle-dot', 'fa-spinner fa-spin').replace('fa-circle-check', 'fa-spinner fa-spin');
-        } else {
-            el.style.background = '#f8fafc';
-            el.style.borderColor = '#e2e8f0';
-            el.style.color = 'var(--text-secondary)';
-            el.innerHTML = el.innerHTML.replace('fa-circle-check', 'fa-circle-dot').replace('fa-spinner fa-spin', 'fa-circle-dot');
-        }
-    }
-
-    async function pollScannerProgress() {
-        try {
-            const res = await fetch('/api/scanner/status');
-            const data = await res.json();
-            
-            const card = document.getElementById('scanner-progress-card');
-            const iconBox = document.getElementById('scanner-status-icon-box');
-            const icon = document.getElementById('scanner-status-icon');
-            const lidBadge = document.getElementById('scanner-lid-badge');
-            const substatus = document.getElementById('scanner-substatus');
-            const msg = document.getElementById('scanner-status-msg');
-            const bar = document.getElementById('scanner-progress-bar-fill');
-            const pct = document.getElementById('scanner-progress-percent');
-            const timer = document.getElementById('scanner-timer-text');
-
-            if (!card) return;
-
-            if (data.elapsed !== undefined && timer) {
-                timer.textContent = `Tiempo: ${data.elapsed}s`;
-            }
-
-            const currentPct = Math.max(5, Math.min(100, data.progress || 0));
-            if (bar) bar.style.width = `${currentPct}%`;
-            if (pct) pct.textContent = `${currentPct}%`;
-
-            // FASE 1: ESCANEANDO FÍSICAMENTE (Tapa bloqueada)
-            if (data.phase === 'scanning') {
-                card.style.borderColor = '#f59e0b';
-                card.style.background = 'rgba(245, 158, 11, 0.04)';
-                if (iconBox) {
-                    iconBox.style.background = 'rgba(245, 158, 11, 0.15)';
-                    iconBox.style.color = '#d97706';
-                }
-                if (icon) icon.className = 'fa-solid fa-print fa-bounce';
-                if (lidBadge) {
-                    lidBadge.style.background = '#fef3c7';
-                    lidBadge.style.color = '#b45309';
-                    lidBadge.style.borderColor = '#fde68a';
-                    lidBadge.innerHTML = '<i class="fa-solid fa-lock"></i> NO ABRIR LA TAPA TODAVÍA';
-                }
-                if (substatus) substatus.textContent = 'Digitalizando hoja en el escáner...';
-                if (msg) msg.textContent = 'El carro del escáner está en movimiento.';
-                updateStep('scan-step-1', 'active');
-                updateStep('scan-step-2', 'idle');
-                updateStep('scan-step-3', 'idle');
-                updateStep('scan-step-4', 'idle');
-            }
-
-            // FASE 2: ESCANEO FÍSICO CONCLUIDO (Ya podés abrir la tapa)
-            if (data.can_open_lid && (data.phase === 'can_open_lid' || data.phase === 'processing')) {
-                card.style.borderColor = '#10b981';
-                card.style.background = 'rgba(16, 185, 129, 0.06)';
-                if (iconBox) {
-                    iconBox.style.background = 'rgba(16, 185, 129, 0.18)';
-                    iconBox.style.color = '#059669';
-                }
-                if (icon) icon.className = 'fa-solid fa-folder-open';
-                if (lidBadge) {
-                    lidBadge.style.background = '#d1fae5';
-                    lidBadge.style.color = '#065f46';
-                    lidBadge.style.borderColor = '#6ee7b7';
-                    lidBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> ¡YA PODÉS ABRIR LA TAPA DEL ESCÁNER!';
-                }
-                if (substatus) substatus.textContent = 'Escaneo físico finalizado con éxito';
-                if (msg) msg.textContent = 'Podés retirar el comprobante y colocar la siguiente factura.';
-
-                if (!lidReadyAnnounced) {
-                    lidReadyAnnounced = true;
-                    playLidReadySound();
-                    showToast('¡Listo! Ya podés abrir la tapa del escáner.', 'info');
-                }
-
-                updateStep('scan-step-1', 'done');
-                updateStep('scan-step-2', 'done');
-                if (data.phase === 'processing') {
-                    updateStep('scan-step-3', 'active');
-                }
-            }
-
-            // FASE 3: FINALIZADO CON ÉXITO
-            if (data.phase === 'completed') {
-                if (scannerPollInterval) {
-                    clearInterval(scannerPollInterval);
-                    scannerPollInterval = null;
-                }
-                if (bar) {
-                    bar.style.width = '100%';
-                    bar.style.background = '#10b981';
-                }
-                if (pct) pct.textContent = '100%';
-                card.style.borderColor = '#10b981';
-                card.style.background = 'rgba(16, 185, 129, 0.08)';
-                if (icon) icon.className = 'fa-solid fa-circle-check';
-                if (lidBadge) {
-                    lidBadge.style.background = '#d1fae5';
-                    lidBadge.style.color = '#065f46';
-                    lidBadge.style.borderColor = '#6ee7b7';
-                    lidBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> PROCESO COMPLETADO';
-                }
-                if (substatus) substatus.textContent = 'Factura lista y registrada';
-                if (msg) msg.textContent = data.message || 'Factura digitalizada con éxito.';
-
-                updateStep('scan-step-1', 'done');
-                updateStep('scan-step-2', 'done');
-                updateStep('scan-step-3', 'done');
-                updateStep('scan-step-4', 'done');
-
-                if (btnScanner) {
-                    btnScanner.innerHTML = '<i class="fa-solid fa-print"></i> Escáner Automático';
-                    btnScanner.disabled = false;
-                }
-
-                showToast('¡Factura procesada con éxito y registrada en el sistema!', 'success');
-
-                // REFRESCAR INMEDIATAMENTE TODAS LAS LISTAS
-                if (typeof fetchUserHistory === 'function') fetchUserHistory();
-                if (typeof fetchStatus === 'function') fetchStatus();
-                if (typeof fetchArcaComprasLocal === 'function') fetchArcaComprasLocal();
-                else if (typeof fetchArcaCompras === 'function') fetchArcaCompras();
-
-                // Ocultar suavemente después de 14 segundos si el usuario no inicia otro escaneo
-                setTimeout(() => {
-                    if (card && (!scannerPollInterval)) {
-                        card.style.display = 'none';
-                    }
-                }, 14000);
-            }
-
-            // FASE ERROR
-            if (data.phase === 'error') {
-                if (scannerPollInterval) {
-                    clearInterval(scannerPollInterval);
-                    scannerPollInterval = null;
-                }
-                card.style.borderColor = '#ef4444';
-                card.style.background = 'rgba(239, 68, 68, 0.05)';
-                if (iconBox) {
-                    iconBox.style.background = 'rgba(239, 68, 68, 0.15)';
-                    iconBox.style.color = '#dc2626';
-                }
-                if (icon) icon.className = 'fa-solid fa-triangle-exclamation';
-                if (lidBadge) {
-                    lidBadge.style.background = '#fee2e2';
-                    lidBadge.style.color = '#991b1b';
-                    lidBadge.style.borderColor = '#fca5a5';
-                    lidBadge.innerHTML = '<i class="fa-solid fa-xmark"></i> ERROR EN ESCANEO';
-                }
-                if (msg) msg.textContent = data.message || 'Ocurrió un error con el escáner.';
-                showToast(data.message || 'Error en el escáner', 'error');
-
-                if (btnScanner) {
-                    btnScanner.innerHTML = '<i class="fa-solid fa-print"></i> Escáner Automático';
-                    btnScanner.disabled = false;
-                }
-            }
-        } catch (e) {
-            console.error("Error polling scanner progress:", e);
-        }
-    }
-
     if (btnScanner) {
         btnScanner.addEventListener('click', async () => {
+            // Animación temporal en el botón
             const originalHTML = btnScanner.innerHTML;
             btnScanner.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
             btnScanner.disabled = true;
-
-            const card = document.getElementById('scanner-progress-card');
-            if (card) {
-                card.style.display = 'block';
-                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-            lidReadyAnnounced = false;
-
-            // Reset UI de pasos
-            updateStep('scan-step-1', 'active');
-            updateStep('scan-step-2', 'idle');
-            updateStep('scan-step-3', 'idle');
-            updateStep('scan-step-4', 'idle');
 
             try {
                 const res = await fetch('/api/open_scanner', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    showToast(data.message, 'info');
-                    if (scannerPollInterval) clearInterval(scannerPollInterval);
-                    scannerPollInterval = setInterval(pollScannerProgress, 600);
-                    pollScannerProgress();
+                    showToast(data.message, 'success');
                 } else {
-                    showToast(data.message || "Error al abrir escáner automático", 'error');
-                    btnScanner.innerHTML = originalHTML;
-                    btnScanner.disabled = false;
-                    if (card) card.style.display = 'none';
+                    showToast("Error al abrir escáner automático", 'error');
                 }
             } catch (e) {
                 showToast("Error de conexión con el escáner", 'error');
+            }
+
+            // Habilitar botón de nuevo después de 5s para que no se quede pegado 
+            // (el proceso de escaneo funciona en segundo plano)
+            setTimeout(() => {
                 btnScanner.innerHTML = originalHTML;
                 btnScanner.disabled = false;
-                if (card) card.style.display = 'none';
-            }
+            }, 5000);
         });
     }
 
@@ -913,10 +683,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRefreshProcessed = document.getElementById('btn-refresh-processed');
     const noProcessedMsg = document.getElementById('no-processed-msg');
     const processedCount = document.getElementById('processed-count');
-    const filterProcessedArca = document.getElementById('filter-processed-arca');
-    const valProcessedVinculadas = document.getElementById('val-processed-vinculadas');
-    const valProcessedEspera = document.getElementById('val-processed-espera');
-    const btnReconciliarArca = document.getElementById('btn-reconciliar-arca');
 
     let allProcessedInvoices = [];
 
@@ -924,35 +690,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/processed_invoices');
             allProcessedInvoices = await res.json();
-            filterAndRenderProcessed();
+            renderProcessedTree(allProcessedInvoices);
         } catch (error) {
             console.error("Error fetching processed invoices:", error);
             showToast("Error al cargar facturas procesadas", "error");
         }
-    }
-
-    function filterAndRenderProcessed() {
-        const query = searchProcessedInput ? searchProcessedInput.value.trim().toLowerCase() : '';
-        const arcaFilter = filterProcessedArca ? filterProcessedArca.value : 'all';
-
-        const totalVinculadas = allProcessedInvoices.filter(i => i.arca_match).length;
-        const totalEspera = allProcessedInvoices.length - totalVinculadas;
-        if (valProcessedVinculadas) valProcessedVinculadas.textContent = totalVinculadas;
-        if (valProcessedEspera) valProcessedEspera.textContent = totalEspera;
-
-        let filtered = allProcessedInvoices.filter(inv => {
-            const matchesQuery = !query ||
-                (inv.filename && inv.filename.toLowerCase().includes(query)) ||
-                (inv.supplier && inv.supplier.toLowerCase().includes(query)) ||
-                (inv.date && inv.date.toLowerCase().includes(query));
-            if (!matchesQuery) return false;
-
-            if (arcaFilter === 'vinculadas') return !!inv.arca_match;
-            if (arcaFilter === 'espera') return !inv.arca_match;
-            return true;
-        });
-
-        renderProcessedTree(filtered);
     }
 
     function renderProcessedTree(invoicesList) {
@@ -1006,6 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const rootDiv = document.createElement('div');
+        const hasSearch = searchProcessedInput.value.trim().length > 0;
 
         Object.keys(tree).sort().reverse().forEach(year => {
             const yearContent = document.createElement('div');
@@ -1016,19 +759,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     tree[year][month][supplier].forEach(inv => {
                         const fileDiv = document.createElement('div');
                         fileDiv.className = 'tree-file';
-                        fileDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; cursor: pointer; padding: 4px 8px; border-radius: 6px;';
-
-                        const arcaBadge = inv.arca_match
-                            ? `<span class="badge" style="background: rgba(16,185,129,0.12); color: #047857; border: 1px solid rgba(16,185,129,0.28); font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700; flex-shrink: 0;" title="Vinculada con ARCA (${escapeHtml(inv.match_metodo || 'Auto')})"><i class="fa-solid fa-circle-check"></i> ARCA</span>`
-                            : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #b45309; border: 1px solid rgba(245,158,11,0.35); font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; font-weight: 700; flex-shrink: 0;" title="En Stage de Espera: Escaneada previamente a la sincronización de ARCA"><i class="fa-solid fa-clock"></i> En espera ARCA</span>`;
-
-                        fileDiv.innerHTML = `
-                            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                <i class="fa-solid fa-file-pdf" style="color: #ef4444; flex-shrink: 0;"></i> 
-                                <span style="overflow: hidden; text-overflow: ellipsis;">${escapeHtml(inv.filename)}</span>
-                            </div>
-                            ${arcaBadge}
-                        `;
+                        fileDiv.innerHTML = `<i class="fa-solid fa-file-pdf"></i> <span>${inv.filename}</span>`;
                         fileDiv.addEventListener('click', () => openModal(inv));
                         supplierContent.appendChild(fileDiv);
                     });
@@ -1042,52 +773,21 @@ document.addEventListener('DOMContentLoaded', () => {
         processedTreeContainer.appendChild(rootDiv);
     }
 
-    if (searchProcessedInput) {
-        searchProcessedInput.addEventListener('input', () => filterAndRenderProcessed());
-    }
-
-    if (filterProcessedArca) {
-        filterProcessedArca.addEventListener('change', () => filterAndRenderProcessed());
-    }
-
-    if (btnRefreshProcessed) {
-        btnRefreshProcessed.addEventListener('click', () => {
-            if (searchProcessedInput) searchProcessedInput.value = '';
-            if (filterProcessedArca) filterProcessedArca.value = 'all';
-            fetchProcessedInvoices();
-            showToast("Historial actualizado");
+    searchProcessedInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        const filtered = allProcessedInvoices.filter(inv => {
+            return inv.filename.toLowerCase().includes(query) ||
+                inv.supplier.toLowerCase().includes(query) ||
+                inv.date.toLowerCase().includes(query);
         });
-    }
+        renderProcessedTree(filtered);
+    });
 
-    if (btnReconciliarArca) {
-        btnReconciliarArca.addEventListener('click', async () => {
-            btnReconciliarArca.disabled = true;
-            const originalHtml = btnReconciliarArca.innerHTML;
-            btnReconciliarArca.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Conciliando...`;
-            try {
-                const res = await fetch('/api/arca/reconciliar', { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    const nuev = data.resultado.vinculadas_nuevas || 0;
-                    if (nuev > 0) {
-                        showToast(`¡Conciliación exitosa! ${nuev} facturas vinculadas con ARCA`, 'success');
-                    } else {
-                        showToast("Conciliación al día. No hay nuevas coincidencias.", 'info');
-                    }
-                    await fetchProcessedInvoices();
-                    if (typeof fetchArcaComprasLocal === 'function') fetchArcaComprasLocal();
-                } else {
-                    showToast(`Error al conciliar: ${data.message || 'Error desconocido'}`, 'error');
-                }
-            } catch (err) {
-                console.error("Error conciliando:", err);
-                showToast("Error de conexión al conciliar con ARCA", "error");
-            } finally {
-                btnReconciliarArca.disabled = false;
-                btnReconciliarArca.innerHTML = originalHtml;
-            }
-        });
-    }
+    btnRefreshProcessed.addEventListener('click', () => {
+        searchProcessedInput.value = '';
+        fetchProcessedInvoices();
+        showToast("Historial actualizado");
+    });
 
     // --- Remitos y Documentos No Fiscales ---
     const remitosTreeContainer = document.getElementById('remitos-tree-container');
@@ -1299,46 +999,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const modal = document.getElementById('file-modal');
     const modalTitle = document.getElementById('modal-title');
     const modalIframe = document.getElementById('modal-iframe');
-    const modalArcaBanner = document.getElementById('modal-arca-banner');
     const closeModalBtn = document.querySelector('.close-modal');
 
     function openModal(inv, baseUrl = '/api/file/') {
         modalTitle.textContent = inv.supplier ? `${inv.supplier} - ${inv.filename}` : inv.filename;
         const encodedPath = inv.path.split('/').map(encodeURIComponent).join('/');
         modalIframe.src = `${baseUrl}${encodedPath}`;
-
-        if (modalArcaBanner) {
-            if (inv.arca_match !== undefined) {
-                modalArcaBanner.style.display = 'block';
-                if (inv.arca_match) {
-                    modalArcaBanner.innerHTML = `
-                        <div style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #047857; padding: 0.5rem 0.85rem; border-radius: 8px; font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                            <div>
-                                <strong><i class="fa-solid fa-circle-check"></i> Vinculada con Compras ARCA</strong>
-                                <span style="opacity: 0.85; margin-left: 8px;">(Método: ${escapeHtml(inv.match_metodo || 'Auto')})</span>
-                            </div>
-                            <div style="font-size: 0.78rem;">
-                                ${inv.cae ? `<span>CAE: <strong>${escapeHtml(inv.cae)}</strong></span> ` : ''}
-                                ${inv.cuit ? `<span>CUIT: <strong>${escapeHtml(inv.cuit)}</strong></span> ` : ''}
-                                ${inv.total ? `<span>Total: <strong>${formatCurrency(inv.total)}</strong></span>` : ''}
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    modalArcaBanner.innerHTML = `
-                        <div style="background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); color: #b45309; padding: 0.5rem 0.85rem; border-radius: 8px; font-size: 0.82rem; display: flex; align-items: center; gap: 8px;">
-                            <i class="fa-solid fa-clock" style="font-size: 1.1rem; flex-shrink: 0;"></i>
-                            <div>
-                                <strong>Stage de Espera ARCA:</strong> Esta factura física fue escaneada previamente a la sincronización de ARCA. Se vinculará y marcará como recibida automáticamente apenas ARCA se actualice.
-                            </div>
-                        </div>
-                    `;
-                }
-            } else {
-                modalArcaBanner.style.display = 'none';
-            }
-        }
-
         modal.style.display = 'flex';
         modal.classList.add('fade-in');
     }
@@ -2108,188 +1774,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const history = await res.json();
                 renderUserHistory(history);
             }
-            checkCAEConflicts();
         } catch (e) {
             console.error("Error fetching user history:", e);
         }
     }
-
-    // --- Controlador de Conflictos de CAE entre Proveedores ---
-    async function checkCAEConflicts() {
-        try {
-            const res = await fetch('/api/cae_conflicts');
-            if (!res.ok) return;
-            const data = await res.json();
-            const alertCard = document.getElementById('cae-conflict-alert');
-            const badge = document.getElementById('cae-conflict-badge');
-            const desc = document.getElementById('cae-conflict-desc');
-
-            if (data.total > 0 && alertCard) {
-                alertCard.style.display = 'block';
-                if (badge) badge.textContent = data.total;
-                if (desc && data.conflicts && data.conflicts.length > 0) {
-                    const first = data.conflicts[0];
-                    const suppNames = first.invoices ? first.invoices.map(i => i.supplier).join(' vs ') : '';
-                    desc.textContent = `Se detectó el comprobante ${first.factura_numero || first.cae} asignado a 2 proveedores diferentes (${suppNames}). Uno de ellos es un error de OCR y podés confirmarlo ahora.`;
-                }
-            } else if (alertCard) {
-                alertCard.style.display = 'none';
-            }
-        } catch (e) {
-            console.error("Error al consultar conflictos de CAE:", e);
-        }
-    }
-    window.checkCAEConflicts = checkCAEConflicts;
-
-    async function abrirModalConflictosCAE() {
-        const modal = document.getElementById('modal-conflictos-cae');
-        const container = document.getElementById('cae-conflicts-container');
-        if (!modal || !container) return;
-
-        modal.style.display = 'flex';
-        container.innerHTML = '<div style="text-align:center; padding:2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando conflictos de CAE...</div>';
-
-        try {
-            const res = await fetch('/api/cae_conflicts');
-            const data = await res.json();
-            const conflicts = data.conflicts || [];
-
-            if (conflicts.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 2rem; color: #10b981;">
-                        <i class="fa-solid fa-circle-check" style="font-size: 2.5rem; margin-bottom: 0.75rem;"></i>
-                        <h4 style="margin: 0; font-size: 1.1rem; color: #065f46;">¡No hay conflictos de CAE pendientes!</h4>
-                        <p style="margin: 4px 0 0 0; color: #64748b; font-size: 0.85rem;">Todas las facturas electrónicas están asociadas unívocamente a sus proveedores.</p>
-                    </div>
-                `;
-                const alertCard = document.getElementById('cae-conflict-alert');
-                if (alertCard) alertCard.style.display = 'none';
-                return;
-            }
-
-            container.innerHTML = conflicts.map((c, idx) => {
-                const arcaOficial = c.arca_oficial;
-                let arcaBanner = '';
-                if (arcaOficial) {
-                    arcaBanner = `
-                        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid #6ee7b7; border-radius: 10px; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <i class="fa-solid fa-shield-check" style="color: #059669; font-size: 1.2rem;"></i>
-                                <span style="font-weight: 700; color: #065f46; font-size: 0.88rem;">AFIP / ARCA Oficial:</span>
-                                <span style="font-weight: 800; color: #1e293b; font-size: 0.9rem;">${escapeHtml(arcaOficial.denominacion_emisor || '-')}</span>
-                                <span style="color: #64748b; font-size: 0.82rem;">(CUIT: ${escapeHtml(arcaOficial.nro_doc_emisor || '-')})</span>
-                            </div>
-                            <div style="font-weight: 700; color: #065f46; font-size: 0.88rem;">
-                                Monto Oficial: $${Number(arcaOficial.imp_total || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}
-                            </div>
-                        </div>
-                    `;
-                }
-
-                const invoicesHtml = c.invoices.map((inv, i_idx) => {
-                    const otherInv = c.invoices.find(other => other.id !== inv.id) || c.invoices[i_idx === 0 ? 1 : 0];
-                    const otherId = otherInv ? otherInv.id : 0;
-                    const otherSupplier = otherInv ? otherInv.supplier : 'otro';
-
-                    const isOfficial = inv.is_arca_official;
-                    const cardBorder = isOfficial ? '2px solid #10b981' : '1px solid #e2e8f0';
-                    const cardBg = isOfficial ? 'rgba(16, 185, 129, 0.04)' : '#f8fafc';
-
-                    return `
-                        <div class="glass-card" style="padding: 1.25rem; border: ${cardBorder}; background: ${cardBg}; border-radius: 14px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
-                            <div>
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 6px;">
-                                    <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #64748b;">Opción ${i_idx + 1}</span>
-                                    ${isOfficial ? `<span class="badge" style="background: #10b981; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-check"></i> Verificado en ARCA</span>` : `<span class="badge" style="background: #ef4444; color: white; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 6px;"><i class="fa-solid fa-triangle-exclamation"></i> Posible Error OCR</span>`}
-                                </div>
-                                <h4 style="margin: 0 0 6px 0; font-size: 1.05rem; font-weight: 800; color: #1e293b;">${escapeHtml(inv.supplier)}</h4>
-                                <div style="font-size: 0.82rem; color: #64748b; display: flex; flex-direction: column; gap: 4px;">
-                                    <div><strong>CUIT:</strong> ${escapeHtml(inv.cuit || 'No detectado')}</div>
-                                    <div><strong>Monto:</strong> $${Number(inv.total || 0).toLocaleString('es-AR', {minimumFractionDigits: 2})}</div>
-                                    <div><strong>Archivo:</strong> <code style="font-size: 0.78rem;">${escapeHtml(inv.filename)}</code></div>
-                                </div>
-                            </div>
-                            <div style="margin-top: 8px;">
-                                <button type="button" class="btn ${isOfficial ? 'btn-primary' : 'btn-danger'} btn-sm btn-resolver-cae" style="width: 100%; font-weight: 700; padding: 0.6rem; display: flex; align-items: center; justify-content: center; gap: 6px;" data-cae="${escapeHtml(c.cae)}" data-keep-id="${inv.id}" data-keep-supplier="${escapeHtml(inv.supplier)}">
-                                    <i class="fa-solid fa-check"></i> Confirmar ${escapeHtml(inv.supplier.substring(0, 18))} (Eliminar el otro)
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-
-                return `
-                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                            <div>
-                                <span style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; color: #64748b;">Comprobante / Archivo:</span>
-                                <h4 style="margin: 2px 0 0 0; font-size: 1.1rem; font-weight: 800; color: #1e293b;">${escapeHtml(c.factura_numero)}</h4>
-                            </div>
-                            <div style="text-align: right;">
-                                <span style="font-size: 0.75rem; font-weight: 600; color: #64748b;">Número de CAE:</span>
-                                <div style="font-family: monospace; font-weight: 800; font-size: 0.95rem; color: #4338ca;">${escapeHtml(c.cae)}</div>
-                            </div>
-                        </div>
-
-                        ${arcaBanner}
-
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-                            ${invoicesHtml}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Delegación de eventos para botones de resolución
-            container.querySelectorAll('.btn-resolver-cae').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const cae = btn.getAttribute('data-cae');
-                    const keepId = parseInt(btn.getAttribute('data-keep-id'), 10);
-                    const keepSupplier = btn.getAttribute('data-keep-supplier');
-                    resolverConflictoCAE(cae, keepId, keepSupplier);
-                });
-            });
-        } catch (e) {
-            console.error("Error al cargar modal de conflictos:", e);
-            container.innerHTML = '<div style="color: #ef4444; padding: 1.5rem; text-align: center;">Error al cargar conflictos de CAE.</div>';
-        }
-    }
-    window.abrirModalConflictosCAE = abrirModalConflictosCAE;
-
-    function cerrarModalConflictosCAE() {
-        const modal = document.getElementById('modal-conflictos-cae');
-        if (modal) modal.style.display = 'none';
-    }
-    window.cerrarModalConflictosCAE = cerrarModalConflictosCAE;
-
-    async function resolverConflictoCAE(cae, keepId, keepSupplier) {
-        if (!confirm(`¿Confirmar '${keepSupplier}' como el proveedor legítimo de esta factura y ELIMINAR los registros erróneos/duplicados del disco y de la base de datos?`)) {
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/cae_conflicts/resolve', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cae: cae, keep_id: keepId })
-            });
-            const data = await res.json();
-            if (data.success) {
-                showToast(data.message, 'success');
-                abrirModalConflictosCAE();
-                checkCAEConflicts();
-                if (typeof fetchUserHistory === 'function') fetchUserHistory();
-                if (typeof fetchStatus === 'function') fetchStatus();
-                if (typeof fetchProcessedInvoices === 'function') fetchProcessedInvoices();
-            } else {
-                showToast(data.message || "Error al resolver conflicto", "error");
-            }
-        } catch (e) {
-            console.error("Error al resolver conflicto de CAE:", e);
-            showToast("Error de conexión al resolver conflicto", "error");
-        }
-    }
-    window.resolverConflictoCAE = resolverConflictoCAE;
 
     function renderUserHistory(history) {
         if (!userHistoryTableBody) return;
@@ -2350,57 +1838,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Utility: Privacy Mode (Ocultar Montos / Asteriscos) ---
-    window.isPrivacyMode = function () {
-        return localStorage.getItem('erp_privacy_mode') === 'true';
-    };
-
-    window.togglePrivacyMode = function () {
-        const next = !window.isPrivacyMode();
-        localStorage.setItem('erp_privacy_mode', next ? 'true' : 'false');
-        updatePrivacyModeUI();
-        if (typeof switchTab === 'function') {
-            switchTab(currentActiveTab);
-        }
-        if (typeof showToast === 'function') {
-            showToast(next ? 'Modo Privacidad activado: Montos protegidos con asteriscos' : 'Modo Privacidad desactivado: Montos visibles', 'info');
-        }
-    };
-
-    function updatePrivacyModeUI() {
-        const active = window.isPrivacyMode();
-        document.body.classList.toggle('privacy-mode', active);
-        const btn = document.getElementById('btn-privacy-toggle');
-        const icon = document.getElementById('privacy-icon');
-        const text = document.getElementById('privacy-text');
-        if (btn) {
-            btn.classList.toggle('active', active);
-        }
-        if (icon) {
-            icon.className = active ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
-        }
-        if (text) {
-            text.textContent = active ? 'Mostrar Montos' : 'Ocultar Montos';
-        }
-    }
-
-    // Inicializar estado visual de privacidad al cargar
-    setTimeout(updatePrivacyModeUI, 50);
-
     // --- Utility: Format Currency ---
     function formatCurrency(val) {
-        if (window.isPrivacyMode && window.isPrivacyMode()) return '$ ***.***';
         if (val === null || val === undefined || isNaN(val)) return '$0';
         return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(val);
     }
 
     function renderDiffTag(diff) {
-        if (window.isPrivacyMode && window.isPrivacyMode()) return `<span class="diff-tag zero">$ ***</span>`;
         if (!diff || diff === 0) return `<span class="diff-tag zero">$0</span>`;
         if (diff > 0) return `<span class="diff-tag positive">+${formatCurrency(diff)}</span>`;
         return `<span class="diff-tag negative">${formatCurrency(diff)}</span>`;
     }
-
 
     // Chart instances
     let chartRecaudacionInst = null;
@@ -2433,171 +1881,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 1. Cuentas por Pagar (Archivos Procesados)
-    let isCuentasPagarExpanded = false;
-    let lastCuentasPagarData = null;
-
-    window.toggleCuentasPagarExpanded = function () {
-        isCuentasPagarExpanded = !isCuentasPagarExpanded;
-        if (lastCuentasPagarData) {
-            renderCuentasPorPagar(lastCuentasPagarData);
-        } else {
-            fetchCuentasPorPagar();
+    // 1. Cuentas por Pagar
+    window.toggleDesgloseCuentaLocal = function (idx) {
+        const row = document.getElementById(`breakdown-row-local-${idx}`);
+        const icon = document.getElementById(`breakdown-icon-local-${idx}`);
+        if (row) {
+            if (row.style.display === 'none' || !row.style.display) {
+                row.style.display = 'table-row';
+                if (icon) icon.style.transform = 'rotate(90deg)';
+            } else {
+                row.style.display = 'none';
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
         }
     };
-
-    function renderCuentasPorPagar(data) {
-        lastCuentasPagarData = data;
-        const pendientes = (data.cuentas || []).filter(c => c.estado !== 'Pagado');
-        const tbody = document.getElementById('tbl-cuentas-pagar-body');
-        const badge = document.getElementById('cp-proveedores-badge');
-        const headerBtn = document.getElementById('btn-toggle-cp-expand');
-        const footerBanner = document.getElementById('cp-footer-banner');
-
-        if (!tbody) return;
-
-        if (!pendientes || pendientes.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">No hay facturas pendientes en cuentas por pagar</td></tr>`;
-            if (badge) badge.style.display = 'none';
-            if (headerBtn) headerBtn.style.display = 'none';
-            if (footerBanner) footerBanner.style.display = 'none';
-            return;
-        }
-
-        // Obtener lista única de proveedores preservando el orden de aparición
-        const uniqueSuppliers = [];
-        pendientes.forEach(c => {
-            const prov = (c.proveedor_nombre || 'Desconocido').trim();
-            if (!uniqueSuppliers.includes(prov)) {
-                uniqueSuppliers.push(prov);
-            }
-        });
-
-        const totalSuppliers = uniqueSuppliers.length;
-        const hasMoreThan3 = totalSuppliers > 3;
-
-        // Por defecto: mostrar colapsado a máximo 3 proveedores
-        const isCollapsed = !isCuentasPagarExpanded && hasMoreThan3;
-        const visibleSuppliers = isCollapsed ? uniqueSuppliers.slice(0, 3) : uniqueSuppliers;
-
-        const displayedInvoices = pendientes.filter(c => visibleSuppliers.includes((c.proveedor_nombre || 'Desconocido').trim()));
-        const hiddenSuppliersCount = totalSuppliers - visibleSuppliers.length;
-        const hiddenInvoicesCount = pendientes.length - displayedInvoices.length;
-
-        // Actualizar badge informativo en el encabezado
-        if (badge) {
-            badge.style.display = 'inline-flex';
-            badge.style.alignItems = 'center';
-            badge.style.gap = '6px';
-            if (hasMoreThan3) {
-                if (isCollapsed) {
-                    badge.innerHTML = `<i class="fa-solid fa-compress"></i> <span>Colapsada: 3 de ${totalSuppliers} proveedores (${displayedInvoices.length} facturas)</span>`;
-                    badge.style.background = 'rgba(59, 130, 246, 0.1)';
-                    badge.style.color = 'var(--primary-color)';
-                    badge.style.borderColor = 'rgba(59, 130, 246, 0.25)';
-                } else {
-                    badge.innerHTML = `<i class="fa-solid fa-expand"></i> <span>Ampliada: ${totalSuppliers} proveedores (${pendientes.length} facturas)</span>`;
-                    badge.style.background = 'rgba(16, 185, 129, 0.1)';
-                    badge.style.color = '#059669';
-                    badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-                }
-            } else {
-                badge.innerHTML = `<i class="fa-solid fa-layer-group"></i> <span>${totalSuppliers} ${totalSuppliers === 1 ? 'proveedor' : 'proveedores'} (${pendientes.length} facturas)</span>`;
-                badge.style.background = 'rgba(100, 116, 139, 0.1)';
-                badge.style.color = 'var(--text-primary)';
-                badge.style.borderColor = 'var(--border-color)';
-            }
-        }
-
-        // Actualizar botón de acción en el encabezado
-        if (headerBtn) {
-            if (hasMoreThan3) {
-                headerBtn.style.display = 'inline-flex';
-                headerBtn.style.alignItems = 'center';
-                headerBtn.style.gap = '6px';
-                if (isCollapsed) {
-                    headerBtn.className = 'btn btn-sm btn-outline-primary';
-                    headerBtn.style.background = 'rgba(59, 130, 246, 0.08)';
-                    headerBtn.style.color = 'var(--primary-color)';
-                    headerBtn.style.border = '1px solid rgba(59, 130, 246, 0.3)';
-                    headerBtn.innerHTML = `<i class="fa-solid fa-chevron-down"></i> <span>Ampliar (${hiddenSuppliersCount} prov. más)</span>`;
-                    headerBtn.title = 'Mostrar todos los proveedores pendientes';
-                } else {
-                    headerBtn.className = 'btn btn-sm btn-secondary';
-                    headerBtn.style.background = 'rgba(100, 116, 139, 0.12)';
-                    headerBtn.style.color = 'var(--text-primary)';
-                    headerBtn.style.border = '1px solid var(--border-color)';
-                    headerBtn.innerHTML = `<i class="fa-solid fa-chevron-up"></i> <span>Colapsar a 3 proveedores</span>`;
-                    headerBtn.title = 'Colapsar para ver únicamente 3 proveedores';
-                }
-            } else {
-                headerBtn.style.display = 'none';
-            }
-        }
-
-        // Banner inferior explicativo y de acción
-        if (footerBanner) {
-            if (hasMoreThan3) {
-                footerBanner.style.display = 'block';
-                if (isCollapsed) {
-                    footerBanner.innerHTML = `
-                        <div style="background: rgba(59, 130, 246, 0.04); border: 1px dashed rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 10px 14px; margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <span style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">
-                                <i class="fa-solid fa-circle-info" style="color: var(--primary-color); margin-right: 4px;"></i>
-                                Vista colapsada: Mostrando primeros 3 proveedores. Hay <strong>${hiddenSuppliersCount}</strong> proveedores más con <strong>${hiddenInvoicesCount}</strong> facturas pendientes.
-                            </span>
-                            <button class="btn btn-sm btn-outline-primary" onclick="toggleCuentasPagarExpanded()" style="font-weight: 600; padding: 0.4rem 0.95rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.08); color: var(--primary-color); border: 1px solid rgba(59, 130, 246, 0.3); cursor: pointer;">
-                                <i class="fa-solid fa-chevron-down"></i> Ampliar lista completa (${totalSuppliers} proveedores)
-                            </button>
-                        </div>
-                    `;
-                } else {
-                    footerBanner.innerHTML = `
-                        <div style="background: rgba(100, 116, 139, 0.04); border: 1px dashed var(--border-color); border-radius: 8px; padding: 10px 14px; margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <span style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500;">
-                                <i class="fa-solid fa-check-double" style="color: #10b981; margin-right: 4px;"></i>
-                                Vista ampliada: Mostrando la totalidad de proveedores pendientes (<strong>${totalSuppliers}</strong> proveedores, <strong>${pendientes.length}</strong> facturas).
-                            </span>
-                            <button class="btn btn-sm btn-secondary" onclick="toggleCuentasPagarExpanded()" style="font-weight: 600; padding: 0.4rem 0.95rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; background: rgba(100, 116, 139, 0.1); color: var(--text-primary); border: 1px solid var(--border-color); cursor: pointer;">
-                                <i class="fa-solid fa-chevron-up"></i> Colapsar a 3 proveedores
-                            </button>
-                        </div>
-                    `;
-                }
-            } else {
-                footerBanner.style.display = 'none';
-            }
-        }
-
-        // Renderizado de filas
-        tbody.innerHTML = displayedInvoices.map(c => {
-            let badgeClass = 'badge-pending';
-            if (c.estado === 'Pagado') badgeClass = 'badge-paid';
-            if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
-
-            const actionBtn = c.estado !== 'Pagado' ? `
-                <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
-                    onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
-                    <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
-                    <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
-                    <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
-                    <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
-                    <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
-                </select>
-            ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
-
-            return `
-                <tr>
-                    <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
-                    <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
-                    <td>${escapeHtml(c.fecha || '-')}</td>
-                    <td><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
-                    <td>${escapeHtml(c.medio_pago || '-')}</td>
-                    <td>${actionBtn}</td>
-                </tr>
-            `;
-        }).join('');
-    }
 
     async function fetchCuentasPorPagar() {
         try {
@@ -2605,13 +1902,160 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(url);
             const data = await res.json();
 
-            document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
-            document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
-            document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
+            if (data.resumen) {
+                document.getElementById('cp-stat-facturado').textContent = formatCurrency(data.resumen.total_facturado);
+                document.getElementById('cp-stat-pagado').textContent = formatCurrency(data.resumen.total_pagado);
+                document.getElementById('cp-stat-pendiente').textContent = formatCurrency(data.resumen.total_pendiente);
+            }
 
             fetchLocalPagosNoRegistrados();
 
-            renderCuentasPorPagar(data);
+            const tbody = document.getElementById('tbl-cuentas-pagar-body');
+            const proveedores = data.proveedores || [];
+            const rawCuentas = data.cuentas || [];
+
+            if (proveedores.length === 0 && rawCuentas.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-secondary); padding: 1.5rem;">No hay facturas pendientes en cuentas por pagar</td></tr>`;
+                return;
+            }
+
+            // Vista agrupada por Proveedor (con desglose acordeón)
+            if (proveedores.length > 0) {
+                tbody.innerHTML = proveedores.map((p, idx) => {
+                    const isPagado = p.estado === 'Pagado';
+                    const isParcial = p.estado === 'Parcial';
+                    let badgeClass = 'badge-pending';
+                    if (isPagado) badgeClass = 'badge-paid';
+                    if (isParcial) badgeClass = 'badge-partial';
+
+                    const firstPending = p.facturas.find(f => f.estado !== 'Pagado') || p.facturas[0];
+
+                    const actionBtn = !isPagado ? `
+                        <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                            onclick="event.stopPropagation();"
+                            onchange="if(this.value) { registrarPagoProveedor(${firstPending.id}, this.value); this.value=''; }">
+                            <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                            <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
+                            <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
+                            <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
+                            <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
+                        </select>
+                    ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+
+                    return `
+                        <tr style="cursor: pointer; transition: background 0.15s;" onclick="toggleDesgloseCuentaLocal(${idx})" title="Click para ver desglose de comprobantes">
+                            <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">
+                                <i class="fa-solid fa-chevron-right" id="breakdown-icon-local-${idx}" style="margin-right: 6px; font-size: 0.75rem; color: var(--text-secondary); transition: transform 0.2s;"></i>
+                                ${escapeHtml(p.fecha || '-')}
+                            </td>
+                            <td>
+                                <strong>${escapeHtml(p.proveedor_nombre)}</strong>
+                                <span class="badge" style="background: rgba(59, 130, 246, 0.12); color: #2563eb; font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 6px; margin-left: 6px;">
+                                    ${p.cantidad_facturas} ${p.cantidad_facturas === 1 ? 'factura' : 'facturas'}
+                                </span>
+                            </td>
+                            <td>
+                                <span style="font-size: 0.82rem; color: var(--text-secondary); font-family: monospace;">
+                                    <i class="fa-solid fa-list-check" style="color: #3b82f6; margin-right: 4px;"></i>
+                                    ${p.cantidad_facturas} comprobante${p.cantidad_facturas === 1 ? '' : 's'} (Ver desglose)
+                                </span>
+                            </td>
+                            <td style="text-align: right; font-weight: 800; font-size: 0.95rem; color: var(--text-primary);">
+                                ${formatCurrency(p.total_acumulado)}
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="badge-status ${badgeClass}">${escapeHtml(p.estado)}</span>
+                            </td>
+                            <td style="text-align: center;" onclick="event.stopPropagation();">
+                                ${actionBtn}
+                            </td>
+                        </tr>
+                        <tr id="breakdown-row-local-${idx}" style="display: none; background: rgba(0, 0, 0, 0.02);">
+                            <td colspan="6" style="padding: 0.8rem 1.2rem; border-bottom: 2px solid var(--border-color);">
+                                <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #cbd5e1); border-radius: 10px; padding: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                                    <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 0.6rem; display: flex; align-items: center; justify-content: space-between;">
+                                        <span><i class="fa-solid fa-receipt" style="color: #2563eb; margin-right: 6px;"></i> Desglose de Facturas (${p.cantidad_facturas}) &mdash; <strong>${escapeHtml(p.proveedor_nombre)}</strong></span>
+                                        <span style="color: var(--text-primary); font-weight: 800;">Total Acumulado: ${formatCurrency(p.total_acumulado)}</span>
+                                    </div>
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                                        <thead>
+                                            <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-secondary); background: rgba(0,0,0,0.02);">
+                                                <th style="text-align: left; padding: 6px 10px;">N° Comprobante / Archivo</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Fecha</th>
+                                                <th style="text-align: right; padding: 6px 10px;">Monto Total</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Estado</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Medio de Pago</th>
+                                                <th style="text-align: center; padding: 6px 10px;">Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${p.facturas.map(f => {
+                                                const fPagado = f.estado === 'Pagado';
+                                                const fBadgeClass = fPagado ? 'badge-paid' : 'badge-pending';
+                                                return `
+                                                    <tr style="border-bottom: 1px solid var(--border-color, #f1f5f9);">
+                                                        <td style="padding: 6px 10px; font-family: monospace; font-weight: 600; color: var(--text-primary);">
+                                                            <i class="fa-solid fa-file-invoice" style="color: var(--text-secondary); margin-right: 6px;"></i>
+                                                            ${escapeHtml(f.factura_numero || '-')}
+                                                        </td>
+                                                        <td style="padding: 6px 10px; text-align: center; color: var(--text-secondary); font-family: monospace;">${escapeHtml(f.fecha || '-')}</td>
+                                                        <td style="padding: 6px 10px; text-align: right; font-weight: 800; color: var(--text-primary);">${formatCurrency(f.monto_total)}</td>
+                                                        <td style="padding: 6px 10px; text-align: center;">
+                                                            <span class="badge-status ${fBadgeClass}">${escapeHtml(f.estado)}</span>
+                                                        </td>
+                                                        <td style="padding: 6px 10px; text-align: center; color: var(--text-secondary); font-size: 0.8rem;">${escapeHtml(f.medio_pago || '-')}</td>
+                                                        <td style="padding: 6px 10px; text-align: center;">
+                                                            ${!fPagado ? `
+                                                                <select class="form-control" style="font-size: 0.75rem; padding: 2px 4px; height: 26px; border-radius: 6px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                                                                    onchange="if(this.value) { registrarPagoProveedor(${f.id}, this.value); this.value=''; }">
+                                                                    <option value="" disabled selected>Pagar...</option>
+                                                                    <option value="Efectivo">🟩 Efectivo</option>
+                                                                    <option value="Galicia">🟧 Galicia</option>
+                                                                    <option value="Mercado Pago">🟦 MP</option>
+                                                                    <option value="Tarjeta crédito">🟪 Crédito</option>
+                                                                </select>
+                                                            ` : `<span style="color: #047857; font-weight: 700; font-size: 0.78rem;"><i class="fa-solid fa-check"></i></span>`}
+                                                        </td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                // Fallback plano
+                tbody.innerHTML = rawCuentas.map(c => {
+                    let badgeClass = 'badge-pending';
+                    if (c.estado === 'Pagado') badgeClass = 'badge-paid';
+                    if (c.estado === 'Pagado Parcial') badgeClass = 'badge-partial';
+
+                    const actionBtn = c.estado !== 'Pagado' ? `
+                        <select class="form-control" style="font-size: 0.78rem; padding: 3px 6px; height: 30px; border-radius: 8px; font-weight: 600; cursor: pointer; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color);"
+                            onchange="if(this.value) registrarPagoProveedor(${c.id}, this.value)">
+                            <option value="" disabled selected style="color: var(--text-secondary);">Pagar con...</option>
+                            <option value="Efectivo" style="color: #10b981; font-weight: 700;">🟩 Efectivo</option>
+                            <option value="Galicia" style="color: #ea580c; font-weight: 700;">🟧 Galicia</option>
+                            <option value="Mercado Pago" style="color: #2563eb; font-weight: 700;">🟦 Mercado Pago</option>
+                            <option value="Tarjeta crédito" style="color: #7c3aed; font-weight: 700;">🟪 Tarjeta crédito</option>
+                        </select>
+                    ` : `<span style="color: #047857; font-weight: 700;"><i class="fa-solid fa-check"></i> Pagado</span>`;
+
+                    return `
+                        <tr>
+                            <td>${escapeHtml(c.fecha || '-')}</td>
+                            <td><strong>${escapeHtml(c.proveedor_nombre)}</strong></td>
+                            <td style="font-family: monospace;">${escapeHtml(c.factura_numero)}</td>
+                            <td style="text-align: right; font-weight: 800;">${formatCurrency(c.monto_total)}</td>
+                            <td style="text-align: center;"><span class="badge-status ${badgeClass}">${escapeHtml(c.estado)}</span></td>
+                            <td style="text-align: center;">${actionBtn}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
         } catch (e) {
             console.error("Error cargando cuentas por pagar:", e);
         }
@@ -2639,7 +2083,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
     // PAGOS NO REGISTRADOS (Local)
     // ==========================================
+    // GESTIÓN DE PAGOS NO REGISTRADOS (LOCAL)
+    // ==========================================
     let localPagosNoRegistrados = [];
+    let localCategoriesTree = [];
+
+    async function loadLocalCategories() {
+        try {
+            const res = await fetch('/api/categorias');
+            const data = await res.json();
+            localCategoriesTree = data.tree || [];
+        } catch (e) {
+            console.error("Error cargando categorías locales:", e);
+        }
+    }
 
     window.fetchLocalPagosNoRegistrados = async function () {
         try {
@@ -2654,6 +2111,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const elCant = document.getElementById('local-pnr-stat-cantidad');
             if (elCant) elCant.textContent = `${data.cantidad || 0} pagos`;
 
+            if (localCategoriesTree.length === 0) {
+                await loadLocalCategories();
+            }
+
             populateLocalPnrDatalist();
             renderLocalPagosNoRegistrados();
         } catch (e) {
@@ -2665,11 +2126,108 @@ document.addEventListener('DOMContentLoaded', () => {
         const datalist = document.getElementById('list-local-pnr-proveedores');
         if (!datalist) return;
         const set = new Set();
-        (localPagosNoRegistrados || []).forEach(p => {
-            if (p.proveedor) set.add(p.proveedor.trim());
+
+        (allSuppliers || []).forEach(s => {
+            if (s.nombre && s.nombre.trim()) set.add(s.nombre.trim());
+            if (s.alias && s.alias.trim()) set.add(s.alias.trim());
         });
-        datalist.innerHTML = Array.from(set).map(n => `<option value="${escapeHtml(n)}">`).join('');
+
+        (localPagosNoRegistrados || []).forEach(p => {
+            if (p.proveedor && p.proveedor.trim()) set.add(p.proveedor.trim());
+        });
+
+        datalist.innerHTML = Array.from(set)
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+            .map(n => `<option value="${escapeHtml(n)}">`)
+            .join('');
     }
+
+    window.onLocalPnrProveedorInput = function (val) {
+        if (!val || !val.trim()) return;
+        const clean = val.trim().toLowerCase();
+        const match = (allSuppliers || []).find(s =>
+            (s.nombre && s.nombre.toLowerCase().trim() === clean) ||
+            (s.alias && s.alias.toLowerCase().trim() === clean)
+        );
+
+        if (match) {
+            const catSelect = document.getElementById('local-pnr-categoria');
+            if (match.categoria && match.categoria !== 'General' && catSelect) {
+                catSelect.value = match.categoria;
+                onLocalPnrCategoryChange(match.subcategoria || '');
+            } else if (match.subcategoria) {
+                onLocalPnrCategoryChange(match.subcategoria);
+            }
+        }
+    };
+
+    function populateLocalPnrCategorias(selectedCat = '') {
+        const select = document.getElementById('local-pnr-categoria');
+        if (!select) return;
+
+        let html = '<option value="">-- Seleccionar Rubro --</option>';
+        const seen = new Set();
+
+        (localCategoriesTree || []).forEach(c => {
+            const nom = (c.nombre || '').trim();
+            if (nom && !seen.has(nom.toLowerCase())) {
+                seen.add(nom.toLowerCase());
+                const isSel = (nom.toLowerCase() === (selectedCat || '').toLowerCase().trim()) ? 'selected' : '';
+                html += `<option value="${escapeHtml(nom)}" ${isSel}>${escapeHtml(nom)}</option>`;
+            }
+        });
+
+        select.innerHTML = html;
+    }
+
+    window.onLocalPnrCategoryChange = function (targetSubcat = '') {
+        const catSelect = document.getElementById('local-pnr-categoria');
+        const subcatSelect = document.getElementById('local-pnr-subcategoria');
+        const motivoInput = document.getElementById('local-pnr-motivo');
+        if (!catSelect || !subcatSelect) return;
+
+        const selectedCat = (catSelect.value || '').trim();
+        let subHtml = '<option value="">-- Sin Subcategoría --</option>';
+
+        if (selectedCat) {
+            const matched = (localCategoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === selectedCat.toLowerCase());
+            if (matched && matched.subcategorias && matched.subcategorias.length > 0) {
+                matched.subcategorias.forEach(sub => {
+                    const sNom = (sub.nombre || '').trim();
+                    const isSel = (targetSubcat && sNom.toLowerCase() === targetSubcat.toLowerCase().trim()) ? 'selected' : '';
+                    subHtml += `<option value="${escapeHtml(sNom)}" ${isSel}>${escapeHtml(sNom)}</option>`;
+                });
+            }
+        }
+
+        subcatSelect.innerHTML = subHtml;
+
+        if (motivoInput) {
+            if (targetSubcat) {
+                if (!motivoInput.value || motivoInput.value === selectedCat) motivoInput.value = targetSubcat;
+            } else if (subcatSelect.value) {
+                if (!motivoInput.value || motivoInput.value === selectedCat) motivoInput.value = subcatSelect.value;
+            } else if (selectedCat && !motivoInput.value) {
+                motivoInput.value = selectedCat;
+            }
+        }
+    };
+
+    window.onLocalPnrSubcategoryChange = function () {
+        const subcatSelect = document.getElementById('local-pnr-subcategoria');
+        const catSelect = document.getElementById('local-pnr-categoria');
+        const motivoInput = document.getElementById('local-pnr-motivo');
+        if (!subcatSelect || !motivoInput) return;
+
+        const subVal = subcatSelect.value;
+        const catVal = catSelect ? catSelect.value : '';
+
+        if (subVal) {
+            motivoInput.value = subVal;
+        } else if (catVal && (!motivoInput.value || motivoInput.value === subVal)) {
+            motivoInput.value = catVal;
+        }
+    };
 
     window.filterLocalPagosNoRegistrados = function (term) {
         renderLocalPagosNoRegistrados(term);
@@ -2682,7 +2240,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const q = (term || document.getElementById('local-pnr-search')?.value || '').toLowerCase().trim();
         const filtered = (localPagosNoRegistrados || []).filter(p => {
             if (!q) return true;
-            return (p.proveedor || '').toLowerCase().includes(q) || (p.motivo || '').toLowerCase().includes(q) || (p.fecha || '').includes(q);
+            return (p.proveedor || '').toLowerCase().includes(q) ||
+                   (p.motivo || '').toLowerCase().includes(q) ||
+                   (p.categoria || '').toLowerCase().includes(q) ||
+                   (p.subcategoria || '').toLowerCase().includes(q) ||
+                   (p.fecha || '').includes(q);
         });
 
         if (filtered.length === 0) {
@@ -2690,28 +2252,50 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        tbody.innerHTML = filtered.map(p => `
-            <tr>
-                <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">${escapeHtml(p.fecha || '-')}</td>
-                <td><strong>${escapeHtml(p.proveedor || '-')}</strong></td>
-                <td style="color: var(--text-secondary); font-size: 0.85rem;">${p.motivo ? escapeHtml(p.motivo) : '<em>-</em>'}</td>
-                <td style="text-align: right; font-weight: 700;">${formatCurrency(p.monto || 0)}</td>
-                <td style="text-align: center;">
-                    <button class="btn btn-secondary btn-sm" onclick="handleDeleteLocalPagoNoRegistrado(${p.id})" title="Eliminar Pago" style="color: #ef4444; padding: 3px 7px;">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+        tbody.innerHTML = filtered.map(p => {
+            const catBadge = p.categoria ? `<span style="font-size: 0.72rem; font-weight: 700; color: #2563eb; background: rgba(37,99,235,0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(37,99,235,0.2);"><i class="fa-solid fa-tag"></i> ${escapeHtml(p.categoria)}</span>` : '';
+            const subBadge = p.subcategoria ? `<span style="font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-color);">${escapeHtml(p.subcategoria)}</span>` : '';
+
+            return `
+                <tr>
+                    <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">${escapeHtml(p.fecha || '-')}</td>
+                    <td><strong>${escapeHtml(p.proveedor || '-')}</strong></td>
+                    <td>
+                        <div style="display: flex; flex-direction: column; gap: 3px;">
+                            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                ${catBadge}
+                                ${subBadge}
+                            </div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem;">${p.motivo ? escapeHtml(p.motivo) : '<em>-</em>'}</span>
+                        </div>
+                    </td>
+                    <td style="text-align: right; font-weight: 700;">${formatCurrency(p.monto || 0)}</td>
+                    <td style="text-align: center;">
+                        <button class="btn btn-secondary btn-sm" onclick="handleDeleteLocalPagoNoRegistrado(${p.id})" title="Eliminar Pago" style="color: #ef4444; padding: 3px 7px;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 
-    window.openModalLocalPagoNoRegistrado = function () {
+    window.openModalLocalPagoNoRegistrado = async function () {
         const modal = document.getElementById('modal-local-pago-no-registrado');
         const form = document.getElementById('form-local-pago-no-registrado');
         if (!modal || !form) return;
         form.reset();
         document.getElementById('local-pnr-id').value = '';
         document.getElementById('local-pnr-fecha').value = new Date().toISOString().slice(0, 10);
+
+        if (localCategoriesTree.length === 0) {
+            await loadLocalCategories();
+        }
+
+        populateLocalPnrDatalist();
+        populateLocalPnrCategorias('');
+        onLocalPnrCategoryChange('');
+
         modal.style.display = 'flex';
     };
 
@@ -2727,7 +2311,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const fecha = document.getElementById('local-pnr-fecha').value;
         const proveedor = document.getElementById('local-pnr-proveedor').value.trim();
         const monto = parseFloat(document.getElementById('local-pnr-monto').value);
-        const motivo = document.getElementById('local-pnr-motivo').value.trim();
+        const categoria = document.getElementById('local-pnr-categoria')?.value?.trim() || '';
+        const subcategoria = document.getElementById('local-pnr-subcategoria')?.value?.trim() || '';
+        let motivo = document.getElementById('local-pnr-motivo')?.value?.trim() || '';
+
+        if (!motivo) {
+            motivo = subcategoria || categoria;
+        }
 
         if (!proveedor) {
             showToast('El nombre del proveedor es obligatorio', 'error');
@@ -2747,12 +2337,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/pagos_no_registrados', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fecha, proveedor, monto, motivo })
+                body: JSON.stringify({ fecha, proveedor, monto, motivo, categoria, subcategoria })
             });
             const data = await res.json();
             if (data.success) {
                 showToast('Pago no registrado guardado exitosamente');
                 closeModalLocalPagoNoRegistrado();
+                fetchSuppliers();
                 fetchLocalPagosNoRegistrados();
                 fetchCuentasPorPagar();
             } else {
@@ -4005,9 +3596,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const el_nc_cnt = document.getElementById('arca-count-nc');
             const el_nc_badge = document.getElementById('arca-badge-nc');
 
+            const netTot = data.resumen.total_neto !== undefined ? data.resumen.total_neto : (data.resumen.total_importe || 0);
+            const brutoTot = data.resumen.total_bruto !== undefined ? data.resumen.total_bruto : netTot;
+            const ncTot = data.resumen.total_nc || 0;
+
             if (el_pend) el_pend.textContent = data.resumen.pendientes || 0;
             if (el_pag) el_pag.innerHTML = `${data.resumen.pagados || 0} (<span style="color:var(--text-secondary); font-size:0.85em;">${formatCurrency(data.resumen.pagados_total || 0)}</span>)`;
-            if (el_tot) el_tot.textContent = formatCurrency(data.resumen.total_importe || 0);
+            if (el_tot) {
+                if (ncTot > 0) {
+                    el_tot.innerHTML = `${formatCurrency(netTot)} <span style="font-size:0.75rem; font-weight:600; opacity:0.85; margin-left:4px;" title="Facturado Bruto: ${formatCurrency(brutoTot)} | NCs: -${formatCurrency(ncTot)}">(Bruto: ${formatCurrency(brutoTot)})</span>`;
+                } else {
+                    el_tot.textContent = formatCurrency(netTot);
+                }
+            }
 
             if (el_retro_cnt && el_retro_badge) {
                 const retroCnt = data.resumen.retroactivas || 0;
@@ -4035,6 +3636,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if (c.is_nc) return true;
         const t = String(c.tipo_comprobante || '').trim().toLowerCase();
         return AFIP_NC_CODES.includes(t) || (t.includes('nota') && (t.includes('cr') || t.includes('credito'))) || t === 'nc';
+    }
+
+    function formatNumeroFactura(puntoVenta, nroComprobante) {
+        if (!puntoVenta && !nroComprobante) return '';
+        let pvStr = String(puntoVenta || '').trim();
+        let nroStr = String(nroComprobante || '').trim();
+
+        if (pvStr.includes(',')) {
+            const parts = pvStr.split(',');
+            if (parts.length >= 4) {
+                pvStr = parts[2] || '';
+                nroStr = parts[3] || '';
+            }
+        }
+
+        const pvDigits = pvStr.replace(/\D/g, '');
+        const nroDigits = nroStr.replace(/\D/g, '');
+
+        if (!pvDigits && !nroDigits) return '';
+
+        const pvPadded = pvDigits ? (pvDigits.length < 4 ? pvDigits.padStart(4, '0') : pvDigits) : '0000';
+        const nroPadded = nroDigits ? (nroDigits.length < 8 ? nroDigits.padStart(8, '0') : nroDigits) : '';
+
+        return nroPadded ? `${pvPadded} - ${nroPadded}` : pvPadded;
     }
 
     window.renderArcaCompras = function () {
@@ -4115,6 +3740,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const esNC = checkIsNC(c);
             const esRetro = c.es_retroactiva == 1;
+            const facNum = formatNumeroFactura(c.punto_venta, c.nro_comprobante);
+            const labelTipo = esNC ? 'Nota de Crédito' : 'Factura';
+            const invTooltip = facNum ? `${labelTipo}: ${facNum}` : '';
+            const invAttr = invTooltip ? `title="${escapeHtml(invTooltip)}"` : '';
 
             const ncTag = esNC ? ` <span class="badge" style="background: rgba(239, 68, 68, 0.18); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px;" title="${escapeHtml(c.tipo_comprobante || 'Nota de Crédito')}"><i class="fa-solid fa-file-invoice-dollar"></i> NC</span>` : '';
             const retroTag = esRetro ? ` <span class="badge" style="background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); font-weight:700; font-size:0.68rem; padding: 2px 5px; cursor: help;" title="Factura Retroactiva: Comprobante cuya fecha de emisión es anterior a la fecha máxima previamente sincronizada para este proveedor en el mes (inserción de factura atrasada)."><i class="fa-solid fa-clock-rotate-left"></i> Retroactiva</span>` : '';
@@ -4128,14 +3757,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 : 'text-align: right; font-size: 0.88rem; font-weight: 700; color: var(--text-primary);';
 
             const denom = escapeHtml(c.denominacion_emisor || '-');
-            const shortDenom = denom.length > 35 ? denom.substring(0, 35) + '...' : denom;
+            const shortDenom = denom.length > 25 ? denom.substring(0, 22) + '...' : denom;
+            const supplierTitle = invTooltip ? `${escapeHtml(invTooltip)}&#10;${denom}` : denom;
 
             return `
-                <tr style="${rowBg}">
-                    <td style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
-                    <td title="${denom}"><strong>${shortDenom}</strong>${ncTag}</td>
-                    <td style="text-align: right; color: ${esNC ? '#ef4444' : '#f59e0b'};">${formatCurrency(c.total_iva)}</td>
-                    <td style="${amountStyle}">${formatCurrency(c.imp_total)}</td>
+                <tr style="${rowBg}" ${invAttr}>
+                    <td style="font-family: monospace; font-size: 0.82rem;" ${invAttr}>${escapeHtml(c.fecha_emision || '-')}${retroTag}</td>
+                    <td title="${supplierTitle}"><strong>${shortDenom}</strong>${ncTag}</td>
+                    <td style="text-align: right; color: ${esNC ? '#ef4444' : '#f59e0b'};" ${invAttr}>${formatCurrency(c.total_iva)}</td>
+                    <td style="${amountStyle}" ${invAttr}>${formatCurrency(c.imp_total)}</td>
                     <td style="text-align: center;">${recibida}</td>
                     <td style="text-align: center;">${estadoBadge}</td>
                     <td style="text-align: center; white-space: nowrap;">${metodoColContent}</td>
@@ -4212,466 +3842,6 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchArcaCompras();
         } catch (e) { showToast('Error', 'error'); }
     };
-
-
-    // ==========================================
-    // MODAL: PATRONES DIARIOS DE COMPRAS & FACTURACIÓN (ARCA)
-    // ==========================================
-    let chartPatronesArcaInst = null;
-    let currentPatronChartMode = 'count'; // 'count', 'amount', 'weekday'
-
-    window.abrirModalGraficoComprasArca = async function () {
-        const modal = document.getElementById('modal-patrones-arca');
-        if (!modal) return;
-        modal.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-
-        // Si aún no tenemos datos de compras cargados, obtenerlos
-        if (!arcaData || arcaData.length === 0) {
-            await fetchArcaCompras();
-        }
-
-        renderPatronesChart();
-    };
-
-    window.cerrarModalPatronesCompras = function () {
-        const modal = document.getElementById('modal-patrones-arca');
-        if (modal) modal.style.display = 'none';
-        document.body.style.overflow = '';
-    };
-
-    // Cerrar al hacer clic en el backdrop
-    const modalPatronesEl = document.getElementById('modal-patrones-arca');
-    if (modalPatronesEl) {
-        modalPatronesEl.addEventListener('click', (e) => {
-            if (e.target === modalPatronesEl) cerrarModalPatronesCompras();
-        });
-    }
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            const m = document.getElementById('modal-patrones-arca');
-            if (m && m.style.display === 'flex') {
-                cerrarModalPatronesCompras();
-            }
-        }
-    });
-
-    window.setPatronChartMode = function (mode) {
-        currentPatronChartMode = mode;
-
-        // Actualizar estilos de botones
-        const modes = ['count', 'amount', 'weekday'];
-        modes.forEach(m => {
-            const btn = document.getElementById(`btn-patron-mode-${m}`);
-            if (btn) {
-                if (m === mode) {
-                    btn.style.background = 'rgba(79, 70, 229, 0.15)';
-                    btn.style.color = '#4338ca';
-                    btn.style.border = '1px solid rgba(79, 70, 229, 0.35)';
-                    btn.style.fontWeight = '700';
-                } else {
-                    btn.style.background = '#ffffff';
-                    btn.style.color = 'var(--text-primary)';
-                    btn.style.border = '1px solid var(--border-color)';
-                    btn.style.fontWeight = '600';
-                }
-            }
-        });
-
-        renderPatronesChart();
-    };
-
-    function parseFechaEmisionArca(fStr) {
-        if (!fStr) return null;
-        const s = String(fStr).trim();
-        // YYYY-MM-DD
-        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-            const parts = s.split('-');
-            const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-            return isNaN(d.getTime()) ? null : d;
-        }
-        // DD/MM/YYYY
-        if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(s)) {
-            const parts = s.split('/');
-            const d = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-            return isNaN(d.getTime()) ? null : d;
-        }
-        const d = new Date(s);
-        return isNaN(d.getTime()) ? null : d;
-    }
-
-    async function renderPatronesChart() {
-        await waitForChart();
-        const canvas = document.getElementById('chartPatronesArca');
-        if (!canvas) return;
-
-        const DIAS_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-        const DIAS_ES_CAP = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-
-        // Actualizar período en badge
-        const periodoBadge = document.getElementById('patron-periodo-badge');
-        if (periodoBadge) {
-            periodoBadge.textContent = currentSelectedMonth && currentSelectedMonth !== 'all' ? `Mes: ${currentSelectedMonth}` : 'Histórico Completo';
-        }
-
-        if (!arcaData || arcaData.length === 0) {
-            const diaEl = document.getElementById('patron-kpi-dia-max');
-            if (diaEl) diaEl.textContent = 'Sin datos';
-            const semEl = document.getElementById('patron-kpi-dia-semana');
-            if (semEl) semEl.textContent = 'Sin datos';
-            const totEl = document.getElementById('patron-kpi-total-facturas');
-            if (totEl) totEl.textContent = '0';
-            const promEl = document.getElementById('patron-kpi-promedio-diario');
-            if (promEl) promEl.textContent = '0';
-            const insEl = document.getElementById('patron-insight-text');
-            if (insEl) insEl.textContent = 'No hay comprobantes cargados en ARCA para el período seleccionado.';
-            const tbodyTop = document.getElementById('tbl-patron-top-dias');
-            if (tbodyTop) tbodyTop.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 1rem;">Sin comprobantes</td></tr>`;
-            if (chartPatronesArcaInst) {
-                chartPatronesArcaInst.destroy();
-                chartPatronesArcaInst = null;
-            }
-            return;
-        }
-
-        // Agrupar compras por fecha
-        const dailyMap = {};
-        const weekdayMap = { 0: { count: 0, amount: 0 }, 1: { count: 0, amount: 0 }, 2: { count: 0, amount: 0 }, 3: { count: 0, amount: 0 }, 4: { count: 0, amount: 0 }, 5: { count: 0, amount: 0 }, 6: { count: 0, amount: 0 } };
-
-        let totalFacturas = 0;
-        let totalMonto = 0;
-
-        arcaData.forEach(inv => {
-            const d = parseFechaEmisionArca(inv.fecha_emision);
-            if (!d) return;
-
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const dayNum = String(d.getDate()).padStart(2, '0');
-            const key = `${y}-${m}-${dayNum}`;
-            const amount = parseFloat(inv.imp_total || 0);
-
-            if (!dailyMap[key]) {
-                dailyMap[key] = {
-                    dateKey: key,
-                    dateObj: d,
-                    dayOfWeek: d.getDay(),
-                    dayName: DIAS_ES[d.getDay()],
-                    dayNameCap: DIAS_ES_CAP[d.getDay()],
-                    dayNum: d.getDate(),
-                    count: 0,
-                    totalAmount: 0
-                };
-            }
-            dailyMap[key].count += 1;
-            dailyMap[key].totalAmount += amount;
-
-            weekdayMap[d.getDay()].count += 1;
-            weekdayMap[d.getDay()].amount += amount;
-
-            totalFacturas += 1;
-            totalMonto += amount;
-        });
-
-        // Identificar día pico y día de semana más activo
-        let maxDay = null;
-        Object.values(dailyMap).forEach(item => {
-            if (!maxDay || item.count > maxDay.count || (item.count === maxDay.count && item.totalAmount > maxDay.totalAmount)) {
-                maxDay = item;
-            }
-        });
-
-        let topWeekdayIdx = 1;
-        let maxWeekdayCount = -1;
-        // Orden lógico de lunes (1) a domingo (0)
-        [1, 2, 3, 4, 5, 6, 0].forEach(idx => {
-            if (weekdayMap[idx].count > maxWeekdayCount) {
-                maxWeekdayCount = weekdayMap[idx].count;
-                topWeekdayIdx = idx;
-            }
-        });
-
-        const activeDaysCount = Object.keys(dailyMap).length || 1;
-        const avgDailyCount = totalFacturas / activeDaysCount;
-        const avgDailyAmount = totalMonto / activeDaysCount;
-
-        // Actualizar KPIs en la cabecera del modal
-        if (maxDay) {
-            const diaEl = document.getElementById('patron-kpi-dia-max');
-            if (diaEl) diaEl.textContent = `${maxDay.dayNameCap} ${maxDay.dayNum}`;
-            const diaSub = document.getElementById('patron-kpi-dia-max-sub');
-            if (diaSub) diaSub.textContent = `${maxDay.count} facturas (${formatCurrency(maxDay.totalAmount)})`;
-        }
-
-        const topWName = DIAS_ES_CAP[topWeekdayIdx];
-        const topWPct = totalFacturas > 0 ? Math.round((maxWeekdayCount / totalFacturas) * 100) : 0;
-        const semEl = document.getElementById('patron-kpi-dia-semana');
-        if (semEl) semEl.textContent = `${topWName}`;
-        const semSub = document.getElementById('patron-kpi-dia-semana-sub');
-        if (semSub) semSub.textContent = `${maxWeekdayCount} facturas (${topWPct}% del período)`;
-
-        const totFacEl = document.getElementById('patron-kpi-total-facturas');
-        if (totFacEl) totFacEl.textContent = `${totalFacturas} facturas`;
-        const totMontoEl = document.getElementById('patron-kpi-total-monto');
-        if (totMontoEl) totMontoEl.textContent = `Total: ${formatCurrency(totalMonto)}`;
-
-        const promEl = document.getElementById('patron-kpi-promedio-diario');
-        if (promEl) promEl.textContent = `${avgDailyCount.toFixed(1)} facturas / día`;
-        const promSub = document.getElementById('patron-kpi-promedio-sub');
-        if (promSub) promSub.textContent = `Promedio: ${formatCurrency(avgDailyAmount)}/día activo`;
-
-        // Top 5 días tabla
-        const sortedDays = Object.values(dailyMap).sort((a, b) => b.count - a.count || b.totalAmount - a.totalAmount);
-        const top5 = sortedDays.slice(0, 5);
-        const tblTop = document.getElementById('tbl-patron-top-dias');
-        if (tblTop) {
-            tblTop.innerHTML = top5.map(td => `
-                <tr>
-                    <td><strong>${escapeHtml(td.dateKey)}</strong></td>
-                    <td><span class="badge" style="background: rgba(37,99,235,0.08); color: #2563eb; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;">${escapeHtml(td.dayNameCap)}</span></td>
-                    <td style="text-align: center;"><strong style="color: #0f172a; font-size: 0.95rem;">${td.count}</strong></td>
-                    <td style="text-align: right; font-weight: 600;">${formatCurrency(td.totalAmount)}</td>
-                </tr>
-            `).join('');
-        }
-
-        // Diagnóstico inteligente
-        const insightEl = document.getElementById('patron-insight-text');
-        if (insightEl && maxDay) {
-            insightEl.innerHTML = `Los días <strong>${topWName}</strong> registran la mayor concentración de comprobantes (${topWPct}% del volumen del período). El día pico fue el <strong>${maxDay.dayNameCap} ${maxDay.dateKey}</strong> con <strong>${maxDay.count} facturas</strong> (${formatCurrency(maxDay.totalAmount)}). El promedio diario durante los días activos es de <strong>${avgDailyCount.toFixed(1)} facturas</strong>.`;
-        }
-
-        // Preparar datasets para Chart.js
-        let chartLabels = [];
-        let datasets = [];
-
-        if (currentPatronChartMode === 'weekday') {
-            // Modo Día de Semana (Lun a Dom)
-            const weekdaysOrder = [1, 2, 3, 4, 5, 6, 0];
-            chartLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-            const counts = weekdaysOrder.map(idx => weekdayMap[idx].count);
-            const amounts = weekdaysOrder.map(idx => weekdayMap[idx].amount);
-
-            datasets = [
-                {
-                    type: 'bar',
-                    label: 'Cantidad de Facturas',
-                    data: counts,
-                    backgroundColor: 'rgba(79, 70, 229, 0.7)',
-                    borderColor: '#4f46e5',
-                    borderWidth: 1.5,
-                    borderRadius: 6,
-                    yAxisID: 'y'
-                },
-                {
-                    type: 'line',
-                    label: 'Monto Total ($)',
-                    data: amounts,
-                    borderColor: '#f59e0b',
-                    backgroundColor: 'transparent',
-                    borderWidth: 2.5,
-                    pointRadius: 5,
-                    pointBackgroundColor: '#f59e0b',
-                    tension: 0.3,
-                    yAxisID: 'y1'
-                }
-            ];
-        } else {
-            // Modo Cronológico Diario (Estilo idéntico a la imagen de referencia)
-            let dayTimeline = [];
-            if (currentSelectedMonth && /^\d{4}-\d{2}$/.test(currentSelectedMonth)) {
-                const parts = currentSelectedMonth.split('-');
-                const y = parseInt(parts[0], 10);
-                const m = parseInt(parts[1], 10);
-                const daysInM = new Date(y, m, 0).getDate();
-
-                for (let d = 1; d <= daysInM; d++) {
-                    const key = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    if (dailyMap[key]) {
-                        dayTimeline.push(dailyMap[key]);
-                    } else {
-                        const dateObj = new Date(y, m - 1, d);
-                        dayTimeline.push({
-                            dateKey: key,
-                            dateObj: dateObj,
-                            dayOfWeek: dateObj.getDay(),
-                            dayName: DIAS_ES[dateObj.getDay()],
-                            dayNameCap: DIAS_ES_CAP[dateObj.getDay()],
-                            dayNum: d,
-                            count: 0,
-                            totalAmount: 0
-                        });
-                    }
-                }
-            } else {
-                const sortedKeys = Object.keys(dailyMap).sort();
-                dayTimeline = sortedKeys.map(k => dailyMap[k]);
-            }
-
-            chartLabels = dayTimeline.map(item => `${item.dayName} ${String(item.dayNum).padStart(2, '0')}`);
-            const mainValues = dayTimeline.map(item => currentPatronChartMode === 'count' ? item.count : item.totalAmount);
-
-            // 1. Línea de tendencia (Promedio horizontal, idéntico a la línea naranja de la imagen)
-            const sumValues = mainValues.reduce((a, b) => a + b, 0);
-            const meanValue = dayTimeline.length > 0 ? (sumValues / dayTimeline.length) : 0;
-            const trendData = mainValues.map(() => meanValue);
-
-            // 2. Línea de proyección / promedio móvil (idéntico a la línea verde punteada de la imagen)
-            const rollingData = mainValues.map((val, idx, arr) => {
-                const start = Math.max(0, idx - 1);
-                const end = Math.min(arr.length - 1, idx + 1);
-                let s = 0, c = 0;
-                for (let k = start; k <= end; k++) {
-                    s += arr[k];
-                    c++;
-                }
-                return c > 0 ? (s / c) : val;
-            });
-
-            const metricTitle = currentPatronChartMode === 'count' ? 'FACTURAS INGRESADAS' : 'MONTO FACTURADO';
-            const meanFormatted = currentPatronChartMode === 'count' ? `${meanValue.toFixed(1)} facturas` : formatCurrency(meanValue);
-
-            datasets = [
-                {
-                    label: `TOTAL (${metricTitle})`,
-                    data: mainValues,
-                    borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                    borderWidth: 2.5,
-                    fill: false,
-                    tension: 0.3,
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
-                    pointBackgroundColor: '#2563eb',
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2
-                },
-                {
-                    label: `Línea de tendencia (Promedio: ${meanFormatted})`,
-                    data: trendData,
-                    borderColor: '#f59e0b',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    fill: false
-                },
-                {
-                    label: `PROYECCIÓN / TENDENCIA MÓVIL`,
-                    data: rollingData,
-                    borderColor: '#10b981',
-                    borderWidth: 2,
-                    borderDash: [4, 4],
-                    pointRadius: 3,
-                    pointBackgroundColor: '#10b981',
-                    tension: 0.35,
-                    fill: false
-                }
-            ];
-        }
-
-        if (chartPatronesArcaInst) {
-            chartPatronesArcaInst.destroy();
-            chartPatronesArcaInst = null;
-        }
-
-        const ctx = canvas.getContext('2d');
-        const scalesConfig = currentPatronChartMode === 'weekday' ? {
-            x: {
-                grid: { display: false },
-                ticks: { color: '#475569', font: { size: 12, weight: '600' } }
-            },
-            y: {
-                beginAtZero: true,
-                position: 'left',
-                title: { display: true, text: 'Cantidad Facturas', color: '#4f46e5', font: { weight: '700' } },
-                grid: { color: '#f1f5f9' },
-                ticks: { color: '#475569' }
-            },
-            y1: {
-                beginAtZero: true,
-                position: 'right',
-                title: { display: true, text: 'Monto Total ($)', color: '#d97706', font: { weight: '700' } },
-                grid: { display: false },
-                ticks: {
-                    color: '#64748b',
-                    callback: val => formatCurrency(val)
-                }
-            }
-        } : {
-            x: {
-                grid: { display: false },
-                ticks: {
-                    maxRotation: 45,
-                    minRotation: 45,
-                    color: '#475569',
-                    font: { size: 11, weight: '600' }
-                }
-            },
-            y: {
-                beginAtZero: true,
-                grid: { color: '#f1f5f9' },
-                ticks: {
-                    color: '#64748b',
-                    callback: function (val) {
-                        if (currentPatronChartMode === 'amount') {
-                            if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
-                            if (val >= 1000) return '$' + (val / 1000).toFixed(0) + 'k';
-                            return '$' + val;
-                        }
-                        return Number.isInteger(val) ? val : '';
-                    }
-                }
-            }
-        };
-
-        chartPatronesArcaInst = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: chartLabels,
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
-                plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: {
-                            color: '#1e293b',
-                            font: { size: 12, weight: '600' },
-                            usePointStyle: true,
-                            boxWidth: 8
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        padding: 10,
-                        callbacks: {
-                            label: function (context) {
-                                let label = context.dataset.label || '';
-                                if (label) label += ': ';
-                                if (context.parsed.y !== null) {
-                                    if (currentPatronChartMode === 'amount' || context.dataset.yAxisID === 'y1') {
-                                        label += formatCurrency(context.parsed.y);
-                                    } else {
-                                        label += `${context.parsed.y.toFixed(context.parsed.y % 1 === 0 ? 0 : 1)} comprobantes`;
-                                    }
-                                }
-                                return label;
-                            }
-                        }
-                    }
-                },
-                scales: scalesConfig
-            }
-        });
-    }
 
 
     // ==========================================
@@ -5602,360 +4772,6 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.dispatchEvent(new Event('input', { bubbles: true }));
         }
     });
-
-    // =========================================================================
-    // MODAL: ANÁLISIS DE PROVEEDORES & RUBROS (PORTAL WEB EN DESKTOP)
-    // =========================================================================
-    let chartModalProvBreakdownInst = null;
-    let modalProvDataCache = null;
-    let modalProvCategoriesCache = [];
-    let modalProvChartMode = 'rubro'; // 'rubro', 'subrubro', 'metodo'
-
-    const modalAnalisisProv = document.getElementById('modal-analisis-proveedores');
-    const btnCloseModalProvStats = document.getElementById('btn-close-modal-prov-stats');
-    const btnModalProvCerrar = document.getElementById('btn-modal-prov-cerrar');
-    const btnModalProvReset = document.getElementById('btn-modal-prov-reset');
-    const selModalProvMes = document.getElementById('modal-prov-filter-mes');
-    const selModalProvRubro = document.getElementById('modal-prov-filter-rubro');
-    const selModalProvSubrubro = document.getElementById('modal-prov-filter-subrubro');
-    const selModalProvMetodo = document.getElementById('modal-prov-filter-metodo');
-    const selModalProvEstado = document.getElementById('modal-prov-filter-estado');
-    const inputModalProvSearch = document.getElementById('modal-prov-search-input');
-
-    window.abrirModalAnalisisProveedores = async function () {
-        if (!modalAnalisisProv) return;
-        modalAnalisisProv.style.display = 'flex';
-
-        // Sincronizar meses disponibles si no se cargaron
-        await cargarFiltrosModalProv();
-
-        // Cargar datos
-        await cargarModalAnalisisProveedores();
-    };
-
-    window.cerrarModalAnalisisProveedores = function () {
-        if (modalAnalisisProv) {
-            modalAnalisisProv.style.display = 'none';
-        }
-    };
-
-    if (btnCloseModalProvStats) btnCloseModalProvStats.addEventListener('click', cerrarModalAnalisisProveedores);
-    if (btnModalProvCerrar) btnModalProvCerrar.addEventListener('click', cerrarModalAnalisisProveedores);
-
-    async function cargarFiltrosModalProv() {
-        try {
-            // Meses
-            if (selModalProvMes && selModalProvMes.options.length <= 1) {
-                const resMes = await fetch('/api/meses_disponibles');
-                const dataMes = await resMes.json();
-                const meses = dataMes.meses || [];
-                selModalProvMes.innerHTML = '<option value="all">Todos los Meses</option>' +
-                    meses.map(m => `<option value="${m}">${m}</option>`).join('');
-                if (currentSelectedMonth && meses.includes(currentSelectedMonth)) {
-                    selModalProvMes.value = currentSelectedMonth;
-                }
-            } else if (selModalProvMes && currentSelectedMonth) {
-                selModalProvMes.value = currentSelectedMonth;
-            }
-
-            // Categorías y Subcategorías
-            const resCat = await fetch('/api/categorias');
-            const dataCat = await resCat.json();
-            modalProvCategoriesCache = dataCat.tree || [];
-
-            if (selModalProvRubro) {
-                const currentRubro = selModalProvRubro.value;
-                selModalProvRubro.innerHTML = '<option value="all">Todos los Rubros</option>' +
-                    modalProvCategoriesCache.map(c => `<option value="${escapeHtml(c.nombre)}">${escapeHtml(c.nombre)}</option>`).join('');
-                if (currentRubro && Array.from(selModalProvRubro.options).some(o => o.value === currentRubro)) {
-                    selModalProvRubro.value = currentRubro;
-                }
-            }
-            actualizarSubrubrosModalProv();
-        } catch (e) {
-            console.error("Error inicializando filtros de análisis de proveedores:", e);
-        }
-    }
-
-    function actualizarSubrubrosModalProv() {
-        if (!selModalProvSubrubro) return;
-        const rubroSel = selModalProvRubro ? selModalProvRubro.value : 'all';
-        let subcats = [];
-
-        if (rubroSel === 'all') {
-            modalProvCategoriesCache.forEach(c => {
-                if (c.subcategorias) {
-                    c.subcategorias.forEach(s => {
-                        if (!subcats.includes(s.nombre)) subcats.push(s.nombre);
-                    });
-                }
-            });
-        } else {
-            const found = modalProvCategoriesCache.find(c => c.nombre === rubroSel);
-            if (found && found.subcategorias) {
-                subcats = found.subcategorias.map(s => s.nombre);
-            }
-        }
-
-        selModalProvSubrubro.innerHTML = '<option value="all">Todas las Subcategorías</option>' +
-            subcats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
-    }
-
-    async function cargarModalAnalisisProveedores() {
-        try {
-            const mesVal = selModalProvMes ? selModalProvMes.value : (currentSelectedMonth || 'all');
-            const rubroVal = selModalProvRubro ? selModalProvRubro.value : 'all';
-            const subrubroVal = selModalProvSubrubro ? selModalProvSubrubro.value : 'all';
-            const metodoVal = selModalProvMetodo ? selModalProvMetodo.value : 'all';
-            const estadoVal = selModalProvEstado ? selModalProvEstado.value : 'all';
-
-            const params = new URLSearchParams();
-            if (mesVal && mesVal !== 'all') params.append('mes', mesVal);
-            if (rubroVal && rubroVal !== 'all') params.append('categoria', rubroVal);
-            if (subrubroVal && subrubroVal !== 'all') params.append('subcategoria', subrubroVal);
-            if (metodoVal && metodoVal !== 'all') params.append('metodo_pago', metodoVal);
-            if (estadoVal && estadoVal !== 'all') params.append('estado', estadoVal);
-
-            const res = await fetch('/api/dashboard/stats?' + params.toString());
-            const data = await res.json();
-            modalProvDataCache = data;
-
-            // Actualizar KPIs
-            const resumen = data.resumen || {};
-            if (document.getElementById('modal-prov-kpi-total')) {
-                document.getElementById('modal-prov-kpi-total').textContent = formatCurrency(resumen.total_facturado || 0);
-            }
-            if (document.getElementById('modal-prov-kpi-pagado')) {
-                document.getElementById('modal-prov-kpi-pagado').textContent = formatCurrency(resumen.total_pagado || 0);
-            }
-            if (document.getElementById('modal-prov-kpi-pendiente')) {
-                document.getElementById('modal-prov-kpi-pendiente').textContent = formatCurrency(resumen.total_pendiente || 0);
-            }
-            if (document.getElementById('modal-prov-kpi-comprobantes')) {
-                document.getElementById('modal-prov-kpi-comprobantes').textContent = `${(resumen.cant_comprobantes || 0).toLocaleString('es-AR')} docs / ${(resumen.cant_proveedores || 0).toLocaleString('es-AR')} provs`;
-            }
-
-            // Renderizar Gráfico y Tabla
-            renderModalProvChart();
-            renderModalProvRanking();
-        } catch (e) {
-            console.error("Error al cargar datos de proveedores en modal:", e);
-        }
-    }
-
-    window.cambiarModoGraficoProv = function (mode) {
-        modalProvChartMode = mode;
-        ['rubro', 'subrubro', 'metodo'].forEach(m => {
-            const btn = document.getElementById(`btn-chart-mode-${m}`);
-            if (btn) {
-                if (m === mode) {
-                    btn.classList.add('active');
-                    btn.style.background = '#2563eb';
-                    btn.style.color = '#ffffff';
-                } else {
-                    btn.classList.remove('active');
-                    btn.style.background = '';
-                    btn.style.color = '';
-                }
-            }
-        });
-        renderModalProvChart();
-    };
-
-    async function renderModalProvChart() {
-        await waitForChart();
-        const canvas = document.getElementById('chartModalProvBreakdown');
-        if (!canvas || !modalProvDataCache) return;
-
-        if (chartModalProvBreakdownInst) {
-            chartModalProvBreakdownInst.destroy();
-        }
-
-        let datasetObj = {};
-        let chartLabel = 'Distribución';
-
-        if (modalProvChartMode === 'rubro') {
-            datasetObj = modalProvDataCache.gastos_rubro || {};
-            chartLabel = 'Gasto por Rubro ($)';
-        } else if (modalProvChartMode === 'subrubro') {
-            datasetObj = modalProvDataCache.gastos_subrubro || {};
-            chartLabel = 'Gasto por Subcategoría ($)';
-        } else if (modalProvChartMode === 'metodo') {
-            datasetObj = modalProvDataCache.gastos_metodo || {};
-            chartLabel = 'Gasto por Método de Pago ($)';
-        }
-
-        const labels = Object.keys(datasetObj);
-        const dataValues = Object.values(datasetObj);
-
-        if (labels.length === 0) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            return;
-        }
-
-        const colors = [
-            '#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
-            '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1'
-        ];
-
-        const ctx = canvas.getContext('2d');
-        chartModalProvBreakdownInst = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: chartLabel,
-                    data: dataValues,
-                    backgroundColor: colors.slice(0, labels.length),
-                    borderRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function (context) {
-                                return ` ${chartLabel}: ${formatCurrency(context.raw)}`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        ticks: {
-                            callback: function (val) {
-                                if (val >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
-                                if (val >= 1000) return '$' + (val / 1000).toFixed(0) + 'k';
-                                return '$' + val;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    function renderModalProvRanking() {
-        const tbody = document.getElementById('modal-prov-ranking-body');
-        const badge = document.getElementById('modal-prov-count-badge');
-        if (!tbody || !modalProvDataCache) return;
-
-        let ranking = modalProvDataCache.ranking_proveedores || [];
-        const query = (inputModalProvSearch ? inputModalProvSearch.value : '').toLowerCase().trim();
-
-        if (query) {
-            ranking = ranking.filter(p =>
-                (p.razon_social && p.razon_social.toLowerCase().includes(query)) ||
-                (p.display_name && p.display_name.toLowerCase().includes(query)) ||
-                (p.cuit && p.cuit.includes(query)) ||
-                (p.rubro && p.rubro.toLowerCase().includes(query)) ||
-                (p.subcategoria && p.subcategoria.toLowerCase().includes(query))
-            );
-        }
-
-        if (badge) {
-            badge.textContent = `${ranking.length} proveedores`;
-        }
-
-        if (ranking.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 2.5rem; color: #64748b;">
-                No se encontraron proveedores que coincidan con los filtros aplicados.
-            </td></tr>`;
-            return;
-        }
-
-        tbody.innerHTML = ranking.map(p => {
-            const hasAlias = p.display_name && p.display_name !== p.razon_social;
-            const rankBadgeColor = p.ranking === 1 ? '#eab308' : (p.ranking === 2 ? '#94a3b8' : (p.ranking === 3 ? '#b45309' : '#64748b'));
-            const pendClass = p.pendiente > 0 ? 'color: #dc2626; font-weight: 700;' : 'color: #059669;';
-
-            return `
-                <tr>
-                    <td style="text-align: center; font-weight: 800; color: ${rankBadgeColor}; font-size: 0.9rem;">
-                        #${p.ranking}
-                    </td>
-                    <td>
-                        <div style="display: flex; flex-direction: column;">
-                            <strong style="color: #0f172a; font-size: 0.9rem;">
-                                ${escapeHtml(p.display_name || p.razon_social)}
-                            </strong>
-                            ${hasAlias ? `<span style="font-size: 0.75rem; color: #64748b;">${escapeHtml(p.razon_social)}</span>` : ''}
-                        </div>
-                    </td>
-                    <td style="font-family: monospace; font-size: 0.8rem; color: #475569;">
-                        ${escapeHtml(p.cuit || '-')}
-                    </td>
-                    <td>
-                        <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;">
-                            ${escapeHtml(p.rubro || 'General')}
-                        </span>
-                    </td>
-                    <td>
-                        <span style="font-size: 0.8rem; color: #64748b;">
-                            ${escapeHtml(p.subcategoria || '-')}
-                        </span>
-                    </td>
-                    <td style="text-align: center; font-weight: 600;">
-                        ${p.cant_facturas || 0}
-                    </td>
-                    <td style="text-align: right; font-weight: 700; color: #0f172a; font-size: 0.9rem;">
-                        ${formatCurrency(p.total)}
-                    </td>
-                    <td style="text-align: right;">
-                        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px;">
-                            <span style="font-size: 0.8rem; font-weight: 700; color: #2563eb;">${p.porcentaje}%</span>
-                            <div style="width: 45px; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
-                                <div style="width: ${Math.min(p.porcentaje, 100)}%; height: 100%; background: #2563eb; border-radius: 3px;"></div>
-                            </div>
-                        </div>
-                    </td>
-                    <td style="text-align: right; ${pendClass}">
-                        ${p.pendiente > 0 ? formatCurrency(p.pendiente) : '<i class="fa-solid fa-check" style="color: #059669;" title="Al día"></i>'}
-                    </td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    // Listeners de Filtros de Proveedores
-    if (selModalProvMes) selModalProvMes.addEventListener('change', cargarModalAnalisisProveedores);
-    if (selModalProvRubro) {
-        selModalProvRubro.addEventListener('change', () => {
-            actualizarSubrubrosModalProv();
-            cargarModalAnalisisProveedores();
-        });
-    }
-    if (selModalProvSubrubro) selModalProvSubrubro.addEventListener('change', cargarModalAnalisisProveedores);
-    if (selModalProvMetodo) selModalProvMetodo.addEventListener('change', cargarModalAnalisisProveedores);
-    if (selModalProvEstado) selModalProvEstado.addEventListener('change', cargarModalAnalisisProveedores);
-
-    if (inputModalProvSearch) {
-        let debounceTimer;
-        inputModalProvSearch.addEventListener('input', () => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                renderModalProvRanking();
-            }, 180);
-        });
-    }
-
-    if (btnModalProvReset) {
-        btnModalProvReset.addEventListener('click', () => {
-            if (selModalProvMes) selModalProvMes.value = currentSelectedMonth || 'all';
-            if (selModalProvRubro) selModalProvRubro.value = 'all';
-            actualizarSubrubrosModalProv();
-            if (selModalProvSubrubro) selModalProvSubrubro.value = 'all';
-            if (selModalProvMetodo) selModalProvMetodo.value = 'all';
-            if (selModalProvEstado) selModalProvEstado.value = 'all';
-            if (inputModalProvSearch) inputModalProvSearch.value = '';
-            cargarModalAnalisisProveedores();
-        });
-    }
 });
-
 
 

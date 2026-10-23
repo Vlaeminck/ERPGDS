@@ -1,7 +1,5 @@
 import sqlite3
 import os
-import json
-import re
 import config
 
 DB_PATH = os.path.join(config.REGISTROS_FOLDER, "control_interno.db")
@@ -312,22 +310,6 @@ def init_db(seed_samples=False):
         fecha_procesado TEXT DEFAULT ''
     )
     ''')
-    try:
-        cursor.execute("ALTER TABLE facturas_procesadas ADD COLUMN arca_match INTEGER DEFAULT 0")
-    except Exception:
-        pass
-    try:
-        cursor.execute("ALTER TABLE facturas_procesadas ADD COLUMN arca_id INTEGER DEFAULT NULL")
-    except Exception:
-        pass
-    try:
-        cursor.execute("ALTER TABLE facturas_procesadas ADD COLUMN match_date TEXT DEFAULT ''")
-    except Exception:
-        pass
-    try:
-        cursor.execute("ALTER TABLE facturas_procesadas ADD COLUMN match_metodo TEXT DEFAULT ''")
-    except Exception:
-        pass
 
     # Tabla 12: Retiros Directos de Recaudación / Estacionamiento
     cursor.execute('''
@@ -399,6 +381,13 @@ def init_db(seed_samples=False):
     )
     ''')
 
+    # Migración de columnas de pagos_no_registrados si no existen
+    cursor.execute("PRAGMA table_info(pagos_no_registrados)")
+    pnr_cols = [r[1] for r in cursor.fetchall()]
+    if 'subcategoria' not in pnr_cols:
+        try: cursor.execute("ALTER TABLE pagos_no_registrados ADD COLUMN subcategoria TEXT DEFAULT ''")
+        except Exception: pass
+
     # Migración de columna origen si no existe
     cursor.execute("PRAGMA table_info(retiros_recaudacion)")
     cols = [r[1] for r in cursor.fetchall()]
@@ -442,88 +431,13 @@ def init_db(seed_samples=False):
 
     conn.commit()
     conn.close()
+    try:
+        cleanup_and_repair_categories_and_suppliers()
+    except Exception as e:
+        print(f"[db_manager] Error en cleanup_and_repair: {e}")
 
     if seed_samples:
         seed_initial_data()
-
-
-def reset_db(keep_base_categories=True):
-    """
-    Vacía por completo todas las tablas operativas de la base de datos (0 registros),
-    dejando el esquema 100% limpio y listo para una nueva empresa.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    tablas_a_vaciar = [
-        'recaudacion_diaria',
-        'estacionamiento_diario',
-        'estacionamiento_gastos',
-        'caja_chica_movimientos',
-        'caja_chica_arqueo',
-        'gastos_fijos',
-        'arca_compras_csv',
-        'arca_compras_snapshots',
-        'proveedores_cuentas_pagar',
-        'proveedores',
-        'facturas_procesadas',
-        'retiros_recaudacion',
-        'configuraciones'
-    ]
-
-    for tabla in tablas_a_vaciar:
-        try:
-            cursor.execute(f"DELETE FROM {tabla}")
-            cursor.execute(f"DELETE FROM sqlite_sequence WHERE name=?", (tabla,))
-        except Exception:
-            pass
-
-    # Mantener o recrear categorías base estándar si se solicita
-    if keep_base_categories:
-        try:
-            cursor.execute("DELETE FROM categorias_gastos")
-            cursor.execute("DELETE FROM sqlite_sequence WHERE name='categorias_gastos'")
-        except Exception:
-            pass
-
-        import hashlib
-        import datetime as dt_mod
-        now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        default_cats = [
-            ("Carnes", None, "fa-drumstick-bite", "#ef4444"),
-            ("Verdulería", None, "fa-carrot", "#10b981"),
-            ("Limpieza", None, "fa-pump-soap", "#06b6d4"),
-            ("Papelería & Descartables", None, "fa-box-open", "#8b5cf6"),
-            ("Bebidas", None, "fa-wine-bottle", "#ec4899"),
-            ("Lácteos & Quesos", None, "fa-cheese", "#f59e0b"),
-            ("Panadería & Harinas", None, "fa-bread-slice", "#d97706"),
-            ("Servicios & Mantenimiento", None, "fa-wrench", "#6366f1"),
-            ("Impuestos & Tasas", None, "fa-landmark", "#64748b"),
-            ("General", None, "fa-tags", "#94a3b8")
-        ]
-        for cat_nom, p_id, icon, clr in default_cats:
-            det_uuid = hashlib.md5(f"{cat_nom.strip().lower()}:{p_id or ''}".encode()).hexdigest()
-            cursor.execute('''
-                INSERT OR IGNORE INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
-                VALUES (?, ?, ?, ?, ?, ?, 0)
-            ''', (cat_nom, p_id, icon, clr, det_uuid, now_iso))
-    else:
-        try:
-            cursor.execute("DELETE FROM categorias_gastos")
-        except Exception:
-            pass
-
-    conn.commit()
-    conn.close()
-
-    try:
-        conn = get_connection()
-        conn.execute("VACUUM")
-        conn.close()
-    except Exception:
-        pass
-    print("[db_manager] Base de datos restablecida a 0 registros con éxito.")
-
 
 def seed_initial_data():
     conn = get_connection()
@@ -763,6 +677,20 @@ def get_all_suppliers_dict():
         result[r['nombre']] = det
     return result
 
+def get_deterministic_supplier_uuid(nombre):
+    """Genera un UUID determinista para un proveedor basado en su nombre normalizado."""
+    import hashlib
+    return hashlib.md5(f"prov:{str(nombre).strip().lower()}".encode()).hexdigest()
+
+def get_deterministic_category_uuid(nombre, padre_nombre=None):
+    """Genera un UUID determinista para una categoría o subcategoría."""
+    import hashlib
+    nom = str(nombre).strip().lower()
+    if padre_nombre:
+        p_nom = str(padre_nombre).strip().lower()
+        return hashlib.md5(f"subcat:{p_nom}:{nom}".encode()).hexdigest()
+    return hashlib.md5(f"cat:{nom}".encode()).hexdigest()
+
 def get_suppliers_alias_map():
     """Retorna un diccionario {clave_coincidencia: alias} con los alias configurados."""
     import json
@@ -793,29 +721,88 @@ def get_suppliers_alias_map():
     conn.close()
     return alias_map
 
-def update_supplier_alias(nombre, alias):
-    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor (coincidencia insensible a mayúsculas/minúsculas)."""
+def update_supplier_meta(nombre_or_id, alias=None, categoria=None, subcategoria=None):
+    """
+    Actualiza atómicamente el alias (nombre de fantasía), categoría y subcategoría de un proveedor.
+    Si se especifica subcategoría pero la categoría es 'General' o vacía, infiere la categoría padre.
+    """
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Buscar proveedor actual
+    if str(nombre_or_id).isdigit():
+        cursor.execute("SELECT * FROM proveedores WHERE id = ?", (int(nombre_or_id),))
+    else:
+        cursor.execute("SELECT * FROM proveedores WHERE nombre = ? COLLATE NOCASE", (str(nombre_or_id).strip(),))
+    prov = cursor.fetchone()
+    if not prov:
+        conn.close()
+        return False
+
+    current_alias = prov['alias'] or ''
+    current_cat = prov['categoria'] or 'General'
+    current_subcat = prov['subcategoria'] or ''
+    prov_name = prov['nombre']
+
+    final_alias = str(alias).strip() if alias is not None else current_alias
+    final_cat = str(categoria).strip() if categoria is not None else current_cat
+    final_subcat = str(subcategoria).strip() if subcategoria is not None else current_subcat
+
+    # Inferencia inteligente de categoría padre si subcategoría está presente
+    if final_subcat and (not final_cat or final_cat.lower() in ('general', 'sin rubro', '')):
+        sub_l = final_subcat.lower().strip()
+        SUBCAT_MAP = {
+            'vacuno': 'Carnes', 'pescados': 'Carnes', 'fiambres': 'Carnes',
+            'alcohol': 'Bebidas', 'gaseosa': 'Bebidas',
+            'azúcar': 'Almacén', 'azucar': 'Almacén',
+            'mantenimiento': 'Servicios & Mantenimiento',
+            'operativo': 'Servicios & Mantenimiento',
+            'lavadero': 'Servicios & Mantenimiento'
+        }
+        if sub_l in SUBCAT_MAP:
+            final_cat = SUBCAT_MAP[sub_l]
+        else:
+            cursor.execute("""
+                SELECT p.nombre as padre_nombre
+                FROM categorias_gastos s
+                JOIN categorias_gastos p ON s.padre_id = p.id
+                WHERE LOWER(TRIM(s.nombre)) = ?
+                LIMIT 1
+            """, (sub_l,))
+            matched_parent = cursor.fetchone()
+            if matched_parent and matched_parent['padre_nombre']:
+                final_cat = matched_parent['padre_nombre']
+
+    # Asegurar UUID determinista
+    det_uuid = get_deterministic_supplier_uuid(prov_name)
+
     cursor.execute('''
-        UPDATE proveedores
-        SET alias = ?, updated_at = ?, sync_status = 0
-        WHERE nombre = ? COLLATE NOCASE
-    ''', (alias.strip(), now_iso, nombre.strip()))
+        UPDATE proveedores 
+        SET alias = ?, categoria = ?, subcategoria = ?, uuid = ?, updated_at = ?, sync_status = 0
+        WHERE id = ?
+    ''', (final_alias, final_cat, final_subcat, det_uuid, now_iso, prov['id']))
     conn.commit()
     conn.close()
     return True
 
+def update_supplier_alias(nombre, alias):
+    """Actualiza o asigna el alias (nombre de fantasía) para un proveedor."""
+    return update_supplier_meta(nombre, alias=alias)
+
+def update_supplier_category(nombre_or_id, categoria, subcategoria=''):
+    """Actualiza la categoría y subcategoría de un proveedor."""
+    return update_supplier_meta(nombre_or_id, categoria=categoria, subcategoria=subcategoria)
+
 def get_all_unique_suppliers():
     """
-    Retorna los 405 proveedores oficiales configurados sin duplicados de mayúsculas/minúsculas.
+    Retorna los proveedores configurados sin duplicados de mayúsculas/minúsculas.
     """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, nombre, cuit, categoria, subcategoria, alias 
+        SELECT id, nombre, cuit, categoria, subcategoria, alias, uuid, updated_at 
         FROM proveedores 
         WHERE is_deleted = 0
         GROUP BY LOWER(TRIM(nombre))
@@ -833,26 +820,53 @@ def get_categories_tree():
     all_rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
-    # Deduplicar por nombre y padre_id en memoria por seguridad
+    id_to_name = {r['id']: r['nombre'].strip() for r in all_rows}
+
     seen_main = set()
-    main_cats = []
+    main_cats_map = {}
     sub_cats = []
-    
+
     for r in all_rows:
         p_id = r.get('padre_id')
         nom = (r.get('nombre') or '').strip()
-        if not p_id:
-            if nom.lower() not in seen_main:
-                seen_main.add(nom.lower())
-                main_cats.append(r)
-        else:
-            sub_cats.append(r)
+        nom_lower = nom.lower()
 
-    tree = []
-    for m in main_cats:
-        m_copy = dict(m)
-        m_copy['subcategorias'] = [s for s in sub_cats if s.get('padre_id') == m['id']]
-        tree.append(m_copy)
+        if not p_id:
+            if nom_lower not in seen_main:
+                seen_main.add(nom_lower)
+                cat_dict = dict(r)
+                cat_dict['subcategorias'] = []
+                main_cats_map[nom_lower] = cat_dict
+        else:
+            sub_cats.append(dict(r))
+
+    for sub in sub_cats:
+        p_id = sub.get('padre_id')
+        sub_nom_lower = (sub.get('nombre') or '').strip().lower()
+        parent_name = id_to_name.get(p_id, '').lower()
+
+        if parent_name not in main_cats_map and p_id in id_to_name:
+            parent_row = next((r for r in all_rows if r['id'] == p_id), None)
+            if parent_row and parent_row.get('padre_id'):
+                grand_id = parent_row['padre_id']
+                parent_name = id_to_name.get(grand_id, '').lower()
+
+        target_main = main_cats_map.get(parent_name)
+        if not target_main:
+            for m in main_cats_map.values():
+                if m['id'] == p_id:
+                    target_main = m
+                    break
+
+        if target_main:
+            existing_subs = [s['nombre'].strip().lower() for s in target_main['subcategorias']]
+            if sub_nom_lower not in existing_subs:
+                target_main['subcategorias'].append(sub)
+
+    tree = list(main_cats_map.values())
+    tree.sort(key=lambda x: x['nombre'].lower())
+    for cat in tree:
+        cat['subcategorias'].sort(key=lambda x: x['nombre'].lower())
     return tree
 
 def get_categories_flat():
@@ -874,25 +888,30 @@ def get_categories_flat():
 
 def save_category(nombre, padre_id=None, icono='fa-tag', color='#3b82f6'):
     """Crea una nueva categoría o subcategoría evitando duplicados."""
-    import hashlib
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     p_id = int(padre_id) if padre_id and str(padre_id).isdigit() and int(padre_id) > 0 else None
     
-    # Verificar si ya existe exactamente esa categoría/subcategoría
+    padre_nombre = None
+    if p_id is not None:
+        cursor.execute("SELECT nombre FROM categorias_gastos WHERE id = ?", (p_id,))
+        p_row = cursor.fetchone()
+        if p_row:
+            padre_nombre = p_row['nombre']
+
+    det_uuid = get_deterministic_category_uuid(nombre, padre_nombre)
+
     if p_id is None:
         cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND padre_id IS NULL", (nombre.strip().lower(),))
     else:
-        cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND padre_id = ?", (nombre.strip().lower(), p_id))
+        cursor.execute("SELECT * FROM categorias_gastos WHERE LOWER(TRIM(nombre)) = ? AND (padre_id = ? OR uuid = ?)", (nombre.strip().lower(), p_id, det_uuid))
     existing = cursor.fetchone()
     if existing:
         res = dict(existing)
         conn.close()
         return res
-
-    det_uuid = hashlib.md5(f"{nombre.strip().lower()}:{p_id or ''}".encode()).hexdigest()
 
     cursor.execute('''
         INSERT INTO categorias_gastos (nombre, padre_id, icono, color, uuid, updated_at, sync_status)
@@ -907,466 +926,287 @@ def delete_category(category_id):
     """Elimina una categoría y sus subcategorías."""
     conn = get_connection()
     cursor = conn.cursor()
+    
+    uuids_to_delete = []
+    try:
+        cursor.execute("SELECT uuid FROM categorias_gastos WHERE id = ? OR padre_id = ?", (category_id, category_id))
+        uuids_to_delete = [r['uuid'] for r in cursor.fetchall() if r['uuid']]
+    except Exception:
+        pass
+
     cursor.execute("DELETE FROM categorias_gastos WHERE padre_id = ?", (category_id,))
     cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (category_id,))
     conn.commit()
     conn.close()
-    return True
 
-def update_supplier_category(nombre_or_id, categoria, subcategoria=''):
-    """Actualiza la categoría y subcategoría de un proveedor."""
-    import datetime as dt_mod
-    conn = get_connection()
-    cursor = conn.cursor()
-    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    if str(nombre_or_id).isdigit():
-        cursor.execute('''
-            UPDATE proveedores 
-            SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
-            WHERE id = ?
-        ''', (categoria.strip(), subcategoria.strip(), now_iso, int(nombre_or_id)))
-    else:
-        cursor.execute('''
-            UPDATE proveedores 
-            SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
-            WHERE nombre = ? COLLATE NOCASE
-        ''', (categoria.strip(), subcategoria.strip(), now_iso, str(nombre_or_id).strip()))
-    conn.commit()
-    conn.close()
+    if uuids_to_delete:
+        try:
+            import firebase_sync
+            if firebase_sync._firestore_db:
+                for u in uuids_to_delete:
+                    try:
+                        firebase_sync._firestore_db.collection('categorias_gastos').document(u).delete()
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[db_manager] Error borrando categorías de Firestore: {e}")
+
     return True
 
 def save_supplier(nombre, keywords=None, cuit='', categoria='General', detalles=None, alias=''):
+    """
+    Guarda o actualiza un proveedor preservando estrictamente categorías personalizadas, subcategorías y alias.
+    Solo marca sync_status = 0 si hubo cambios reales en cuit, keywords o detalles técnicos.
+    """
     import json
-    import uuid as uuid_mod
     import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
     kw_str = json.dumps(keywords if keywords is not None else [])
     det_str = json.dumps(detalles if detalles is not None else {})
     now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    u_id = uuid_mod.uuid4().hex
+    u_id = get_deterministic_supplier_uuid(nombre)
     
-    cursor.execute('''
-        INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, alias, uuid, updated_at, sync_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        ON CONFLICT(nombre) DO UPDATE SET
-            cuit = excluded.cuit,
-            categoria = excluded.categoria,
-            keywords = excluded.keywords,
-            detalles = excluded.detalles,
-            alias = CASE WHEN excluded.alias != '' THEN excluded.alias ELSE proveedores.alias END,
-            updated_at = excluded.updated_at,
-            sync_status = 0
-    ''', (nombre, cuit, categoria, kw_str, det_str, alias, u_id, now_iso))
+    clean_nombre = str(nombre).strip()
+    cursor.execute("SELECT * FROM proveedores WHERE nombre = ? COLLATE NOCASE", (clean_nombre,))
+    existing = cursor.fetchone()
+    
+    if not existing:
+        cursor.execute('''
+            INSERT INTO proveedores (nombre, cuit, categoria, keywords, detalles, alias, uuid, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        ''', (clean_nombre, cuit, categoria or 'General', kw_str, det_str, alias, u_id, now_iso))
+    else:
+        current_cuit = existing['cuit'] or ''
+        current_kw = existing['keywords'] or '[]'
+        current_det = existing['detalles'] or '{}'
+        current_cat = existing['categoria'] or 'General'
+        current_alias = existing['alias'] or ''
+        current_subcat = existing['subcategoria'] or ''
+        
+        new_cuit = cuit if cuit else current_cuit
+        new_kw = kw_str if kw_str != '[]' else current_kw
+        new_det = det_str if det_str != '{}' else current_det
+        
+        # Preservar siempre categoria personalizada si ya existe
+        if current_cat and current_cat != 'General':
+            new_cat = current_cat
+        elif categoria and categoria != 'General':
+            new_cat = categoria
+        else:
+            new_cat = current_cat
+            
+        new_alias = alias if alias else current_alias
+        
+        # Detectar si hay cambios técnicos reales
+        has_changes = (
+            new_cuit != current_cuit or 
+            new_kw != current_kw or 
+            new_det != current_det or 
+            (categoria and categoria != 'General' and new_cat != current_cat) or 
+            (alias and new_alias != current_alias)
+        )
+        
+        if has_changes:
+            cursor.execute('''
+                UPDATE proveedores
+                SET cuit = ?, categoria = ?, keywords = ?, detalles = ?, alias = ?, uuid = ?, updated_at = ?, sync_status = 0
+                WHERE id = ?
+            ''', (new_cuit, new_cat, new_kw, new_det, new_alias, u_id, now_iso, existing['id']))
+        else:
+            if existing['uuid'] != u_id:
+                cursor.execute("UPDATE proveedores SET uuid = ? WHERE id = ?", (u_id, existing['id']))
+                
     conn.commit()
     conn.close()
 
-def save_processed_invoice(year, month, supplier, filename, filepath, total=0, cuit='', cae='', fecha='', fecha_procesado='', arca_match=0, arca_id=None, match_metodo='', match_date=''):
+def cleanup_and_repair_categories_and_suppliers():
+    """
+    Repara y normaliza las tablas categorias_gastos y proveedores:
+    1. Deduplica categorías principales eliminando duplicados antes de actualizar UUIDs para evitar errores de integridad.
+    2. Re-vincula subcategorías a sus categorías padre canónicas (Vacuno, Alcohol, Gaseosa, Mantenimiento, etc.).
+    3. Asigna la categoría padre correcta a todos los proveedores que tienen subcategoría o alias asignado.
+    4. Garantiza UUIDs deterministas para sincronización bidireccional limpia con Firebase.
+    """
+    import datetime as dt_mod
     conn = get_connection()
     cursor = conn.cursor()
-    now_iso = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    if not fecha_procesado:
-        fecha_procesado = now_iso
-        
-    cursor.execute('''
-        INSERT INTO facturas_procesadas (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, arca_match, arca_id, match_metodo, match_date, updated_at, sync_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    ''', (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, arca_match, arca_id, match_metodo, match_date, now_iso))
+    now_iso = dt_mod.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    SUBCAT_PARENT_MAP = {
+        'vacuno': 'Carnes',
+        'pescados': 'Carnes',
+        'fiambres': 'Carnes',
+        'alcohol': 'Bebidas',
+        'gaseosa': 'Bebidas',
+        'azúcar': 'Almacén',
+        'azucar': 'Almacén',
+        'mantenimiento': 'Servicios & Mantenimiento',
+        'operativo': 'Servicios & Mantenimiento',
+        'lavadero': 'Servicios & Mantenimiento'
+    }
+
+    ALIAS_MAP = {
+        'edenor': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'papelera bayres': ('Papelería & Descartables', ''),
+        'bolsas de vacio': ('Papelería & Descartables', ''),
+        'don antonio "pan miga"': ('Panadería & Harinas', ''),
+        'sueño verde': ('Verdulería', ''),
+        'ruta verde': ('Verdulería', ''),
+        'ruta verde (mercado central)': ('Verdulería', ''),
+        'mozzaré': ('Lácteos & Quesos', ''),
+        'maricre': ('Lácteos & Quesos', ''),
+        'alcohol "el burro"': ('Bebidas', 'Alcohol'),
+        'hielo san martín': ('Almacén', ''),
+        'helado "latto"': ('Lácteos & Quesos', ''),
+        'ceamse': ('Impuestos & Tasas', ''),
+        'librería "el estudio"': ('Papelería & Descartables', ''),
+        'iluminación castelar': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'pedidosya': ('Servicios & Mantenimiento', 'Operativo'),
+        'boragoshop iluminacion': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'fase electricidad': ('Servicios & Mantenimiento', 'Mantenimiento'),
+        'carnes franco': ('Carnes', 'Vacuno')
+    }
+
+    # 1. Deduplicar categorías principales de forma segura (sin violar UNIQUE constraint de uuid)
+    cursor.execute("SELECT id, nombre, color, icono FROM categorias_gastos WHERE padre_id IS NULL ORDER BY id ASC")
+    main_rows = cursor.fetchall()
+    canonical_main = {}       # {nombre_lower: id_canonico}
+    canonical_main_names = {} # {nombre_lower: nombre_original}
+
+    for r in main_rows:
+        nom_l = (r['nombre'] or '').strip().lower()
+        if nom_l not in canonical_main:
+            canonical_main[nom_l] = r['id']
+            canonical_main_names[nom_l] = r['nombre'].strip()
+        else:
+            dup_id = r['id']
+            canon_id = canonical_main[nom_l]
+            # Redirigir subcategorías que apunten al duplicado hacia el ID canónico
+            cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE padre_id = ?", (canon_id, dup_id))
+            # Eliminar la fila duplicada para liberar su uuid
+            cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (dup_id,))
+
+    # Asegurar UUIDs deterministas en categorías principales canónicas
+    for nom_l, canon_id in canonical_main.items():
+        det_uuid = get_deterministic_category_uuid(canonical_main_names[nom_l])
+        cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, canon_id))
+
+    # 2. Re-vincular y normalizar subcategorías
+    cursor.execute("SELECT id, nombre, padre_id, uuid FROM categorias_gastos WHERE padre_id IS NOT NULL")
+    sub_rows = cursor.fetchall()
+
+    # Paso A: Resolver padre_id canónico para cada subcategoría
+    resolved_subs = []
+    for s in sub_rows:
+        s_id = s['id']
+        s_nom = (s['nombre'] or '').strip()
+        s_nom_l = s_nom.lower()
+        p_id = s['padre_id']
+
+        if s_nom_l in SUBCAT_PARENT_MAP:
+            target_parent_name_l = SUBCAT_PARENT_MAP[s_nom_l].lower()
+            if target_parent_name_l in canonical_main:
+                p_id = canonical_main[target_parent_name_l]
+                cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (p_id, s_id))
+        elif p_id not in canonical_main.values():
+            cursor.execute("SELECT nombre FROM categorias_gastos WHERE id = ?", (p_id,))
+            p_row = cursor.fetchone()
+            if p_row:
+                p_nom_match = (p_row['nombre'] or '').strip().lower()
+                if p_nom_match in canonical_main:
+                    p_id = canonical_main[p_nom_match]
+                    cursor.execute("UPDATE categorias_gastos SET padre_id = ? WHERE id = ?", (p_id, s_id))
+        resolved_subs.append({'id': s_id, 'nombre': s_nom, 'nombre_l': s_nom_l, 'padre_id': p_id, 'uuid': s['uuid']})
+
+    # Paso B: Agrupar por (nombre_l, padre_id), eliminar duplicados y luego asignar det_uuid
+    grouped_subs = {}
+    for s in resolved_subs:
+        key = (s['nombre_l'], s['padre_id'])
+        if key not in grouped_subs:
+            grouped_subs[key] = []
+        grouped_subs[key].append(s)
+
+    for (s_nom_l, p_id), items in grouped_subs.items():
+        parent_nom = canonical_main_names.get(next((k for k, v in canonical_main.items() if v == p_id), ''), '')
+        s_nom = items[0]['nombre']
+        det_uuid = get_deterministic_category_uuid(s_nom, parent_nom)
+
+        # Elegir el que ya tenga det_uuid o el primero
+        canon_item = next((it for it in items if it.get('uuid') == det_uuid), items[0])
+        canon_id = canon_item['id']
+
+        # Eliminar las filas duplicadas
+        for it in items:
+            if it['id'] != canon_id:
+                cursor.execute("DELETE FROM categorias_gastos WHERE id = ?", (it['id'],))
+
+        cursor.execute("UPDATE categorias_gastos SET uuid = ?, updated_at = ? WHERE id = ?", (det_uuid, now_iso, canon_id))
+
+    # 3. Reparar proveedores que tienen subcategoría pero categoría 'General' o vacía
+    for s_nom_l, p_nom in SUBCAT_PARENT_MAP.items():
+        cursor.execute("""
+            UPDATE proveedores 
+            SET categoria = ?, updated_at = ?, sync_status = 0
+            WHERE LOWER(TRIM(subcategoria)) = ?
+              AND (categoria IS NULL OR TRIM(categoria) = '' OR LOWER(TRIM(categoria)) = 'general')
+        """, (p_nom, now_iso, s_nom_l))
+
+    cursor.execute("""
+        SELECT p.id, p.nombre, p.subcategoria, c_padre.nombre as inferred_categoria
+        FROM proveedores p
+        JOIN categorias_gastos c_sub ON LOWER(TRIM(p.subcategoria)) = LOWER(TRIM(c_sub.nombre))
+        JOIN categorias_gastos c_padre ON c_sub.padre_id = c_padre.id
+        WHERE p.subcategoria IS NOT NULL AND TRIM(p.subcategoria) != ''
+          AND (p.categoria IS NULL OR TRIM(p.categoria) = '' OR LOWER(TRIM(p.categoria)) = 'general')
+    """)
+    for p in cursor.fetchall():
+        inf_cat = p['inferred_categoria']
+        if inf_cat:
+            cursor.execute("UPDATE proveedores SET categoria = ?, updated_at = ?, sync_status = 0 WHERE id = ?",
+                           (inf_cat, now_iso, p['id']))
+
+    # 4. Asignar categorías y subcategorías a proveedores con alias conocidos
+    for al, (cat, sub) in ALIAS_MAP.items():
+        if sub:
+            cursor.execute("""
+                UPDATE proveedores 
+                SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
+                WHERE LOWER(TRIM(alias)) = ?
+                  AND (categoria IS NULL OR TRIM(categoria) = '' OR LOWER(TRIM(categoria)) = 'general')
+            """, (cat, sub, now_iso, al))
+        else:
+            cursor.execute("""
+                UPDATE proveedores 
+                SET categoria = ?, updated_at = ?, sync_status = 0
+                WHERE LOWER(TRIM(alias)) = ?
+                  AND (categoria IS NULL OR TRIM(categoria) = '' OR LOWER(TRIM(categoria)) = 'general')
+            """, (cat, now_iso, al))
+
+    # 5. Asegurar que todos los proveedores tengan UUIDs deterministas
+    cursor.execute("SELECT id, nombre, uuid FROM proveedores")
+    all_provs = cursor.fetchall()
+    for prov in all_provs:
+        correct_uuid = get_deterministic_supplier_uuid(prov['nombre'])
+        if prov['uuid'] != correct_uuid:
+            cursor.execute("UPDATE proveedores SET uuid = ? WHERE id = ?", (correct_uuid, prov['id']))
+
     conn.commit()
     conn.close()
+    print("[db_manager] Limpieza y normalización de categorías y proveedores completada exitosamente.")
 
-def marcar_factura_recibida_directa(supplier_name='', pv=None, num=None, cae=None, cuit=None, total=None, fecha=None, filename='', filepath='', conn=None):
-    """
-    Marca directamente como recibida una factura en arca_compras_csv y asegura que
-    esté vinculada o registrada en facturas_procesadas.
-    Ideal para comprobantes duplicados, re-escaneados o confirmación manual/automática.
-    """
-    import re
-    import datetime as dt_module
-
-    close_at_end = False
-    if conn is None:
-        conn = get_connection()
-        close_at_end = True
-
-    try:
-        cursor = conn.cursor()
-        now_iso = dt_module.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        def clean_digits(val):
-            return re.sub(r'\D', '', str(val or ''))
-
-        def normalize_name(val):
-            if not val:
-                return ""
-            s = str(val).lower()
-            for ch in ['.', ',', '-', '/', '(', ')', '"', "'", 's.a.', 'sa', 's.r.l.', 'srl', 's.c.a.', 'sca']:
-                s = s.replace(ch, ' ')
-            return ' '.join(s.split())
-
-        cae_clean = clean_digits(cae)
-        cuit_clean = clean_digits(cuit)
-        pv_int = int(pv) if pv is not None and str(pv).strip().isdigit() else None
-        num_int = int(num) if num is not None and str(num).strip().isdigit() else None
-        norm_supp = normalize_name(supplier_name)
-        total_float = float(total or 0)
-        fecha_str = (fecha or '').strip()[:10]
-
-        matched_arca = None
-        match_rule = ""
-
-        # 1. Búsqueda por CAE
-        if cae_clean and len(cae_clean) >= 10:
-            cursor.execute("""
-                SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
-                FROM arca_compras_csv 
-                WHERE cae = ?
-                LIMIT 1
-            """, (cae_clean,))
-            r = cursor.fetchone()
-            if r:
-                matched_arca = dict(r)
-                match_rule = "CAE"
-
-        # 2. Búsqueda por Punto de Venta + Número de Comprobante
-        if not matched_arca and pv_int is not None and num_int is not None:
-            cursor.execute("""
-                SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
-                FROM arca_compras_csv 
-                WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
-            """, (pv_int, num_int))
-            cands = [dict(row) for row in cursor.fetchall()]
-            if len(cands) == 1:
-                matched_arca = cands[0]
-                match_rule = "PV_COMP_EXACT"
-            elif len(cands) > 1:
-                for cand in cands:
-                    cand_cuit = clean_digits(cand.get('nro_doc_emisor'))
-                    cand_denom = normalize_name(cand.get('denominacion_emisor'))
-                    if cuit_clean and cand_cuit and cuit_clean == cand_cuit:
-                        matched_arca = cand
-                        match_rule = "PV_COMP_CUIT"
-                        break
-                    first_w = norm_supp.split()[0] if norm_supp else ""
-                    if first_w and (first_w in cand_denom or cand_denom in norm_supp):
-                        matched_arca = cand
-                        match_rule = "PV_COMP_PROV"
-                        break
-                if not matched_arca:
-                    matched_arca = cands[0]
-                    match_rule = "PV_COMP_DEFAULT"
-
-        # 3. Búsqueda por Proveedor (CUIT o Nombre) + Fecha + Total
-        if not matched_arca and total_float > 0 and (fecha_str or norm_supp):
-            if cuit_clean:
-                cursor.execute("""
-                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
-                    FROM arca_compras_csv 
-                    WHERE nro_doc_emisor = ? AND ABS(imp_total - ?) <= 0.5
-                """, (cuit_clean, total_float))
-                cands = [dict(row) for row in cursor.fetchall()]
-                if cands:
-                    matched_arca = cands[0]
-                    match_rule = "CUIT_TOTAL"
-            
-            if not matched_arca and fecha_str:
-                cursor.execute("""
-                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida, fecha_emision
-                    FROM arca_compras_csv 
-                    WHERE fecha_emision = ? AND ABS(imp_total - ?) <= 0.5
-                """, (fecha_str, total_float))
-                cands = [dict(row) for row in cursor.fetchall()]
-                for cand in cands:
-                    cand_denom = normalize_name(cand.get('denominacion_emisor'))
-                    first_w = norm_supp.split()[0] if norm_supp else ""
-                    if first_w and (first_w in cand_denom or cand_denom in norm_supp):
-                        matched_arca = cand
-                        match_rule = "PROV_FECHA_TOTAL"
-                        break
-
-        arca_id = None
-        if matched_arca:
-            arca_id = matched_arca['id']
-            # Marcar factura_recibida = 1 en ARCA
-            cursor.execute("""
-                UPDATE arca_compras_csv 
-                SET factura_recibida = 1, updated_at = ?, sync_status = 0 
-                WHERE id = ?
-            """, (now_iso, arca_id))
-
-        # Verificar / Actualizar facturas_procesadas
-        final_pv = pv_int or (int(matched_arca['punto_venta']) if matched_arca and str(matched_arca.get('punto_venta', '')).strip().isdigit() else None)
-        final_num = num_int or (int(matched_arca['nro_comprobante']) if matched_arca and str(matched_arca.get('nro_comprobante', '')).strip().isdigit() else None)
-        final_cae = cae_clean or (matched_arca.get('cae') if matched_arca else '')
-        final_cuit = cuit_clean or (matched_arca.get('nro_doc_emisor') if matched_arca else '')
-        final_total = total_float if total_float > 0 else (float(matched_arca.get('imp_total') or 0) if matched_arca else 0)
-        final_fecha = fecha_str or (matched_arca.get('fecha_emision') if matched_arca else now_iso[:10])
-
-        # Buscar si ya existe en facturas_procesadas
-        inv_proc = None
-        if arca_id:
-            cursor.execute("SELECT id FROM facturas_procesadas WHERE arca_id = ? LIMIT 1", (arca_id,))
-            r = cursor.fetchone()
-            if r:
-                inv_proc = dict(r)
+def save_processed_invoice(year, month, supplier, filename, filepath, total=0, cuit='', cae='', fecha='', fecha_procesado=''):
+    conn = get_connection()
+    cursor = conn.cursor()
+    if not fecha_procesado:
+        fecha_procesado = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        if not inv_proc and filename:
-            cursor.execute("SELECT id FROM facturas_procesadas WHERE filename = ? AND supplier = ? LIMIT 1", (filename, supplier_name))
-            r = cursor.fetchone()
-            if r:
-                inv_proc = dict(r)
-
-        if not inv_proc and final_pv is not None and final_num is not None:
-            pat_f = f"%{final_pv:04d}%{final_num:08d}%"
-            pat_f5 = f"%{final_pv:05d}%{final_num:08d}%"
-            cursor.execute("SELECT id FROM facturas_procesadas WHERE (filename LIKE ? OR filename LIKE ?) AND supplier = ? LIMIT 1", (pat_f, pat_f5, supplier_name))
-            r = cursor.fetchone()
-            if r:
-                inv_proc = dict(r)
-
-        if inv_proc:
-            cursor.execute("""
-                UPDATE facturas_procesadas 
-                SET arca_match = CASE WHEN ? IS NOT NULL THEN 1 ELSE arca_match END,
-                    arca_id = COALESCE(?, arca_id),
-                    match_metodo = CASE WHEN ? != '' THEN ? ELSE match_metodo END,
-                    match_date = CASE WHEN ? IS NOT NULL THEN ? ELSE match_date END,
-                    cae = COALESCE(NULLIF(cae, ''), ?),
-                    cuit = COALESCE(NULLIF(cuit, ''), ?),
-                    total = CASE WHEN total = 0 THEN ? ELSE total END,
-                    updated_at = ?,
-                    sync_status = 0
-                WHERE id = ?
-            """, (arca_id, arca_id, match_rule, match_rule, arca_id, now_iso, final_cae, final_cuit, final_total, now_iso, inv_proc['id']))
-        else:
-            y_str = final_fecha[:4] if len(final_fecha) >= 4 else now_iso[:4]
-            m_num = int(final_fecha[5:7]) if len(final_fecha) >= 7 and final_fecha[5:7].isdigit() else int(now_iso[5:7])
-            m_es_map = {1:"Enero",2:"Febrero",3:"Marzo",4:"Abril",5:"Mayo",6:"Junio",7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",11:"Noviembre",12:"Diciembre"}
-            m_str = m_es_map.get(m_num, "Septiembre")
-            f_name = filename or (f"{final_pv:04d} - {final_num:08d}.pdf" if final_pv and final_num else "comprobante.pdf")
-            f_path = filepath or f"{y_str}/{m_str}/{supplier_name}/{f_name}"
-            cursor.execute("""
-                INSERT INTO facturas_procesadas (
-                    year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado,
-                    arca_match, arca_id, match_metodo, match_date, updated_at, sync_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-            """, (
-                y_str, m_str, supplier_name, f_name, f_path, final_total,
-                final_cuit, final_cae, final_fecha, now_iso,
-                1 if arca_id else 0, arca_id, match_rule, now_iso if arca_id else '', now_iso
-            ))
-
-        conn.commit()
-        return {
-            "success": True,
-            "arca_id": arca_id,
-            "matched_arca": matched_arca is not None,
-            "rule": match_rule,
-            "emisor": matched_arca.get('denominacion_emisor') if matched_arca else supplier_name
-        }
-    except Exception as e:
-        print(f"Error en marcar_factura_recibida_directa: {e}", flush=True)
-        return {"success": False, "error": str(e)}
-    finally:
-        if close_at_end:
-            conn.close()
-
-def reconciliar_facturas_con_arca(conn=None):
-    """
-    Motor de conciliación retroactiva automática entre facturas físicas escaneadas (facturas_procesadas)
-    y compras registradas en ARCA (arca_compras_csv).
-    
-    Resuelve el desfasaje temporal cuando una factura física se escanea antes de que el CSV o bot de ARCA
-    hayan descargado e importado el comprobante al sistema.
-    
-    Criterios de emparejamiento (Multinivel):
-    - Tier 1: CAE exacto (14 dígitos)
-    - Tier 2: Punto de Venta + Número de Comprobante + Proveedor (CUIT o Nombre)
-    - Tier 3: Proveedor + Fecha de Emisión + Importe Total
-    
-    Al hacer match:
-    - arca_compras_csv: factura_recibida = 1, updated_at = now, sync_status = 0
-    - facturas_procesadas: arca_match = 1, arca_id = arca.id, match_metodo = Tier, match_date = now, updated_at = now, sync_status = 0
-      (y completa CAE, CUIT e importe si faltaban en la factura escaneada).
-    """
-    import re
-    import datetime as dt_module
-
-    close_at_end = False
-    if conn is None:
-        conn = get_connection()
-        close_at_end = True
-
-    try:
-        cursor = conn.cursor()
-        now_iso = dt_module.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        # Buscar comprobantes en facturas_procesadas que no estén vinculados
-        cursor.execute("""
-            SELECT id, year, month, supplier, filename, filepath, total, cuit, cae, fecha, arca_match, arca_id 
-            FROM facturas_procesadas 
-            WHERE arca_match = 0 OR arca_match IS NULL OR arca_id IS NULL
-        """)
-        pending_scanned = [dict(r) for r in cursor.fetchall()]
-
-        if not pending_scanned:
-            return {"total_pendientes": 0, "vinculadas_nuevas": 0, "detalles": []}
-
-        matched_count = 0
-        detalles = []
-
-        def clean_digits(val):
-            return re.sub(r'\D', '', str(val or ''))
-
-        def normalize_name(val):
-            if not val:
-                return ""
-            s = str(val).lower()
-            for ch in ['.', ',', '-', '/', '(', ')', '"', "'", 's.a.', 'sa', 's.r.l.', 'srl', 's.c.a.', 'sca']:
-                s = s.replace(ch, ' ')
-            return ' '.join(s.split())
-
-        for inv in pending_scanned:
-            inv_id = inv['id']
-            supplier = inv.get('supplier') or ''
-            filename = inv.get('filename') or ''
-            scanned_cuit = clean_digits(inv.get('cuit'))
-            scanned_cae = clean_digits(inv.get('cae'))
-            scanned_fecha = (inv.get('fecha') or '').strip()[:10]
-            scanned_total = float(inv.get('total') or 0)
-
-            # Extraer PV y Número de Comprobante del nombre de archivo
-            m = re.search(r'(\d{1,5})\s*-\s*(\d{1,8})', filename)
-            pv_int, comp_int = None, None
-            if m:
-                pv_int = int(m.group(1))
-                comp_int = int(m.group(2))
-
-            matched_arca = None
-            match_rule = ""
-
-            # --- TIER 1: Match por CAE ---
-            if scanned_cae and len(scanned_cae) >= 10:
-                cursor.execute("""
-                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida 
-                    FROM arca_compras_csv 
-                    WHERE cae = ?
-                    LIMIT 1
-                """, (scanned_cae,))
-                row = cursor.fetchone()
-                if row:
-                    matched_arca = dict(row)
-                    match_rule = "CAE"
-
-            # --- TIER 2: Match por Punto de Venta + Número de Comprobante + Proveedor ---
-            if not matched_arca and pv_int is not None and comp_int is not None:
-                cursor.execute("""
-                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida 
-                    FROM arca_compras_csv 
-                    WHERE CAST(punto_venta AS INTEGER) = ? AND CAST(nro_comprobante AS INTEGER) = ?
-                """, (pv_int, comp_int))
-                candidates = [dict(r) for r in cursor.fetchall()]
-
-                if len(candidates) == 1:
-                    matched_arca = candidates[0]
-                    match_rule = "PV_COMP_EXACT"
-                elif len(candidates) > 1:
-                    norm_supp = normalize_name(supplier)
-                    for cand in candidates:
-                        cand_cuit = clean_digits(cand.get('nro_doc_emisor'))
-                        cand_denom = normalize_name(cand.get('denominacion_emisor'))
-                        if scanned_cuit and cand_cuit and scanned_cuit == cand_cuit:
-                            matched_arca = cand
-                            match_rule = "PV_COMP_CUIT"
-                            break
-                        first_word = norm_supp.split()[0] if norm_supp else ""
-                        if first_word and (first_word in cand_denom or cand_denom in norm_supp):
-                            matched_arca = cand
-                            match_rule = "PV_COMP_PROV"
-                            break
-                    if not matched_arca:
-                        matched_arca = candidates[0]
-                        match_rule = "PV_COMP_DEFAULT"
-
-            # --- TIER 3: Match por Proveedor + Fecha Emisión + Importe Total ---
-            if not matched_arca and scanned_total > 0 and scanned_fecha and supplier:
-                cursor.execute("""
-                    SELECT id, denominacion_emisor, punto_venta, nro_comprobante, cae, nro_doc_emisor, imp_total, factura_recibida 
-                    FROM arca_compras_csv 
-                    WHERE fecha_emision = ? AND ABS(imp_total - ?) <= 0.05
-                """, (scanned_fecha, scanned_total))
-                date_cands = [dict(r) for r in cursor.fetchall()]
-                norm_supp = normalize_name(supplier)
-                first_word = norm_supp.split()[0] if norm_supp else ""
-                for cand in date_cands:
-                    cand_denom = normalize_name(cand.get('denominacion_emisor'))
-                    if first_word and (first_word in cand_denom or cand_denom in norm_supp):
-                        matched_arca = cand
-                        match_rule = "PROV_FECHA_TOTAL"
-                        break
-
-            # Si encontramos coincidencia, ejecutar la vinculación bidireccional
-            if matched_arca:
-                arca_id = matched_arca['id']
-                arca_cae = matched_arca.get('cae') or ''
-                arca_cuit = matched_arca.get('nro_doc_emisor') or ''
-                arca_total = float(matched_arca.get('imp_total') or 0)
-
-                # 1. Actualizar arca_compras_csv
-                cursor.execute("""
-                    UPDATE arca_compras_csv 
-                    SET factura_recibida = 1, updated_at = ?, sync_status = 0 
-                    WHERE id = ?
-                """, (now_iso, arca_id))
-
-                # 2. Actualizar facturas_procesadas
-                final_cae = scanned_cae or arca_cae
-                final_cuit = scanned_cuit or arca_cuit
-                final_total = scanned_total if scanned_total > 0 else arca_total
-
-                cursor.execute("""
-                    UPDATE facturas_procesadas 
-                    SET arca_match = 1, 
-                        arca_id = ?, 
-                        match_date = ?, 
-                        match_metodo = ?, 
-                        cae = COALESCE(NULLIF(cae, ''), ?),
-                        cuit = COALESCE(NULLIF(cuit, ''), ?),
-                        total = CASE WHEN total = 0 THEN ? ELSE total END,
-                        updated_at = ?, 
-                        sync_status = 0 
-                    WHERE id = ?
-                """, (arca_id, now_iso, match_rule, final_cae, final_cuit, final_total, now_iso, inv_id))
-
-                matched_count += 1
-                detalles.append({
-                    "factura_id": inv_id,
-                    "filename": filename,
-                    "supplier": supplier,
-                    "arca_id": arca_id,
-                    "arca_emisor": matched_arca.get('denominacion_emisor'),
-                    "regla": match_rule
-                })
-
-        conn.commit()
-
-        # Si hubo vinculaciones, disparar sincronización a Firebase en hilo daemon desacoplado
-        if matched_count > 0:
-            try:
-                import threading
-                import firebase_sync
-                threading.Thread(target=firebase_sync.sync_cycle, daemon=True).start()
-            except Exception as e_fs:
-                print(f"[ARCA-RECONCILE] Aviso sincronizando a Firebase: {e_fs}", flush=True)
-
-        return {
-            "total_pendientes": len(pending_scanned),
-            "vinculadas_nuevas": matched_count,
-            "detalles": detalles
-        }
-    finally:
-        if close_at_end:
-            conn.close()
+    cursor.execute('''
+        INSERT INTO facturas_procesadas (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado))
+    conn.commit()
+    conn.close()
 
 def get_processed_invoices_from_db():
     conn = get_connection()
@@ -1376,245 +1216,21 @@ def get_processed_invoices_from_db():
     conn.close()
     return [dict(r) for r in rows]
 
-
-def normalize_supplier_name(val):
-    if not val:
-        return ""
-    import unicodedata
-    import re
-    s = str(val).lower()
-    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-    s = re.sub(r'[^a-z0-9\s]', ' ', s)
-    s = re.sub(r'\s+', ' ', s)
-    return s.strip()
-
-
-def get_cae_conflicts():
-    """
-    Detecta facturas con conflicto de CAE:
-    Casos donde el mismo CAE (no vacío) fue asignado a 2 o más proveedores distintos.
-    Cruza con arca_compras_csv para determinar cuál coincide con el emisor fiscal oficial de AFIP/ARCA.
-    """
-    import re
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT cae, COUNT(DISTINCT supplier) as supp_count
-            FROM facturas_procesadas
-            WHERE cae IS NOT NULL AND cae != '' AND cae != '0' AND (is_deleted = 0 OR is_deleted IS NULL)
-            GROUP BY cae
-            HAVING supp_count > 1
-        """)
-        conflict_caes = [row['cae'] for row in cursor.fetchall()]
-
-        conflicts = []
-        for cae in conflict_caes:
-            cursor.execute("""
-                SELECT id, year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, arca_match, arca_id
-                FROM facturas_procesadas
-                WHERE cae = ? AND (is_deleted = 0 OR is_deleted IS NULL)
-                ORDER BY id DESC
-            """, (cae,))
-            inv_rows = [dict(r) for r in cursor.fetchall()]
-
-            # Buscar emisor oficial en arca_compras_csv
-            cursor.execute("""
-                SELECT id, fecha_emision, nro_doc_emisor, denominacion_emisor, punto_venta, nro_comprobante, imp_total, cae
-                FROM arca_compras_csv
-                WHERE cae = ?
-                ORDER BY id DESC LIMIT 1
-            """, (cae,))
-            arca_row = cursor.fetchone()
-            arca_info = dict(arca_row) if arca_row else None
-
-            arca_norm = normalize_supplier_name(arca_info['denominacion_emisor']) if arca_info and arca_info.get('denominacion_emisor') else ''
-            arca_cuit = re.sub(r'\D', '', str(arca_info.get('nro_doc_emisor') or '')) if arca_info else ''
-
-            invoices_detail = []
-            for inv in inv_rows:
-                s_norm = normalize_supplier_name(inv['supplier'])
-                c_clean = re.sub(r'\D', '', str(inv.get('cuit') or ''))
-                
-                is_official = False
-                if arca_info:
-                    if arca_cuit and c_clean and arca_cuit == c_clean:
-                        is_official = True
-                    elif arca_norm and (s_norm in arca_norm or arca_norm in s_norm):
-                        is_official = True
-
-                invoices_detail.append({
-                    "id": inv['id'],
-                    "supplier": inv['supplier'],
-                    "filename": inv['filename'],
-                    "filepath": inv['filepath'],
-                    "total": inv['total'],
-                    "cuit": inv['cuit'],
-                    "fecha": inv['fecha'],
-                    "fecha_procesado": inv['fecha_procesado'],
-                    "arca_match": bool(inv['arca_match']),
-                    "is_arca_official": is_official
-                })
-
-            factura_num = inv_rows[0]['filename'].replace('.pdf', '') if inv_rows else ''
-            conflicts.append({
-                "cae": cae,
-                "factura_numero": factura_num,
-                "arca_oficial": arca_info,
-                "invoices": invoices_detail
-            })
-
-        return conflicts
-    finally:
-        conn.close()
-
-
-def resolve_cae_conflict(cae, keep_id, delete_id=None):
-    """
-    Resuelve un conflicto de CAE:
-    - Conserva la factura con id `keep_id`.
-    - Elimina todas las facturas erróneas con ese CAE:
-      * Borra el archivo físico erróneo de Facturas_Procesadas con protección total de rutas.
-      * Borra el documento en Firebase Cloud para evitar reaparición o conflicto fantasma.
-      * Borra el registro de facturas_procesadas en SQLite.
-    - Asegura que keep_id quede formalmente vinculada con su registro de ARCA Compras.
-    - Limpia registros/user_history.json de las entradas erróneas.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        # Obtener factura a conservar
-        cursor.execute("SELECT * FROM facturas_procesadas WHERE id = ?", (keep_id,))
-        keep_row = cursor.fetchone()
-        if not keep_row:
-            return {"success": False, "message": f"No se encontró la factura a conservar con ID {keep_id}"}
-        keep_dict = dict(keep_row)
-        keep_rel_path = (keep_dict.get('filepath') or '').replace('/', os.sep).lower()
-
-        # Determinar facturas a eliminar
-        del_ids = set()
-        if delete_id is not None:
-            if isinstance(delete_id, (list, tuple, set)):
-                for x in delete_id:
-                    try:
-                        if int(x) != int(keep_id):
-                            del_ids.add(int(x))
-                    except Exception:
-                        pass
-            else:
-                try:
-                    if int(delete_id) != int(keep_id):
-                        del_ids.add(int(delete_id))
-                except Exception:
-                    pass
-
-        # Siempre incluir cualquier otra factura con el mismo CAE para resolver el conflicto completamente
-        cursor.execute("SELECT id FROM facturas_procesadas WHERE cae = ? AND id != ?", (cae, keep_id))
-        for r in cursor.fetchall():
-            del_ids.add(r['id'])
-
-        deleted_suppliers = set()
-        for d_id in del_ids:
-            cursor.execute("SELECT * FROM facturas_procesadas WHERE id = ?", (d_id,))
-            del_row = cursor.fetchone()
-            if not del_row:
-                continue
-            del_dict = dict(del_row)
-            deleted_suppliers.add(del_dict.get('supplier', ''))
-
-            # 1. Eliminar archivo físico de la factura errónea con manejo seguro de excepciones
-            rel_path = del_dict.get('filepath') or ''
-            if rel_path:
-                try:
-                    norm_rel = rel_path.replace('/', os.sep).lower()
-                    if norm_rel != keep_rel_path:
-                        full_path = os.path.join(config.OUTPUT_FOLDER, rel_path.replace('/', os.sep))
-                        if os.path.exists(full_path):
-                            try:
-                                os.remove(full_path)
-                                print(f"[CONFLICTO-CAE] Archivo erróneo eliminado del disco: {full_path}", flush=True)
-                            except Exception as e_rm:
-                                print(f"[CONFLICTO-CAE] Aviso eliminando archivo erróneo: {e_rm}", flush=True)
-                except Exception as e_path:
-                    print(f"[CONFLICTO-CAE] Aviso verificando ruta de archivo: {e_path}", flush=True)
-
-            # 2. Eliminar registro en Firebase Cloud para que no se vuelva a descargar
-            del_uuid = del_dict.get('uuid')
-            if del_uuid:
-                try:
-                    import firebase_sync
-                    firebase_sync.delete_document('facturas_procesadas', del_uuid)
-                except Exception as e_fb:
-                    print(f"[CONFLICTO-CAE] Aviso eliminando de Firebase: {e_fb}", flush=True)
-
-            # 3. Eliminar registro de facturas_procesadas en SQLite local
-            cursor.execute("DELETE FROM facturas_procesadas WHERE id = ?", (d_id,))
-
-        # 4. Vincular formalmente la factura correcta con ARCA Compras si hay coincidencia
-        cursor.execute("SELECT id FROM arca_compras_csv WHERE cae = ? LIMIT 1", (cae,))
-        arca_match = cursor.fetchone()
-        if arca_match:
-            arca_id = arca_match['id']
-            cursor.execute("""
-                UPDATE facturas_procesadas 
-                SET arca_match = 1, arca_id = ?, match_metodo = 'RESOLUCION_CONFLICTO', sync_status = 0
-                WHERE id = ?
-            """, (arca_id, keep_id))
-            cursor.execute("""
-                UPDATE arca_compras_csv 
-                SET factura_recibida = 1, sync_status = 0 
-                WHERE id = ?
-            """, (arca_id,))
-
-        conn.commit()
-
-        # 5. Limpiar del historial de usuario (user_history.json)
+def reset_db():
+    if os.path.exists(DB_PATH):
         try:
-            from config import REGISTROS_FOLDER
-            user_hist_path = os.path.join(REGISTROS_FOLDER, "user_history.json")
-            if os.path.exists(user_hist_path):
-                with open(user_hist_path, "r", encoding="utf-8") as f:
-                    u_hist = json.load(f)
-                
-                del_fn_base = keep_dict.get('filename', '').replace('.pdf', '')
-                new_hist = []
-                for h in u_hist:
-                    h_supp = str(h.get('supplier', '')).strip()
-                    h_inv = str(h.get('invoice_number', '')).strip()
-                    # Si coincide con un proveedor eliminado y el número de comprobante, se descarta
-                    if h_supp in deleted_suppliers and (h_inv in del_fn_base or del_fn_base in h_inv):
-                        continue
-                    new_hist.append(h)
-
-                with open(user_hist_path, "w", encoding="utf-8") as f:
-                    json.dump(new_hist, f, ensure_ascii=False, indent=2)
-                print(f"[CONFLICTO-CAE] user_history.json actualizado sin los registros erróneos.", flush=True)
-        except Exception as e_hist:
-            print(f"[CONFLICTO-CAE] Aviso actualizando user_history.json: {e_hist}", flush=True)
-
-        del_supp_str = ", ".join(deleted_suppliers) if deleted_suppliers else "duplicados"
-        return {
-            "success": True,
-            "message": f"Conflicto resuelto: se confirmó '{keep_dict['supplier']}' y se eliminó el error de OCR de '{del_supp_str}'.",
-            "kept_supplier": keep_dict['supplier'],
-            "deleted_suppliers": list(deleted_suppliers),
-            "cae": cae
-        }
-    except Exception as e:
-        conn.rollback()
-        print(f"[CONFLICTO-CAE] Error resolviendo conflicto de CAE: {e}", flush=True)
-        return {
-            "success": False,
-            "message": f"Error al resolver conflicto de CAE: {str(e)}"
-        }
-    finally:
-        conn.close()
+            os.remove(DB_PATH)
+            print(f"[OK] Base de datos '{DB_PATH}' eliminada.")
+        except Exception as e:
+            print(f"[!] Error eliminando base de datos: {e}")
+    init_db(seed_samples=False)
+    print("[OK] Base de datos reinicializada sin datos de muestra (100% vacía).")
 
 # ========================================================
 # GESTIÓN DE PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
 # ========================================================
 
-def ensure_supplier_exists(nombre):
+def ensure_supplier_exists(nombre, categoria='General', subcategoria=''):
     """Si el proveedor no existe en el catálogo, lo inserta automáticamente para recordarlo."""
     if not nombre or not str(nombre).strip():
         return
@@ -1622,17 +1238,48 @@ def ensure_supplier_exists(nombre):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT id FROM proveedores WHERE LOWER(TRIM(nombre)) = LOWER(?)", (nombre_clean,))
-        if not cursor.fetchone():
-            import datetime as _dt
-            import uuid as _uuid
-            now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute('''
+            SELECT id, categoria, subcategoria 
+            FROM proveedores 
+            WHERE LOWER(TRIM(nombre)) = LOWER(?) OR (alias != '' AND LOWER(TRIM(alias)) = LOWER(?))
+        ''', (nombre_clean, nombre_clean))
+        row = cursor.fetchone()
+        
+        import datetime as _dt
+        import uuid as _uuid
+        now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cat_to_use = categoria if categoria and categoria != 'General' else 'General'
+        subcat_to_use = subcategoria or ''
+
+        if not row:
             prov_uuid = _uuid.uuid4().hex
             cursor.execute('''
-                INSERT INTO proveedores (nombre, categoria, uuid, updated_at, sync_status)
-                VALUES (?, 'General', ?, ?, 0)
-            ''', (nombre_clean, prov_uuid, now_iso))
+                INSERT INTO proveedores (nombre, categoria, subcategoria, uuid, updated_at, sync_status)
+                VALUES (?, ?, ?, ?, ?, 0)
+            ''', (nombre_clean, cat_to_use, subcat_to_use, prov_uuid, now_iso))
             conn.commit()
+        else:
+            # Si el proveedor ya existe pero su categoría era 'General' o vacía y ahora se envía un rubro específico, enriquecerlo
+            cur_cat = row['categoria'] or ''
+            cur_subcat = row['subcategoria'] or ''
+            should_update = False
+            new_cat = cur_cat
+            new_subcat = cur_subcat
+
+            if (not cur_cat or cur_cat == 'General') and cat_to_use != 'General':
+                new_cat = cat_to_use
+                should_update = True
+            if (not cur_subcat or cur_subcat == 'Sin Subcategoría') and subcat_to_use:
+                new_subcat = subcat_to_use
+                should_update = True
+
+            if should_update:
+                cursor.execute('''
+                    UPDATE proveedores
+                    SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
+                    WHERE id = ?
+                ''', (new_cat, new_subcat, now_iso, row['id']))
+                conn.commit()
     except Exception as e:
         print(f"[db_manager] Error en ensure_supplier_exists: {e}", flush=True)
     finally:
@@ -1667,7 +1314,7 @@ def get_total_pagos_no_registrados(mes=None):
     finally:
         conn.close()
 
-def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo'):
+def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo', subcategoria=''):
     """Inserta un pago no registrado en SQLite y asegura que el proveedor quede guardado en el catálogo."""
     import uuid as _uuid
     import datetime as _dt
@@ -1675,16 +1322,22 @@ def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', met
     rec_uuid = _uuid.uuid4().hex
     
     prov_clean = (proveedor or '').strip()
+    cat_clean = (categoria or '').strip()
+    subcat_clean = (subcategoria or '').strip()
+    mot_clean = (motivo or '').strip()
+    if not mot_clean:
+        mot_clean = subcat_clean or cat_clean
+
     if prov_clean:
-        ensure_supplier_exists(prov_clean)
+        ensure_supplier_exists(prov_clean, categoria=cat_clean, subcategoria=subcat_clean)
         
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT INTO pagos_no_registrados (fecha, proveedor, monto, motivo, categoria, metodo_pago, uuid, updated_at, sync_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        ''', (fecha, prov_clean, float(monto or 0), motivo or '', categoria or '', metodo_pago or 'Efectivo', rec_uuid, now_iso))
+            INSERT INTO pagos_no_registrados (fecha, proveedor, monto, motivo, categoria, subcategoria, metodo_pago, uuid, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        ''', (fecha, prov_clean, float(monto or 0), mot_clean, cat_clean, subcat_clean, metodo_pago or 'Efectivo', rec_uuid, now_iso))
         conn.commit()
         new_id = cursor.lastrowid
         return new_id, rec_uuid
@@ -1707,27 +1360,32 @@ def delete_pago_no_registrado(pago_id):
     finally:
         conn.close()
 
-def update_pago_no_registrado(pago_id, fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo'):
+def update_pago_no_registrado(pago_id, fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo', subcategoria=''):
     """Actualiza un pago no registrado existente."""
     import datetime as _dt
     now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     prov_clean = (proveedor or '').strip()
+    cat_clean = (categoria or '').strip()
+    subcat_clean = (subcategoria or '').strip()
+    mot_clean = (motivo or '').strip()
+    if not mot_clean:
+        mot_clean = subcat_clean or cat_clean
+
     if prov_clean:
-        ensure_supplier_exists(prov_clean)
+        ensure_supplier_exists(prov_clean, categoria=cat_clean, subcategoria=subcat_clean)
 
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('''
             UPDATE pagos_no_registrados
-            SET fecha = ?, proveedor = ?, monto = ?, motivo = ?, categoria = ?, metodo_pago = ?, updated_at = ?, sync_status = 0
+            SET fecha = ?, proveedor = ?, monto = ?, motivo = ?, categoria = ?, subcategoria = ?, metodo_pago = ?, updated_at = ?, sync_status = 0
             WHERE id = ?
-        ''', (fecha, prov_clean, float(monto or 0), motivo or '', categoria or '', metodo_pago or 'Efectivo', now_iso, pago_id))
+        ''', (fecha, prov_clean, float(monto or 0), mot_clean, cat_clean, subcat_clean, metodo_pago or 'Efectivo', now_iso, pago_id))
         conn.commit()
         cursor.execute("SELECT uuid FROM pagos_no_registrados WHERE id = ?", (pago_id,))
         row = cursor.fetchone()
         return row['uuid'] if row else None
     finally:
         conn.close()
-
 

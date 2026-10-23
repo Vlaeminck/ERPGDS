@@ -2327,6 +2327,7 @@ def api_create_pago_no_registrado():
         monto = 0.0
     motivo = (data.get('motivo') or '').strip()
     categoria = (data.get('categoria') or '').strip()
+    subcategoria = (data.get('subcategoria') or '').strip()
     metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
 
     if not proveedor:
@@ -2334,7 +2335,7 @@ def api_create_pago_no_registrado():
     if monto <= 0:
         return jsonify({"success": False, "error": "El monto debe ser mayor a 0"}), 400
 
-    new_id, doc_uuid = db_manager.add_pago_no_registrado(fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    new_id, doc_uuid = db_manager.add_pago_no_registrado(fecha, proveedor, monto, motivo, categoria, metodo_pago, subcategoria)
     try:
         firebase_sync.sync_cycle()
     except Exception as e_sync:
@@ -2369,12 +2370,13 @@ def api_update_pago_no_registrado(item_id):
         monto = 0.0
     motivo = (data.get('motivo') or '').strip()
     categoria = (data.get('categoria') or '').strip()
+    subcategoria = (data.get('subcategoria') or '').strip()
     metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
 
     if not proveedor or monto <= 0:
         return jsonify({"success": False, "error": "Proveedor y monto válido son requeridos"}), 400
 
-    doc_uuid = db_manager.update_pago_no_registrado(item_id, fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    doc_uuid = db_manager.update_pago_no_registrado(item_id, fecha, proveedor, monto, motivo, categoria, metodo_pago, subcategoria)
     try:
         firebase_sync.sync_cycle()
     except Exception as e_sync:
