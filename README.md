@@ -162,3 +162,5 @@ El sistema utiliza una arquitectura **Local-First + Cloud Sync Relay**:
 ## 🔒 Privacidad y Seguridad
 - Todas las credenciales y datos contables se almacenan de forma local en SQLite (`control_interno.db`) y se replican exclusivamente hacia el proyecto privado de Firebase Cloud Firestore configurado por el usuario.
 - No se envía información a servidores de terceros, excepto las consultas estrictamente dirigidas a la API oficial de Google Gemini o al portal oficial de ARCA/AFIP.
+
+Tomás Vlaeminck
