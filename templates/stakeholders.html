@@ -367,31 +367,12 @@
         
         <!-- Summary Cards (KPIs) -->
         <section class="kpi-grid">
-            <div class="kpi-card" style="border-left: 4px solid #2563eb; position: relative;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+            <div class="kpi-card" id="kpi-card-compras" style="border-left: 4px solid #2563eb; cursor: default;" title="Pasa el cursor para ver el desglose de compras y pagos no registrados">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
                     <div class="kpi-title" style="margin-bottom: 0;">Total Compras del Mes</div>
-                    <button type="button" class="btn btn-sm" onclick="openModalPagoNoRegistrado()" title="Crear nuevo pago no registrado" style="padding: 2px 8px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                        <i class="fa-solid fa-plus"></i> Pago No Reg.
-                    </button>
+                    <i class="fa-solid fa-circle-info" id="kpi-tooltip-compras" style="color: #64748b; font-size: 0.85rem; cursor: help;" title="Pasa el cursor para ver el desglose"></i>
                 </div>
                 <div class="kpi-value" id="kpi-total-facturado" style="color: #1e293b; font-size: 1.65rem; font-weight: 800; line-height: 1.2;">$ 0</div>
-
-                <!-- Desglose explícito solicitado por el usuario -->
-                <div style="display: flex; flex-direction: column; gap: 3px; margin: 8px 0; padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.76rem; font-weight: 600;">
-                    <div style="display: flex; justify-content: space-between; color: #475569;">
-                        <span>Monto Real (Facturado Bruto):</span>
-                        <span id="kpi-sub-total-bruto" style="font-weight: 700; color: #1e293b;">$ 0</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; color: #dc2626;">
-                        <span>Restando Notas de Crédito:</span>
-                        <span id="kpi-sub-total-neto" style="font-weight: 700;">$ 0</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; color: #2563eb;">
-                        <span>+ Pagos No Registrados:</span>
-                        <span id="kpi-sub-total-no-registrados" style="font-weight: 700;">$ 0</span>
-                    </div>
-                </div>
-
                 <div class="kpi-sub" id="kpi-count-facturas">0 comprobantes emitidos</div>
             </div>
 
@@ -409,8 +390,11 @@
                 <div class="kpi-sub" id="kpi-count-pagados">0 facturas abonadas</div>
             </div>
 
-            <div class="kpi-card" style="border-left: 4px solid #ef4444;">
-                <div class="kpi-title">Notas de Crédito & Retros</div>
+            <div class="kpi-card" id="kpi-card-nc-retro" style="border-left: 4px solid #ef4444; cursor: default;" title="Comprobantes especiales del mes">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                    <div class="kpi-title" style="margin-bottom: 0;">Notas de Crédito & Retros</div>
+                    <i class="fa-solid fa-circle-info" id="kpi-tooltip-nc-retro" style="color: #94a3b8; font-size: 0.85rem; cursor: help;" title="Notas de crédito emitidas y facturas retroactivas"></i>
+                </div>
                 <div class="kpi-value" id="kpi-count-nc-retro" style="color: #dc2626;">0 NC / 0 Retros</div>
                 <div class="kpi-sub">Comprobantes especiales</div>
             </div>

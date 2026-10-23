@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     }
+    const escapeHTML = escapeHtml;
+    window.escapeHTML = escapeHtml;
+    window.escapeHtml = escapeHtml;
 
     // --- Navigation ---
     const allTabItems = document.querySelectorAll('[data-tab]');
