@@ -668,6 +668,74 @@
         <!-- TAB 4: DASHBOARD DE GRÁFICOS & RANKING DE CONSUMO -->
         <section id="tab-dashboard" class="tab-content" style="display: none;">
             
+            <!-- PANEL DE CONSOLIDACIÓN GENERAL DE GASTOS (DESGLOSE COMPLETO DEL TOTAL) -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-calculator" style="color: #2563eb; font-size: 1.15rem;"></i>
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: #0f172a;">Consolidación General de Gastos</h3>
+                            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #64748b;">Desglose del gasto consolidado del mes: Facturación ARCA (Bruto - NC) + Gastos Fuera de Circuito (Pagos no Registrados).</p>
+                        </div>
+                    </div>
+                    <span style="font-size: 0.78rem; font-weight: 700; color: #1e40af; background: #eff6ff; padding: 4px 12px; border-radius: 20px; border: 1px solid #bfdbfe;">
+                        <i class="fa-solid fa-circle-info"></i> Balance Consolidado
+                    </span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px;">
+                    <!-- 1. Monto Real (Facturado Bruto) -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.9rem 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 0.73rem; font-weight: 700; color: #475569; text-transform: uppercase;">Facturado Bruto</span>
+                            <i class="fa-solid fa-file-invoice" style="color: #64748b; font-size: 0.85rem;"></i>
+                        </div>
+                        <div id="dash-consolidado-bruto" style="font-size: 1.25rem; font-weight: 800; color: #0f172a;">$ 0</div>
+                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 500;">Monto Real (Comprobantes)</span>
+                    </div>
+
+                    <!-- 2. Menos Notas de Crédito -->
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 0.9rem 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 0.73rem; font-weight: 700; color: #b91c1c; text-transform: uppercase;">Notas de Crédito (-)</span>
+                            <i class="fa-solid fa-file-invoice-dollar" style="color: #ef4444; font-size: 0.85rem;"></i>
+                        </div>
+                        <div id="dash-consolidado-nc" style="font-size: 1.25rem; font-weight: 800; color: #dc2626;">-$ 0</div>
+                        <span id="dash-consolidado-nc-count" style="font-size: 0.72rem; color: #991b1b; font-weight: 600;">0 notas de crédito</span>
+                    </div>
+
+                    <!-- 3. Neto Facturado ARCA -->
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 0.9rem 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 0.73rem; font-weight: 700; color: #15803d; text-transform: uppercase;">Neto Facturado ARCA</span>
+                            <i class="fa-solid fa-scale-balanced" style="color: #16a34a; font-size: 0.85rem;"></i>
+                        </div>
+                        <div id="dash-consolidado-neto" style="font-size: 1.25rem; font-weight: 800; color: #166534;">$ 0</div>
+                        <span style="font-size: 0.72rem; color: #15803d; font-weight: 500;">Bruto menos NC</span>
+                    </div>
+
+                    <!-- 4. Más Pagos No Registrados -->
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 0.9rem 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 0.73rem; font-weight: 700; color: #1e40af; text-transform: uppercase;">Pagos No Registrados (+)</span>
+                            <i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb; font-size: 0.85rem;"></i>
+                        </div>
+                        <div id="dash-consolidado-pnr" style="font-size: 1.25rem; font-weight: 800; color: #1d4ed8;">+$ 0</div>
+                        <span id="dash-consolidado-pnr-count" style="font-size: 0.72rem; color: #1e40af; font-weight: 600;">0 pagos</span>
+                    </div>
+
+                    <!-- 5. Total Consolidado -->
+                    <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #0f172a; border-radius: 10px; padding: 0.9rem 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-size: 0.73rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">Total Consolidado (=)</span>
+                            <i class="fa-solid fa-chart-pie" style="color: #38bdf8; font-size: 0.85rem;"></i>
+                        </div>
+                        <div id="dash-consolidado-total" style="font-size: 1.35rem; font-weight: 900; color: #ffffff;">$ 0</div>
+                        <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 600;">Gasto total real del mes</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- BARRA DE FILTROS AVANZADOS DEL DASHBOARD -->
             <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 1rem;">
@@ -1122,9 +1190,9 @@
                     <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
                         <i class="fa-solid fa-truck" style="color: #2563eb;"></i> Nombre del Proveedor <span style="color: #dc2626;">*</span>:
                     </label>
-                    <input type="text" id="pnr-proveedor" class="form-control" list="list-pnr-proveedores" placeholder="Ej: Carnicería Don Juan" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required autocomplete="off">
+                    <input type="text" id="pnr-proveedor" class="form-control" list="list-pnr-proveedores" placeholder="Ej: Carnicería Don Juan" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;" required autocomplete="off" oninput="onPnrProveedorInput(this.value)">
                     <datalist id="list-pnr-proveedores"></datalist>
-                    <small style="font-size: 0.74rem; color: #64748b; margin-top: 3px; display: block;">Se registrará automáticamente en la lista de proveedores del sistema.</small>
+                    <small style="font-size: 0.74rem; color: #64748b; margin-top: 3px; display: block;">Se sugerirá si ya existe y se registrará automáticamente en el sistema si es nuevo.</small>
                 </div>
 
                 <!-- 3. Monto -->
@@ -1135,12 +1203,33 @@
                     <input type="number" id="pnr-monto" class="form-control" step="0.01" min="0.01" placeholder="0.00" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 700; font-size: 1rem;" required>
                 </div>
 
-                <!-- 4. Motivo / Detalle (Opcional) -->
+                <!-- 4. Rubro / Categoría & Subcategoría -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem;">
+                    <div>
+                        <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                            <i class="fa-solid fa-layer-group" style="color: #ea580c;"></i> Rubro / Categoría:
+                        </label>
+                        <select id="pnr-categoria" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem;" onchange="onPnrCategoryChange()">
+                            <option value="">-- Seleccionar Rubro --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
+                            <i class="fa-solid fa-sitemap" style="color: #7c3aed;"></i> Subcategoría:
+                        </label>
+                        <select id="pnr-subcategoria" class="form-control" style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem;" onchange="onPnrSubcategoryChange()">
+                            <option value="">-- Sin Subcategoría --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 5. Motivo / Detalle (Opcional) -->
                 <div style="margin-bottom: 1.4rem;">
                     <label style="font-size: 0.82rem; font-weight: 700; color: #0f172a; display: block; margin-bottom: 5px;">
                         <i class="fa-solid fa-comment-dots" style="color: #64748b;"></i> Motivo / Detalle <span style="color: #94a3b8; font-weight: 500;">(Opcional)</span>:
                     </label>
-                    <input type="text" id="pnr-motivo" class="form-control" placeholder="Ej: Flete efectivo, insumos urgentes, adelanto..." style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 500;">
+                    <input type="text" id="pnr-motivo" class="form-control" placeholder="Ej: Mantenimiento aire split, insumos urgentes..." style="width: 100%; padding: 0.55rem; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 500;">
+                    <small style="font-size: 0.74rem; color: #64748b; margin-top: 3px; display: block;">Se autocompleta con el rubro o subcategoría, o puedes detallar el motivo específico.</small>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">

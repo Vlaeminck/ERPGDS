@@ -2369,9 +2369,9 @@
                     <div class="form-group" style="margin: 0;">
                         <label style="font-size: 0.85rem; font-weight: 600;">Proveedor <span style="color: #ef4444;">*</span></label>
                         <input type="text" class="form-control" id="local-pnr-proveedor" list="list-local-pnr-proveedores"
-                            placeholder="Ej: Carnicería Don Juan" style="width: 100%;" required autocomplete="off">
+                            placeholder="Ej: Carnicería Don Juan" style="width: 100%;" required autocomplete="off" oninput="onLocalPnrProveedorInput(this.value)">
                         <datalist id="list-local-pnr-proveedores"></datalist>
-                        <small style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 3px; display: block;">Se registrará automáticamente en la lista de proveedores.</small>
+                        <small style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 3px; display: block;">Se sugerirá si ya existe y se registrará automáticamente si es nuevo.</small>
                     </div>
 
                     <div class="form-group" style="margin: 0;">
@@ -2380,10 +2380,26 @@
                             placeholder="0.00" style="width: 100%; font-weight: 700;" required>
                     </div>
 
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 0.85rem; font-weight: 600;">Rubro / Categoría</label>
+                            <select class="form-control" id="local-pnr-categoria" onchange="onLocalPnrCategoryChange()" style="width: 100%;">
+                                <option value="">-- Seleccionar Rubro --</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 0.85rem; font-weight: 600;">Subcategoría</label>
+                            <select class="form-control" id="local-pnr-subcategoria" onchange="onLocalPnrSubcategoryChange()" style="width: 100%;">
+                                <option value="">-- Sin Subcategoría --</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="form-group" style="margin: 0;">
                         <label style="font-size: 0.85rem; font-weight: 600;">Motivo / Detalle <span style="color: var(--text-secondary); font-weight: 400;">(Opcional)</span></label>
                         <input type="text" class="form-control" id="local-pnr-motivo"
-                            placeholder="Ej: Flete en efectivo, insumos..." style="width: 100%;">
+                            placeholder="Ej: Mantenimiento aire split, insumos..." style="width: 100%;">
+                        <small style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 3px; display: block;">Se autocompleta con el rubro o subcategoría, o puedes detallar el motivo específico.</small>
                     </div>
                 </div>
 

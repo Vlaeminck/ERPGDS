@@ -322,6 +322,9 @@ async function fetchArcaComprasCloud() {
         const elCard = document.getElementById('kpi-card-compras');
         if (elCard) elCard.setAttribute('title', tooltipCompras);
 
+        // Actualizar panel de consolidación en el Dashboard de Gastos
+        updateDashboardConsolidado(resStats);
+
         document.getElementById('kpi-count-facturas').textContent = `${resStats.total_compras || 0} comprobantes emitidos`;
 
         const pendienteImp = (resStats.total_importe || 0) - (resStats.pagados_total || 0);
@@ -936,6 +939,10 @@ async function fetchDashboardStats() {
         if (kpiPen) kpiPen.textContent = formatCurrency(resumen.total_pendiente);
         if (kpiComp) kpiComp.textContent = (resumen.total_comprobantes || 0).toLocaleString('es-AR');
         if (kpiProv) kpiProv.textContent = (resumen.total_proveedores || 0).toLocaleString('es-AR');
+
+        if (resumen && (resumen.total_bruto !== undefined || resumen.total_facturado !== undefined)) {
+            updateDashboardConsolidado(resumen);
+        }
 
         populateDashboardFilterCategories();
         renderDashboardCharts(data);
@@ -2019,19 +2026,74 @@ async function loadPagosNoRegistradosCloud() {
     }
 }
 
+function updateDashboardConsolidado(resStats) {
+    if (!resStats) return;
+    const bruto = resStats.total_bruto || 0;
+    const nc = resStats.total_nc || 0;
+    const ncCnt = resStats.notas_credito || 0;
+    const neto = resStats.total_neto || (bruto - nc);
+    const pnr = resStats.total_no_registrados || 0;
+    const pnrCnt = resStats.cantidad_no_registrados || 0;
+    const total = resStats.total_consolidado !== undefined ? resStats.total_consolidado : (neto + pnr);
+
+    const elBruto = document.getElementById('dash-consolidado-bruto');
+    if (elBruto) elBruto.textContent = formatCurrency(bruto);
+
+    const elNc = document.getElementById('dash-consolidado-nc');
+    if (elNc) elNc.textContent = `-${formatCurrency(nc)}`;
+
+    const elNcCount = document.getElementById('dash-consolidado-nc-count');
+    if (elNcCount) elNcCount.textContent = `${ncCnt} notas de crédito`;
+
+    const elNeto = document.getElementById('dash-consolidado-neto');
+    if (elNeto) elNeto.textContent = formatCurrency(neto);
+
+    const elPnr = document.getElementById('dash-consolidado-pnr');
+    if (elPnr) elPnr.textContent = `+${formatCurrency(pnr)}`;
+
+    const elPnrCount = document.getElementById('dash-consolidado-pnr-count');
+    if (elPnrCount) elPnrCount.textContent = `${pnrCnt} pagos`;
+
+    const elTotal = document.getElementById('dash-consolidado-total');
+    if (elTotal) elTotal.textContent = formatCurrency(total);
+}
+
+function getRubroBadge(catName) {
+    if (!catName) return '';
+    const clean = String(catName).trim();
+    const matched = (categoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === clean.toLowerCase());
+    const color = matched?.color || '#2563eb';
+    const icon = matched?.icono || 'fa-tag';
+    return `<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.73rem; font-weight: 700; color: ${color}; background: ${color}14; border: 1px solid ${color}33; padding: 2px 7px; border-radius: 6px;">
+        <i class="fa-solid ${icon}" style="font-size: 0.68rem;"></i> ${escapeHtml(clean)}
+    </span>`;
+}
+
 function populatePnrProveedoresDatalist() {
     const datalist = document.getElementById('list-pnr-proveedores');
     if (!datalist) return;
 
     const namesSet = new Set();
+    
+    // 1. Proveedores del catálogo central (registrados con nombre y alias)
+    (allProveedoresList || []).forEach(p => {
+        if (p.nombre && String(p.nombre).trim()) namesSet.add(String(p.nombre).trim());
+        if (p.alias && String(p.alias).trim()) namesSet.add(String(p.alias).trim());
+    });
+
+    // 2. Mapa de alias de proveedores
     Object.values(aliasMap || {}).forEach(al => {
         if (al && String(al).trim()) namesSet.add(String(al).trim());
     });
+
+    // 3. Emisores de facturas ARCA del período
     (arcaData || []).forEach(c => {
         if (c.denominacion_emisor && String(c.denominacion_emisor).trim()) {
             namesSet.add(String(c.denominacion_emisor).trim());
         }
     });
+
+    // 4. Pagos no registrados existentes
     (pagosNoRegistradosData || []).forEach(p => {
         if (p.proveedor && String(p.proveedor).trim()) {
             namesSet.add(String(p.proveedor).trim());
@@ -2039,9 +2101,99 @@ function populatePnrProveedoresDatalist() {
     });
 
     datalist.innerHTML = Array.from(namesSet)
-        .sort((a, b) => a.localeCompare(b))
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
         .map(n => `<option value="${escapeHtml(n)}">`)
         .join('');
+}
+
+function onPnrProveedorInput(val) {
+    if (!val || !val.trim()) return;
+    const clean = val.trim().toLowerCase();
+
+    // Buscar si el proveedor ya existe en el catálogo central
+    const match = (allProveedoresList || []).find(p =>
+        (p.nombre && p.nombre.toLowerCase().trim() === clean) ||
+        (p.alias && p.alias.toLowerCase().trim() === clean)
+    );
+
+    if (match) {
+        const catSelect = document.getElementById('pnr-categoria');
+        if (match.categoria && match.categoria !== 'General' && catSelect) {
+            catSelect.value = match.categoria;
+            onPnrCategoryChange(match.subcategoria || '');
+        } else if (match.subcategoria) {
+            onPnrCategoryChange(match.subcategoria);
+        }
+    }
+}
+
+function populatePnrCategorias(selectedCat = '') {
+    const select = document.getElementById('pnr-categoria');
+    if (!select) return;
+
+    let html = '<option value="">-- Seleccionar Rubro --</option>';
+    const seen = new Set();
+
+    (categoriesTree || []).forEach(c => {
+        const nom = (c.nombre || '').trim();
+        if (nom && !seen.has(nom.toLowerCase())) {
+            seen.add(nom.toLowerCase());
+            const isSel = (nom.toLowerCase() === (selectedCat || '').toLowerCase().trim()) ? 'selected' : '';
+            html += `<option value="${escapeHtml(nom)}" ${isSel}>${escapeHtml(nom)}</option>`;
+        }
+    });
+
+    select.innerHTML = html;
+}
+
+function onPnrCategoryChange(targetSubcat = '') {
+    const catSelect = document.getElementById('pnr-categoria');
+    const subcatSelect = document.getElementById('pnr-subcategoria');
+    const motivoInput = document.getElementById('pnr-motivo');
+    if (!catSelect || !subcatSelect) return;
+
+    const selectedCat = (catSelect.value || '').trim();
+    let subHtml = '<option value="">-- Sin Subcategoría --</option>';
+
+    if (selectedCat) {
+        const matched = (categoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === selectedCat.toLowerCase());
+        if (matched && matched.subcategorias && matched.subcategorias.length > 0) {
+            matched.subcategorias.forEach(sub => {
+                const sNom = (sub.nombre || '').trim();
+                const isSel = (targetSubcat && sNom.toLowerCase() === targetSubcat.toLowerCase().trim()) ? 'selected' : '';
+                subHtml += `<option value="${escapeHtml(sNom)}" ${isSel}>${escapeHtml(sNom)}</option>`;
+            });
+        }
+    }
+
+    subcatSelect.innerHTML = subHtml;
+
+    // Si se seleccionó una categoría y el motivo está vacío o tiene el valor de la subcategoría/categoría previa
+    if (motivoInput) {
+        if (targetSubcat) {
+            if (!motivoInput.value || motivoInput.value === selectedCat) motivoInput.value = targetSubcat;
+        } else if (subcatSelect.value) {
+            if (!motivoInput.value || motivoInput.value === selectedCat) motivoInput.value = subcatSelect.value;
+        } else if (selectedCat && !motivoInput.value) {
+            motivoInput.value = selectedCat;
+        }
+    }
+}
+
+function onPnrSubcategoryChange() {
+    const subcatSelect = document.getElementById('pnr-subcategoria');
+    const catSelect = document.getElementById('pnr-categoria');
+    const motivoInput = document.getElementById('pnr-motivo');
+    if (!subcatSelect || !motivoInput) return;
+
+    const subVal = subcatSelect.value;
+    const catVal = catSelect ? catSelect.value : '';
+
+    if (subVal) {
+        motivoInput.value = subVal;
+    } else if (catVal && (!motivoInput.value || motivoInput.value === subVal)) {
+        motivoInput.value = catVal;
+    }
 }
 
 function filterPagosNoRegistrados(term) {
@@ -2058,8 +2210,10 @@ function renderPagosNoRegistradosTable(filterTerm = '') {
         if (!term) return true;
         const prov = normalizeSearchText(p.proveedor || '');
         const mot = normalizeSearchText(p.motivo || '');
+        const cat = normalizeSearchText(p.categoria || '');
+        const sub = normalizeSearchText(p.subcategoria || '');
         const fec = normalizeSearchText(p.fecha || '');
-        return prov.includes(term) || mot.includes(term) || fec.includes(term);
+        return prov.includes(term) || mot.includes(term) || cat.includes(term) || sub.includes(term) || fec.includes(term);
     });
 
     if (filtered.length === 0) {
@@ -2075,32 +2229,44 @@ function renderPagosNoRegistradosTable(filterTerm = '') {
         return;
     }
 
-    tbody.innerHTML = filtered.map(p => `
-        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;">
-            <td style="padding: 0.75rem 1rem; font-weight: 600; color: #334155; font-size: 0.85rem; white-space: nowrap;">
-                <i class="fa-solid fa-calendar-day" style="color: #94a3b8; font-size: 0.75rem; margin-right: 4px;"></i> ${escapeHtml(p.fecha || '-')}
-            </td>
-            <td style="padding: 0.75rem 1rem; font-weight: 700; color: #0f172a; font-size: 0.88rem;">
-                ${escapeHtml(p.proveedor || '-')}
-            </td>
-            <td style="padding: 0.75rem 1rem; font-size: 0.84rem; color: #64748b; font-weight: 500;">
-                ${p.motivo ? escapeHtml(p.motivo) : '<em style="color: #94a3b8;">Sin motivo detallado</em>'}
-            </td>
-            <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 800; color: #1e293b; font-size: 0.95rem; white-space: nowrap;">
-                ${formatCurrency(p.monto || 0)}
-            </td>
-            <td style="padding: 0.75rem 1rem; text-align: center;">
-                <div style="display: inline-flex; gap: 6px;">
-                    <button class="btn btn-sm" onclick="openModalPagoNoRegistrado(${p.id})" title="Editar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; border-radius: 6px; cursor: pointer;">
-                        <i class="fa-solid fa-pen-to-square"></i>
-                    </button>
-                    <button class="btn btn-sm" onclick="handleDeletePagoNoRegistrado(${p.id})" title="Eliminar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); color: #dc2626; border-radius: 6px; cursor: pointer;">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = filtered.map(p => {
+        const catBadge = p.categoria ? getRubroBadge(p.categoria) : '';
+        const subBadge = p.subcategoria ? `<span style="font-size: 0.73rem; color: #475569; font-weight: 600; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; border: 1px solid #e2e8f0;"><i class="fa-solid fa-sitemap" style="color: #94a3b8; font-size: 0.68rem;"></i> ${escapeHtml(p.subcategoria)}</span>` : '';
+        const motDetail = escapeHtml(p.motivo || '-');
+
+        return `
+            <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;">
+                <td style="padding: 0.75rem 1rem; font-weight: 600; color: #334155; font-size: 0.85rem; white-space: nowrap;">
+                    <i class="fa-solid fa-calendar-day" style="color: #94a3b8; font-size: 0.75rem; margin-right: 4px;"></i> ${escapeHtml(p.fecha || '-')}
+                </td>
+                <td style="padding: 0.75rem 1rem; font-weight: 700; color: #0f172a; font-size: 0.88rem;">
+                    ${escapeHtml(p.proveedor || '-')}
+                </td>
+                <td style="padding: 0.75rem 1rem;">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            ${catBadge}
+                            ${subBadge}
+                        </div>
+                        <span style="font-size: 0.84rem; color: #334155; font-weight: 600;">${motDetail}</span>
+                    </div>
+                </td>
+                <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 800; color: #1e293b; font-size: 0.95rem; white-space: nowrap;">
+                    ${formatCurrency(p.monto || 0)}
+                </td>
+                <td style="padding: 0.75rem 1rem; text-align: center;">
+                    <div style="display: inline-flex; gap: 6px;">
+                        <button class="btn btn-sm" onclick="openModalPagoNoRegistrado(${p.id})" title="Editar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: #f8fafc; border: 1px solid #cbd5e1; color: #334155; border-radius: 6px; cursor: pointer;">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button class="btn btn-sm" onclick="handleDeletePagoNoRegistrado(${p.id})" title="Eliminar Pago" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); color: #dc2626; border-radius: 6px; cursor: pointer;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function openModalPagoNoRegistrado(id = null) {
@@ -2133,7 +2299,10 @@ function openModalPagoNoRegistrado(id = null) {
         if (elFecha) elFecha.value = item.fecha || todayLocal;
         if (elProv) elProv.value = item.proveedor || '';
         if (elMonto) elMonto.value = item.monto || '';
-        if (elMotivo) elMotivo.value = item.motivo || '';
+        
+        populatePnrCategorias(item.categoria || '');
+        onPnrCategoryChange(item.subcategoria || '');
+        if (elMotivo) elMotivo.value = item.motivo || item.subcategoria || item.categoria || '';
     } else {
         if (title) title.innerHTML = `<i class="fa-solid fa-hand-holding-dollar" style="color: #2563eb;"></i> Nuevo Pago No Registrado`;
         form.reset();
@@ -2141,6 +2310,9 @@ function openModalPagoNoRegistrado(id = null) {
         const elFecha = document.getElementById('pnr-fecha');
         if (elId) elId.value = '';
         if (elFecha) elFecha.value = todayLocal;
+
+        populatePnrCategorias('');
+        onPnrCategoryChange('');
     }
 
     modal.style.display = 'flex';
@@ -2158,7 +2330,13 @@ async function handleSavePagoNoRegistrado(e) {
     const fecha = document.getElementById('pnr-fecha').value;
     const proveedor = document.getElementById('pnr-proveedor').value.trim();
     const monto = parseFloat(document.getElementById('pnr-monto').value);
-    const motivo = document.getElementById('pnr-motivo').value.trim();
+    const categoria = document.getElementById('pnr-categoria')?.value?.trim() || '';
+    const subcategoria = document.getElementById('pnr-subcategoria')?.value?.trim() || '';
+    let motivo = document.getElementById('pnr-motivo')?.value?.trim() || '';
+
+    if (!motivo) {
+        motivo = subcategoria || categoria;
+    }
 
     if (!proveedor) {
         showToast('El nombre del proveedor es obligatorio', 'error');
@@ -2169,7 +2347,7 @@ async function handleSavePagoNoRegistrado(e) {
         return;
     }
 
-    const payload = { fecha, proveedor, monto, motivo };
+    const payload = { fecha, proveedor, monto, motivo, categoria, subcategoria };
 
     if (btn) {
         btn.disabled = true;
@@ -2188,6 +2366,9 @@ async function handleSavePagoNoRegistrado(e) {
         if (data.success) {
             showToast(id ? 'Pago actualizado con éxito' : 'Pago no registrado creado exitosamente', 'success');
             closeModalPagoNoRegistrado();
+            if (typeof loadProveedoresAlias === 'function') {
+                await loadProveedoresAlias();
+            }
             await fetchAllData();
         } else {
             showToast(data.error || 'Error al guardar el pago', 'error');
@@ -2227,6 +2408,10 @@ window.closeModalPagoNoRegistrado = closeModalPagoNoRegistrado;
 window.handleSavePagoNoRegistrado = handleSavePagoNoRegistrado;
 window.handleDeletePagoNoRegistrado = handleDeletePagoNoRegistrado;
 window.filterPagosNoRegistrados = filterPagosNoRegistrados;
+window.onPnrCategoryChange = onPnrCategoryChange;
+window.onPnrSubcategoryChange = onPnrSubcategoryChange;
+window.onPnrProveedorInput = onPnrProveedorInput;
+window.updateDashboardConsolidado = updateDashboardConsolidado;
 window.escapeHtml = escapeHtml;
 window.escapeHTML = escapeHtml;
 

@@ -2083,7 +2083,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
     // PAGOS NO REGISTRADOS (Local)
     // ==========================================
+    // GESTIÓN DE PAGOS NO REGISTRADOS (LOCAL)
+    // ==========================================
     let localPagosNoRegistrados = [];
+    let localCategoriesTree = [];
+
+    async function loadLocalCategories() {
+        try {
+            const res = await fetch('/api/categorias');
+            const data = await res.json();
+            localCategoriesTree = data.tree || [];
+        } catch (e) {
+            console.error("Error cargando categorías locales:", e);
+        }
+    }
 
     window.fetchLocalPagosNoRegistrados = async function () {
         try {
@@ -2098,6 +2111,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const elCant = document.getElementById('local-pnr-stat-cantidad');
             if (elCant) elCant.textContent = `${data.cantidad || 0} pagos`;
 
+            if (localCategoriesTree.length === 0) {
+                await loadLocalCategories();
+            }
+
             populateLocalPnrDatalist();
             renderLocalPagosNoRegistrados();
         } catch (e) {
@@ -2109,11 +2126,108 @@ document.addEventListener('DOMContentLoaded', () => {
         const datalist = document.getElementById('list-local-pnr-proveedores');
         if (!datalist) return;
         const set = new Set();
-        (localPagosNoRegistrados || []).forEach(p => {
-            if (p.proveedor) set.add(p.proveedor.trim());
+
+        (allSuppliers || []).forEach(s => {
+            if (s.nombre && s.nombre.trim()) set.add(s.nombre.trim());
+            if (s.alias && s.alias.trim()) set.add(s.alias.trim());
         });
-        datalist.innerHTML = Array.from(set).map(n => `<option value="${escapeHtml(n)}">`).join('');
+
+        (localPagosNoRegistrados || []).forEach(p => {
+            if (p.proveedor && p.proveedor.trim()) set.add(p.proveedor.trim());
+        });
+
+        datalist.innerHTML = Array.from(set)
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+            .map(n => `<option value="${escapeHtml(n)}">`)
+            .join('');
     }
+
+    window.onLocalPnrProveedorInput = function (val) {
+        if (!val || !val.trim()) return;
+        const clean = val.trim().toLowerCase();
+        const match = (allSuppliers || []).find(s =>
+            (s.nombre && s.nombre.toLowerCase().trim() === clean) ||
+            (s.alias && s.alias.toLowerCase().trim() === clean)
+        );
+
+        if (match) {
+            const catSelect = document.getElementById('local-pnr-categoria');
+            if (match.categoria && match.categoria !== 'General' && catSelect) {
+                catSelect.value = match.categoria;
+                onLocalPnrCategoryChange(match.subcategoria || '');
+            } else if (match.subcategoria) {
+                onLocalPnrCategoryChange(match.subcategoria);
+            }
+        }
+    };
+
+    function populateLocalPnrCategorias(selectedCat = '') {
+        const select = document.getElementById('local-pnr-categoria');
+        if (!select) return;
+
+        let html = '<option value="">-- Seleccionar Rubro --</option>';
+        const seen = new Set();
+
+        (localCategoriesTree || []).forEach(c => {
+            const nom = (c.nombre || '').trim();
+            if (nom && !seen.has(nom.toLowerCase())) {
+                seen.add(nom.toLowerCase());
+                const isSel = (nom.toLowerCase() === (selectedCat || '').toLowerCase().trim()) ? 'selected' : '';
+                html += `<option value="${escapeHtml(nom)}" ${isSel}>${escapeHtml(nom)}</option>`;
+            }
+        });
+
+        select.innerHTML = html;
+    }
+
+    window.onLocalPnrCategoryChange = function (targetSubcat = '') {
+        const catSelect = document.getElementById('local-pnr-categoria');
+        const subcatSelect = document.getElementById('local-pnr-subcategoria');
+        const motivoInput = document.getElementById('local-pnr-motivo');
+        if (!catSelect || !subcatSelect) return;
+
+        const selectedCat = (catSelect.value || '').trim();
+        let subHtml = '<option value="">-- Sin Subcategoría --</option>';
+
+        if (selectedCat) {
+            const matched = (localCategoriesTree || []).find(c => (c.nombre || '').toLowerCase().trim() === selectedCat.toLowerCase());
+            if (matched && matched.subcategorias && matched.subcategorias.length > 0) {
+                matched.subcategorias.forEach(sub => {
+                    const sNom = (sub.nombre || '').trim();
+                    const isSel = (targetSubcat && sNom.toLowerCase() === targetSubcat.toLowerCase().trim()) ? 'selected' : '';
+                    subHtml += `<option value="${escapeHtml(sNom)}" ${isSel}>${escapeHtml(sNom)}</option>`;
+                });
+            }
+        }
+
+        subcatSelect.innerHTML = subHtml;
+
+        if (motivoInput) {
+            if (targetSubcat) {
+                if (!motivoInput.value || motivoInput.value === selectedCat) motivoInput.value = targetSubcat;
+            } else if (subcatSelect.value) {
+                if (!motivoInput.value || motivoInput.value === selectedCat) motivoInput.value = subcatSelect.value;
+            } else if (selectedCat && !motivoInput.value) {
+                motivoInput.value = selectedCat;
+            }
+        }
+    };
+
+    window.onLocalPnrSubcategoryChange = function () {
+        const subcatSelect = document.getElementById('local-pnr-subcategoria');
+        const catSelect = document.getElementById('local-pnr-categoria');
+        const motivoInput = document.getElementById('local-pnr-motivo');
+        if (!subcatSelect || !motivoInput) return;
+
+        const subVal = subcatSelect.value;
+        const catVal = catSelect ? catSelect.value : '';
+
+        if (subVal) {
+            motivoInput.value = subVal;
+        } else if (catVal && (!motivoInput.value || motivoInput.value === subVal)) {
+            motivoInput.value = catVal;
+        }
+    };
 
     window.filterLocalPagosNoRegistrados = function (term) {
         renderLocalPagosNoRegistrados(term);
@@ -2126,7 +2240,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const q = (term || document.getElementById('local-pnr-search')?.value || '').toLowerCase().trim();
         const filtered = (localPagosNoRegistrados || []).filter(p => {
             if (!q) return true;
-            return (p.proveedor || '').toLowerCase().includes(q) || (p.motivo || '').toLowerCase().includes(q) || (p.fecha || '').includes(q);
+            return (p.proveedor || '').toLowerCase().includes(q) ||
+                   (p.motivo || '').toLowerCase().includes(q) ||
+                   (p.categoria || '').toLowerCase().includes(q) ||
+                   (p.subcategoria || '').toLowerCase().includes(q) ||
+                   (p.fecha || '').includes(q);
         });
 
         if (filtered.length === 0) {
@@ -2134,28 +2252,50 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        tbody.innerHTML = filtered.map(p => `
-            <tr>
-                <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">${escapeHtml(p.fecha || '-')}</td>
-                <td><strong>${escapeHtml(p.proveedor || '-')}</strong></td>
-                <td style="color: var(--text-secondary); font-size: 0.85rem;">${p.motivo ? escapeHtml(p.motivo) : '<em>-</em>'}</td>
-                <td style="text-align: right; font-weight: 700;">${formatCurrency(p.monto || 0)}</td>
-                <td style="text-align: center;">
-                    <button class="btn btn-secondary btn-sm" onclick="handleDeleteLocalPagoNoRegistrado(${p.id})" title="Eliminar Pago" style="color: #ef4444; padding: 3px 7px;">
-                        <i class="fa-solid fa-trash-can"></i>
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+        tbody.innerHTML = filtered.map(p => {
+            const catBadge = p.categoria ? `<span style="font-size: 0.72rem; font-weight: 700; color: #2563eb; background: rgba(37,99,235,0.08); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(37,99,235,0.2);"><i class="fa-solid fa-tag"></i> ${escapeHtml(p.categoria)}</span>` : '';
+            const subBadge = p.subcategoria ? `<span style="font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-color);">${escapeHtml(p.subcategoria)}</span>` : '';
+
+            return `
+                <tr>
+                    <td style="font-family: monospace; font-size: 0.85rem; white-space: nowrap;">${escapeHtml(p.fecha || '-')}</td>
+                    <td><strong>${escapeHtml(p.proveedor || '-')}</strong></td>
+                    <td>
+                        <div style="display: flex; flex-direction: column; gap: 3px;">
+                            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                ${catBadge}
+                                ${subBadge}
+                            </div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem;">${p.motivo ? escapeHtml(p.motivo) : '<em>-</em>'}</span>
+                        </div>
+                    </td>
+                    <td style="text-align: right; font-weight: 700;">${formatCurrency(p.monto || 0)}</td>
+                    <td style="text-align: center;">
+                        <button class="btn btn-secondary btn-sm" onclick="handleDeleteLocalPagoNoRegistrado(${p.id})" title="Eliminar Pago" style="color: #ef4444; padding: 3px 7px;">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 
-    window.openModalLocalPagoNoRegistrado = function () {
+    window.openModalLocalPagoNoRegistrado = async function () {
         const modal = document.getElementById('modal-local-pago-no-registrado');
         const form = document.getElementById('form-local-pago-no-registrado');
         if (!modal || !form) return;
         form.reset();
         document.getElementById('local-pnr-id').value = '';
         document.getElementById('local-pnr-fecha').value = new Date().toISOString().slice(0, 10);
+
+        if (localCategoriesTree.length === 0) {
+            await loadLocalCategories();
+        }
+
+        populateLocalPnrDatalist();
+        populateLocalPnrCategorias('');
+        onLocalPnrCategoryChange('');
+
         modal.style.display = 'flex';
     };
 
@@ -2171,7 +2311,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const fecha = document.getElementById('local-pnr-fecha').value;
         const proveedor = document.getElementById('local-pnr-proveedor').value.trim();
         const monto = parseFloat(document.getElementById('local-pnr-monto').value);
-        const motivo = document.getElementById('local-pnr-motivo').value.trim();
+        const categoria = document.getElementById('local-pnr-categoria')?.value?.trim() || '';
+        const subcategoria = document.getElementById('local-pnr-subcategoria')?.value?.trim() || '';
+        let motivo = document.getElementById('local-pnr-motivo')?.value?.trim() || '';
+
+        if (!motivo) {
+            motivo = subcategoria || categoria;
+        }
 
         if (!proveedor) {
             showToast('El nombre del proveedor es obligatorio', 'error');
@@ -2191,12 +2337,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/pagos_no_registrados', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fecha, proveedor, monto, motivo })
+                body: JSON.stringify({ fecha, proveedor, monto, motivo, categoria, subcategoria })
             });
             const data = await res.json();
             if (data.success) {
                 showToast('Pago no registrado guardado exitosamente');
                 closeModalLocalPagoNoRegistrado();
+                fetchSuppliers();
                 fetchLocalPagosNoRegistrados();
                 fetchCuentasPorPagar();
             } else {

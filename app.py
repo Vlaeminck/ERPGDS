@@ -1913,6 +1913,7 @@ def api_create_pago_no_registrado():
         monto = 0.0
     motivo = (data.get('motivo') or '').strip()
     categoria = (data.get('categoria') or '').strip()
+    subcategoria = (data.get('subcategoria') or '').strip()
     metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
 
     if not proveedor:
@@ -1920,7 +1921,7 @@ def api_create_pago_no_registrado():
     if monto <= 0:
         return jsonify({"success": False, "error": "El monto debe ser mayor a 0"}), 400
 
-    new_id, doc_uuid = db_manager.add_pago_no_registrado(fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    new_id, doc_uuid = db_manager.add_pago_no_registrado(fecha, proveedor, monto, motivo, categoria, metodo_pago, subcategoria)
     try:
         firebase_sync.sync_cycle()
     except Exception as e_sync:
@@ -1955,12 +1956,13 @@ def api_update_pago_no_registrado(item_id):
         monto = 0.0
     motivo = (data.get('motivo') or '').strip()
     categoria = (data.get('categoria') or '').strip()
+    subcategoria = (data.get('subcategoria') or '').strip()
     metodo_pago = (data.get('metodo_pago') or 'Efectivo').strip()
 
     if not proveedor or monto <= 0:
         return jsonify({"success": False, "error": "Proveedor y monto válido son requeridos"}), 400
 
-    doc_uuid = db_manager.update_pago_no_registrado(item_id, fecha, proveedor, monto, motivo, categoria, metodo_pago)
+    doc_uuid = db_manager.update_pago_no_registrado(item_id, fecha, proveedor, monto, motivo, categoria, metodo_pago, subcategoria)
     try:
         firebase_sync.sync_cycle()
     except Exception as e_sync:
@@ -2714,6 +2716,20 @@ def api_dashboard_stats():
     rubro_rows = cursor.fetchall()
     gastos_rubro = {r['rubro']: round(float(r['total'] or 0), 2) for r in rubro_rows}
 
+    # Incorporar gastos no registrados al rubro
+    pnr_mes_where = "WHERE fecha LIKE ?" if (mes and mes != 'all') else "WHERE 1=1"
+    pnr_mes_param = (f"{mes}%",) if (mes and mes != 'all') else ()
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(TRIM(categoria), ''), 'General') as rubro,
+               SUM(monto) as total
+        FROM pagos_no_registrados
+        {pnr_mes_where}
+        GROUP BY rubro
+    ''', pnr_mes_param)
+    for pr in cursor.fetchall():
+        r_nom = pr['rubro']
+        gastos_rubro[r_nom] = round(gastos_rubro.get(r_nom, 0) + float(pr['total'] or 0), 2)
+
     subcat_where_sql = "WHERE " + " AND ".join(where_clauses) if categoria_filtro and categoria_filtro != 'all' else where_mes_only
     subcat_params = params if categoria_filtro and categoria_filtro != 'all' else params_mes_only
 
@@ -2736,6 +2752,25 @@ def api_dashboard_stats():
     for r in subcat_rows:
         label = f"{r['rubro']} > {r['subrubro']}" if r['subrubro'] != 'Sin Subcategoría' else r['rubro']
         gastos_subrubro[label] = round(float(r['total'] or 0), 2)
+
+    # Incorporar gastos no registrados a subcategorías
+    pnr_sub_where = pnr_mes_where
+    pnr_sub_param = list(pnr_mes_param)
+    if categoria_filtro and categoria_filtro != 'all':
+        pnr_sub_where += " AND COALESCE(NULLIF(TRIM(categoria), ''), 'General') = ? COLLATE NOCASE"
+        pnr_sub_param.append(categoria_filtro)
+
+    cursor.execute(f'''
+        SELECT COALESCE(NULLIF(TRIM(categoria), ''), 'General') as rubro,
+               COALESCE(NULLIF(TRIM(subcategoria), ''), 'Sin Subcategoría') as subrubro,
+               SUM(monto) as total
+        FROM pagos_no_registrados
+        {pnr_sub_where}
+        GROUP BY rubro, subrubro
+    ''', tuple(pnr_sub_param))
+    for pr in cursor.fetchall():
+        lbl = f"{pr['rubro']} > {pr['subrubro']}" if pr['subrubro'] != 'Sin Subcategoría' else pr['rubro']
+        gastos_subrubro[lbl] = round(gastos_subrubro.get(lbl, 0) + float(pr['total'] or 0), 2)
 
     cursor.execute(f'''
         SELECT COALESCE(NULLIF(c.categoria_pago, ''), 'Sin Categorizar') as cat,
@@ -2941,6 +2976,12 @@ def api_dashboard_stats():
     tree = db_manager.get_categories_tree()
     conn.close()
 
+    cursor.execute(f"SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados {pnr_mes_where}", pnr_mes_param)
+    pnr_r = cursor.fetchone()
+    pnr_tot = float(pnr_r[0] or 0) if pnr_r else 0.0
+    pnr_cnt = int(pnr_r[1] or 0) if pnr_r else 0
+    total_consolidado = gran_total + pnr_tot
+
     return jsonify({
         "evolucion_mensual": evolucion_mensual,
         "gastos_categoria": gastos_categoria,
@@ -2955,6 +2996,9 @@ def api_dashboard_stats():
             "total_neto": round(gran_total, 2),
             "total_bruto": round(total_bruto, 2),
             "total_nc": round(total_nc, 2),
+            "total_no_registrados": round(pnr_tot, 2),
+            "cantidad_no_registrados": pnr_cnt,
+            "total_consolidado": round(total_consolidado, 2),
             "total_pagado": round(total_pagado, 2),
             "total_pendiente": round(total_pendiente, 2),
             "total_comprobantes": total_comprobantes,

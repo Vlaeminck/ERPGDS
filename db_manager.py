@@ -381,6 +381,13 @@ def init_db(seed_samples=False):
     )
     ''')
 
+    # Migración de columnas de pagos_no_registrados si no existen
+    cursor.execute("PRAGMA table_info(pagos_no_registrados)")
+    pnr_cols = [r[1] for r in cursor.fetchall()]
+    if 'subcategoria' not in pnr_cols:
+        try: cursor.execute("ALTER TABLE pagos_no_registrados ADD COLUMN subcategoria TEXT DEFAULT ''")
+        except Exception: pass
+
     # Migración de columna origen si no existe
     cursor.execute("PRAGMA table_info(retiros_recaudacion)")
     cols = [r[1] for r in cursor.fetchall()]
@@ -1223,7 +1230,7 @@ def reset_db():
 # GESTIÓN DE PAGOS NO REGISTRADOS (Gastos Fuera de ARCA)
 # ========================================================
 
-def ensure_supplier_exists(nombre):
+def ensure_supplier_exists(nombre, categoria='General', subcategoria=''):
     """Si el proveedor no existe en el catálogo, lo inserta automáticamente para recordarlo."""
     if not nombre or not str(nombre).strip():
         return
@@ -1231,17 +1238,48 @@ def ensure_supplier_exists(nombre):
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT id FROM proveedores WHERE LOWER(TRIM(nombre)) = LOWER(?)", (nombre_clean,))
-        if not cursor.fetchone():
-            import datetime as _dt
-            import uuid as _uuid
-            now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute('''
+            SELECT id, categoria, subcategoria 
+            FROM proveedores 
+            WHERE LOWER(TRIM(nombre)) = LOWER(?) OR (alias != '' AND LOWER(TRIM(alias)) = LOWER(?))
+        ''', (nombre_clean, nombre_clean))
+        row = cursor.fetchone()
+        
+        import datetime as _dt
+        import uuid as _uuid
+        now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cat_to_use = categoria if categoria and categoria != 'General' else 'General'
+        subcat_to_use = subcategoria or ''
+
+        if not row:
             prov_uuid = _uuid.uuid4().hex
             cursor.execute('''
-                INSERT INTO proveedores (nombre, categoria, uuid, updated_at, sync_status)
-                VALUES (?, 'General', ?, ?, 0)
-            ''', (nombre_clean, prov_uuid, now_iso))
+                INSERT INTO proveedores (nombre, categoria, subcategoria, uuid, updated_at, sync_status)
+                VALUES (?, ?, ?, ?, ?, 0)
+            ''', (nombre_clean, cat_to_use, subcat_to_use, prov_uuid, now_iso))
             conn.commit()
+        else:
+            # Si el proveedor ya existe pero su categoría era 'General' o vacía y ahora se envía un rubro específico, enriquecerlo
+            cur_cat = row['categoria'] or ''
+            cur_subcat = row['subcategoria'] or ''
+            should_update = False
+            new_cat = cur_cat
+            new_subcat = cur_subcat
+
+            if (not cur_cat or cur_cat == 'General') and cat_to_use != 'General':
+                new_cat = cat_to_use
+                should_update = True
+            if (not cur_subcat or cur_subcat == 'Sin Subcategoría') and subcat_to_use:
+                new_subcat = subcat_to_use
+                should_update = True
+
+            if should_update:
+                cursor.execute('''
+                    UPDATE proveedores
+                    SET categoria = ?, subcategoria = ?, updated_at = ?, sync_status = 0
+                    WHERE id = ?
+                ''', (new_cat, new_subcat, now_iso, row['id']))
+                conn.commit()
     except Exception as e:
         print(f"[db_manager] Error en ensure_supplier_exists: {e}", flush=True)
     finally:
@@ -1276,7 +1314,7 @@ def get_total_pagos_no_registrados(mes=None):
     finally:
         conn.close()
 
-def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo'):
+def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo', subcategoria=''):
     """Inserta un pago no registrado en SQLite y asegura que el proveedor quede guardado en el catálogo."""
     import uuid as _uuid
     import datetime as _dt
@@ -1284,16 +1322,22 @@ def add_pago_no_registrado(fecha, proveedor, monto, motivo='', categoria='', met
     rec_uuid = _uuid.uuid4().hex
     
     prov_clean = (proveedor or '').strip()
+    cat_clean = (categoria or '').strip()
+    subcat_clean = (subcategoria or '').strip()
+    mot_clean = (motivo or '').strip()
+    if not mot_clean:
+        mot_clean = subcat_clean or cat_clean
+
     if prov_clean:
-        ensure_supplier_exists(prov_clean)
+        ensure_supplier_exists(prov_clean, categoria=cat_clean, subcategoria=subcat_clean)
         
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT INTO pagos_no_registrados (fecha, proveedor, monto, motivo, categoria, metodo_pago, uuid, updated_at, sync_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-        ''', (fecha, prov_clean, float(monto or 0), motivo or '', categoria or '', metodo_pago or 'Efectivo', rec_uuid, now_iso))
+            INSERT INTO pagos_no_registrados (fecha, proveedor, monto, motivo, categoria, subcategoria, metodo_pago, uuid, updated_at, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        ''', (fecha, prov_clean, float(monto or 0), mot_clean, cat_clean, subcat_clean, metodo_pago or 'Efectivo', rec_uuid, now_iso))
         conn.commit()
         new_id = cursor.lastrowid
         return new_id, rec_uuid
@@ -1316,22 +1360,28 @@ def delete_pago_no_registrado(pago_id):
     finally:
         conn.close()
 
-def update_pago_no_registrado(pago_id, fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo'):
+def update_pago_no_registrado(pago_id, fecha, proveedor, monto, motivo='', categoria='', metodo_pago='Efectivo', subcategoria=''):
     """Actualiza un pago no registrado existente."""
     import datetime as _dt
     now_iso = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     prov_clean = (proveedor or '').strip()
+    cat_clean = (categoria or '').strip()
+    subcat_clean = (subcategoria or '').strip()
+    mot_clean = (motivo or '').strip()
+    if not mot_clean:
+        mot_clean = subcat_clean or cat_clean
+
     if prov_clean:
-        ensure_supplier_exists(prov_clean)
+        ensure_supplier_exists(prov_clean, categoria=cat_clean, subcategoria=subcat_clean)
 
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('''
             UPDATE pagos_no_registrados
-            SET fecha = ?, proveedor = ?, monto = ?, motivo = ?, categoria = ?, metodo_pago = ?, updated_at = ?, sync_status = 0
+            SET fecha = ?, proveedor = ?, monto = ?, motivo = ?, categoria = ?, subcategoria = ?, metodo_pago = ?, updated_at = ?, sync_status = 0
             WHERE id = ?
-        ''', (fecha, prov_clean, float(monto or 0), motivo or '', categoria or '', metodo_pago or 'Efectivo', now_iso, pago_id))
+        ''', (fecha, prov_clean, float(monto or 0), mot_clean, cat_clean, subcat_clean, metodo_pago or 'Efectivo', now_iso, pago_id))
         conn.commit()
         cursor.execute("SELECT uuid FROM pagos_no_registrados WHERE id = ?", (pago_id,))
         row = cursor.fetchone()
