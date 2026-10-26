@@ -1940,7 +1940,7 @@ function switchTab(tabId) {
     }
 }
 
-async function triggerManualSync(silent = false) {
+async function triggerManualSync(silent = false, forceFull = false) {
     const badge = document.getElementById('cloud-sync-badge');
     const text = document.getElementById('cloud-sync-text');
     const syncBtn = document.getElementById('btn-manual-sync') || document.querySelector('button[onclick*="triggerManualSync"]');
@@ -1955,11 +1955,18 @@ async function triggerManualSync(silent = false) {
     }
 
     try {
-        const res = await fetch('/api/firebase/sync_now', { method: 'POST' });
+        const endpoint = forceFull ? '/api/firebase/full_resync' : '/api/firebase/sync_now';
+        const res = await fetch(endpoint, { method: 'POST' });
         const data = await res.json();
+        await loadMonths();
         await fetchAllData();
         if (!silent) {
-            showToast('Información sincronizada y actualizada al instante', 'success');
+            const count = data.pulled !== undefined ? data.pulled : (data.reconciled || 0);
+            if (count > 0) {
+                showToast(`¡Sincronización completada! (${count} registros integrados)`, 'success');
+            } else {
+                showToast('Información sincronizada y al día con la nube', 'success');
+            }
         }
     } catch (e) {
         if (!silent) {

@@ -205,8 +205,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.mode === 'ONLINE_SYNC') {
                 if (data.pending_count > 0) {
                     showToast(`Sincronización en curso: ${data.progress_percent}% (${data.synced_count}/${data.total_count})`, "info");
+                } else if (data.pulled > 0) {
+                    showToast(`¡Sincronización Cloud completada! (${data.pulled} registros integrados)`);
                 } else {
-                    showToast("¡Sincronización Cloud al 100% completada!");
+                    showToast("¡Sincronización Cloud al día (100%)!");
                 }
             } else {
                 showToast(data.message || "Modo Local Activo (Sin credenciales Firebase)", "info");

@@ -39,9 +39,9 @@ def api_firebase_status():
 
 @app.route('/api/firebase/sync_now', methods=['POST'])
 def api_firebase_sync_now():
-    firebase_sync.sync_cycle(force_pull=True)
+    pulled = firebase_sync.sync_cycle(force_pull=True)
     status = firebase_sync.get_sync_status()
-    return jsonify({"success": True, "message": "Sincronización forzada completada", **status})
+    return jsonify({"success": True, "message": f"Sincronización completada ({pulled or 0} registros actualizados)", "pulled": pulled or 0, **status})
 
 @app.route('/api/firebase/full_resync', methods=['POST', 'GET'])
 def api_firebase_full_resync():
@@ -589,6 +589,13 @@ def arca_sync():
             res_imp = _import_arca_csv_to_db(config.CSV_ARCA_FOLDER, origen='ARCA Bot Sync')
             n_importados = res_imp.get('nuevas_importadas', 0) if isinstance(res_imp, dict) else res_imp
             print(f"[ARCA-SYNC] {n_importados} nuevas compras importadas a arca_compras_csv.", flush=True)
+            if n_importados > 0:
+                try:
+                    import firebase_sync
+                    pushed = firebase_sync.push_local_changes()
+                    print(f"[ARCA-SYNC] {pushed} compras sincronizadas inmediatamente hacia Firebase Cloud.", flush=True)
+                except Exception as e_push:
+                    print(f"[ARCA-SYNC] Error en push automático a Firebase: {e_push}", flush=True)
         except Exception as e_import:
             print(f"[ARCA-SYNC] Error importando compras a DB: {e_import}", flush=True)
 
@@ -2077,6 +2084,14 @@ def api_arca_sync_from_csv():
         n = res.get("nuevas_importadas", 0)
         r_nuevas = res.get("retroactivas_nuevas", 0)
         
+        if n > 0:
+            try:
+                import firebase_sync
+                pushed = firebase_sync.push_local_changes()
+                print(f"[ARCA-CSV] {pushed} nuevas compras sincronizadas inmediatamente hacia Firebase Cloud.", flush=True)
+            except Exception as e_push:
+                print(f"[ARCA-CSV] Error en push automático a Firebase: {e_push}", flush=True)
+
         msg = f"{n} facturas nuevas importadas desde CSV."
         if r_nuevas > 0:
             msg += f" {r_nuevas} facturas retroactivas detectadas."

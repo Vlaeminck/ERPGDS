@@ -252,7 +252,8 @@ def push_local_changes(_already_locked=False):
                             cursor.execute(f"UPDATE {table} SET uuid = ? WHERE id = ?", (record_uuid, r_dict['id']))
                             r_dict['uuid'] = record_uuid
 
-                        if not r_dict.get('updated_at'):
+                        # Asegurar que updated_at refleje la fecha/hora exacta del push a Firebase
+                        if not r_dict.get('updated_at') or str(r_dict.get('updated_at')) < now_iso:
                             cursor.execute(f"UPDATE {table} SET updated_at = ? WHERE id = ?", (now_iso, r_dict['id']))
                             r_dict['updated_at'] = now_iso
 
@@ -463,8 +464,6 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
         current_pull_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         force_tables_set = set(force_tables or [])
-        if bypass_global_check and not force_tables:
-            force_tables_set = {'proveedores', 'categorias_gastos', 'pagos_no_registrados'}
 
         for table in SYNC_TABLES:
             try:
@@ -477,31 +476,25 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
 
                 tbl_force_full = force_full or (table in force_tables_set)
 
-                # Leer timestamp guardado directamente en la misma conexión
-                cursor.execute("SELECT valor FROM configuraciones WHERE clave = ?", (f'last_pull_{table}',))
-                row_cfg = cursor.fetchone()
-                saved_ts = row_cfg['valor'] if row_cfg else ''
+                # Obtener la fecha del registro más reciente en la base SQLite local como punto de partida confiable
+                cursor.execute(f"SELECT MAX(updated_at) as max_u FROM {table}")
+                r_max = cursor.fetchone()
+                max_local = str(r_max['max_u']) if (r_max and r_max['max_u']) else ''
 
-                if not saved_ts and not tbl_force_full and cnt_tbl > 0:
+                if tbl_force_full or cnt_tbl == 0 or not max_local:
+                    last_ts = ''
+                else:
+                    # Ventana de seguridad (lookback):
+                    # En sync manual (bypass_global_check), miramos 2 horas hacia atrás desde max_local
+                    # para asegurar recuperar cualquier delta rezagado sin importar variaciones de reloj o demoras de push.
+                    # En sync periódico normal, usamos 15 minutos de holgura.
+                    lookback_mins = 120 if bypass_global_check else 15
                     try:
-                        cursor.execute(f"SELECT MAX(updated_at) as max_u FROM {table}")
-                        r_max = cursor.fetchone()
-                        if r_max and r_max['max_u']:
-                            saved_ts = str(r_max['max_u'])
-                            cursor.execute('''
-                                INSERT INTO configuraciones (clave, valor) VALUES (?, ?)
-                                ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
-                            ''', (f'last_pull_{table}', saved_ts))
-                            conn.commit()
+                        clean_ts = max_local[:19]
+                        dt = datetime.datetime.strptime(clean_ts, '%Y-%m-%d %H:%M:%S')
+                        last_ts = (dt - datetime.timedelta(minutes=lookback_mins)).strftime('%Y-%m-%d %H:%M:%S')
                     except Exception:
-                        pass
-
-                # Clamping anti-desfase / reloj futuro (ej. contaminación previa UTC):
-                if saved_ts and saved_ts > current_pull_time:
-                    saved_ts = ''
-
-                # Si tbl_force_full es True O la tabla local está vacía, se descarga completa de Firestore
-                last_ts = '' if (tbl_force_full or cnt_tbl == 0) else saved_ts
+                        last_ts = max_local
 
                 query = _firestore_db.collection(table)
                 if last_ts:
@@ -512,6 +505,7 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                         query = query.where('updated_at', '>', last_ts)
 
                 docs = list(query.stream())
+                max_remote_seen = max_local
                 for doc in docs:
                     data = doc.to_dict()
                     rec_uuid = doc.id or data.get('uuid')
@@ -519,6 +513,8 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                         continue
 
                     remote_updated = str(data.get('updated_at', ''))
+                    if remote_updated and remote_updated > max_remote_seen:
+                        max_remote_seen = remote_updated
 
                     cursor.execute(f"SELECT id, updated_at FROM {table} WHERE uuid = ?", (rec_uuid,))
                     local_row = cursor.fetchone()
@@ -578,7 +574,7 @@ def pull_remote_changes(force_full=False, known_remote_change=None, _already_loc
                 cursor.execute('''
                     INSERT INTO configuraciones (clave, valor) VALUES (?, ?)
                     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
-                ''', (f'last_pull_{table}', current_pull_time))
+                ''', (f'last_pull_{table}', max_remote_seen if max_remote_seen else current_pull_time))
                 conn.commit()
             except Exception as ex:
                 err_str = str(ex)
@@ -669,16 +665,17 @@ def sync_cycle(force_pull=False, force_tables=None, _caller='auto'):
         pulled = 0
         if should_pull:
             bypass = force_pull
-            ftables = force_tables if force_tables is not None else (['proveedores', 'categorias_gastos', 'pagos_no_registrados'] if force_pull else None)
-            pulled = pull_remote_changes(force_full=False, _already_locked=True, bypass_global_check=bypass, force_tables=ftables)
+            pulled = pull_remote_changes(force_full=False, _already_locked=True, bypass_global_check=bypass, force_tables=force_tables)
             _last_routine_pull_ts = now
 
         SYNC_STATUS["last_sync"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if SYNC_STATUS["mode"] == "ERROR" and "Cuota" in str(SYNC_STATUS.get("message", "")):
             SYNC_STATUS["mode"] = "ONLINE_SYNC"
             SYNC_STATUS["message"] = "Conectado a Firebase Cloud Sync Relay"
+        return pulled
     except Exception as e:
         SYNC_STATUS["error"] = str(e)
+        return 0
     finally:
         _sync_lock.release()
 
