@@ -13,6 +13,8 @@ let chartCategoria = null;
 let chartMetodo = null;
 let chartTop = null;
 let chartRubro = null;
+let chartDesgloseMetodos = null;
+let chartDesgloseCategorias = null;
 
 // Categorías y Subcategorías
 let categoriesTree = [];
@@ -345,21 +347,12 @@ async function fetchArcaComprasCloud() {
         const elCardNc = document.getElementById('kpi-card-nc-retro');
         if (elCardNc) elCardNc.setAttribute('title', tooltipNc);
 
-        // Actualizar valores de desglose de métodos
-        const mObj = resStats.pagos_por_metodo || {};
-        document.getElementById('metodo-val-galicia').textContent = formatCurrency(mObj['Galicia'] || 0);
-        document.getElementById('metodo-val-mp').textContent = formatCurrency(mObj['Mercado Pago'] || 0);
-        document.getElementById('metodo-val-efectivo').textContent = formatCurrency(mObj['Efectivo'] || 0);
-        document.getElementById('metodo-val-tarjeta').textContent = formatCurrency(mObj['Tarjeta crédito'] || 0);
-
-        // Actualizar valores de desglose de categorías
-        const cObj = resStats.pagos_por_categoria || {};
-        const elPin = document.getElementById('cat-val-pinamar');
-        const elLel = document.getElementById('cat-val-leloir');
-        const elSoc = document.getElementById('cat-val-socios');
-        if (elPin) elPin.textContent = formatCurrency(cObj['Pinamar'] || 0);
-        if (elLel) elLel.textContent = formatCurrency(cObj['Leloir'] || 0);
-        if (elSoc) elSoc.textContent = formatCurrency(cObj['Socios'] || 0);
+        // Actualizar valores y gráficos de desglose de métodos y categorías (Tab 3)
+        renderDesgloseMetodosYCategorias(
+            resStats.pagos_por_metodo || {},
+            resStats.pagos_por_categoria || {},
+            resStats.pagados_total || 0
+        );
 
         renderArcaCloudTable();
     } catch (e) {
@@ -1929,7 +1922,13 @@ function switchTab(tabId) {
         document.getElementById('btn-tab-no-registrados').classList.add('active');
         loadPagosNoRegistradosCloud();
     }
-    if (tabId === 'tab-metodos') document.getElementById('btn-tab-metodos').classList.add('active');
+    if (tabId === 'tab-metodos') {
+        document.getElementById('btn-tab-metodos').classList.add('active');
+        setTimeout(() => {
+            if (chartDesgloseMetodos) chartDesgloseMetodos.resize();
+            if (chartDesgloseCategorias) chartDesgloseCategorias.resize();
+        }, 60);
+    }
     if (tabId === 'tab-dashboard') {
         document.getElementById('btn-tab-dashboard').classList.add('active');
         fetchDashboardStats();
@@ -2043,6 +2042,297 @@ async function loadPagosNoRegistradosCloud() {
         renderPagosNoRegistradosTable();
     } catch (e) {
         console.error("Error cargando pagos no registrados:", e);
+    }
+}
+
+// --- Desglose Institucional por Método & Categoría (Tab 3) ---
+let cachedMetodosData = { mObj: {}, cObj: {}, totalPagado: 0 };
+
+function renderDesgloseMetodosYCategorias(mObj = {}, cObj = {}, totalPagado = 0) {
+    cachedMetodosData = { mObj, cObj, totalPagado };
+
+    // 1. Valores absolutos de Medios de Pago
+    const valGalicia = Number(mObj['Galicia']) || 0;
+    const valTarjeta = Number(mObj['Tarjeta crédito'] || mObj['Tarjeta credito'] || mObj['Tarjeta']) || 0;
+    const valMP = Number(mObj['Mercado Pago']) || 0;
+    const valEfectivo = Number(mObj['Efectivo']) || 0;
+
+    const totMetodos = valGalicia + valTarjeta + valMP + valEfectivo;
+
+    // 2. Valores absolutos de Categorías
+    const valLeloir = Number(cObj['Leloir']) || 0;
+    const valPinamar = Number(cObj['Pinamar']) || 0;
+    const valSocios = Number(cObj['Socios']) || 0;
+    const valSinCat = Number(cObj['Sin Categorizar'] || cObj['Sin categorizar'] || cObj['Sin Asignar']) || 0;
+
+    const totCategorias = valLeloir + valPinamar + valSocios + valSinCat;
+
+    // Total de referencia para porcentajes
+    const totalRef = totalPagado && totalPagado > 0 ? totalPagado : Math.max(totMetodos, totCategorias);
+
+    // Cálculos porcentuales seguros
+    const calcPct = (val, base) => base > 0 ? Math.round((val / base) * 1000) / 10 : 0;
+    const pctGalicia = calcPct(valGalicia, totMetodos);
+    const pctTarjeta = calcPct(valTarjeta, totMetodos);
+    const pctMP = calcPct(valMP, totMetodos);
+    const pctEfectivo = calcPct(valEfectivo, totMetodos);
+
+    const pctLeloir = calcPct(valLeloir, totCategorias);
+    const pctPinamar = calcPct(valPinamar, totCategorias);
+    const pctSocios = calcPct(valSocios, totCategorias);
+    const pctSinCat = calcPct(valSinCat, totCategorias);
+
+    // 3. Mini KPIs de Cabecera Ejecutiva
+    const elHdrTot = document.getElementById('metodos-kpi-total-header');
+    if (elHdrTot) elHdrTot.textContent = formatCurrency(totalRef);
+
+    const elBadgePeriodo = document.getElementById('metodos-badge-periodo');
+    if (elBadgePeriodo) {
+        if (currentMonth && currentMonth !== 'all') {
+            const parts = currentMonth.split('-');
+            if (parts.length === 2) {
+                const dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+                const mesNombre = dateObj.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                elBadgePeriodo.textContent = mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1);
+            } else {
+                elBadgePeriodo.textContent = currentMonth;
+            }
+        } else {
+            elBadgePeriodo.textContent = 'Histórico Consolidado';
+        }
+    }
+
+    // Identificar canal dominante
+    const metodosList = [
+        { name: 'Galicia', val: valGalicia, pct: pctGalicia },
+        { name: 'Tarjeta Crédito', val: valTarjeta, pct: pctTarjeta },
+        { name: 'Mercado Pago', val: valMP, pct: pctMP },
+        { name: 'Efectivo', val: valEfectivo, pct: pctEfectivo }
+    ].sort((a, b) => b.val - a.val);
+
+    const elCanalDom = document.getElementById('metodos-kpi-canal-dominante');
+    if (elCanalDom) {
+        elCanalDom.textContent = metodosList[0]?.val > 0 ? `${metodosList[0].name} (${metodosList[0].pct}%)` : 'Sin registros';
+    }
+
+    // Identificar centro dominante
+    const centrosList = [
+        { name: 'Sede Leloir', val: valLeloir, pct: pctLeloir },
+        { name: 'Sucursal Pinamar', val: valPinamar, pct: pctPinamar },
+        { name: 'Socios', val: valSocios, pct: pctSocios },
+        { name: 'Sin Asignar', val: valSinCat, pct: pctSinCat }
+    ].sort((a, b) => b.val - a.val);
+
+    const elCentroDom = document.getElementById('metodos-kpi-centro-dominante');
+    if (elCentroDom) {
+        elCentroDom.textContent = centrosList[0]?.val > 0 ? `${centrosList[0].name} (${centrosList[0].pct}%)` : 'Sin registros';
+    }
+
+    // 4. Actualizar Tarjetas KPI de Medios
+    const setElemText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    const setElemWidth = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(Math.max(pct, 0), 100) + '%'; };
+
+    setElemText('metodo-val-galicia', formatCurrency(valGalicia));
+    setElemText('metodo-pct-galicia', `${pctGalicia}%`);
+    setElemWidth('metodo-bar-galicia', pctGalicia);
+
+    setElemText('metodo-val-tarjeta', formatCurrency(valTarjeta));
+    setElemText('metodo-pct-tarjeta', `${pctTarjeta}%`);
+    setElemWidth('metodo-bar-tarjeta', pctTarjeta);
+
+    setElemText('metodo-val-mp', formatCurrency(valMP));
+    setElemText('metodo-pct-mp', `${pctMP}%`);
+    setElemWidth('metodo-bar-mp', pctMP);
+
+    setElemText('metodo-val-efectivo', formatCurrency(valEfectivo));
+    setElemText('metodo-pct-efectivo', `${pctEfectivo}%`);
+    setElemWidth('metodo-bar-efectivo', pctEfectivo);
+
+    // 5. Actualizar Tarjetas KPI de Categorías
+    setElemText('cat-val-leloir', formatCurrency(valLeloir));
+    setElemText('cat-pct-leloir', `${pctLeloir}%`);
+    setElemWidth('cat-bar-leloir', pctLeloir);
+
+    setElemText('cat-val-pinamar', formatCurrency(valPinamar));
+    setElemText('cat-pct-pinamar', `${pctPinamar}%`);
+    setElemWidth('cat-bar-pinamar', pctPinamar);
+
+    setElemText('cat-val-socios', formatCurrency(valSocios));
+    setElemText('cat-pct-socios', `${pctSocios}%`);
+    setElemWidth('cat-bar-socios', pctSocios);
+
+    setElemText('cat-val-sincat', formatCurrency(valSinCat));
+    setElemText('cat-pct-sincat', `${pctSinCat}%`);
+    setElemWidth('cat-bar-sincat', pctSinCat);
+
+    // 6. Matriz de Auditoría (Tabla)
+    const tbody = document.getElementById('tbl-desglose-resumen-body');
+    if (tbody) {
+        const rows = [
+            // Medios
+            { dim: 'Medio de Pago', icon: 'fa-building-columns', color: '#ea580c', bgBadge: '#fff7ed', borderBadge: '#fed7aa', name: 'Banco Galicia', val: valGalicia, pct: pctGalicia },
+            { dim: 'Medio de Pago', icon: 'fa-credit-card', color: '#7c3aed', bgBadge: '#faf5ff', borderBadge: '#e9d5ff', name: 'Tarjeta de Crédito Corporativa', val: valTarjeta, pct: pctTarjeta },
+            { dim: 'Medio de Pago', icon: 'fa-mobile-screen', color: '#2563eb', bgBadge: '#eff6ff', borderBadge: '#bfdbfe', name: 'Mercado Pago (Digital)', val: valMP, pct: pctMP },
+            { dim: 'Medio de Pago', icon: 'fa-money-bill-wave', color: '#059669', bgBadge: '#ecfdf5', borderBadge: '#a7f3d0', name: 'Efectivo / Caja Chica', val: valEfectivo, pct: pctEfectivo },
+            // Centros
+            { dim: 'Centro de Costo', icon: 'fa-tree', color: '#16a34a', bgBadge: '#f0fdf4', borderBadge: '#bbf7d0', name: 'Sede Parque Leloir', val: valLeloir, pct: pctLeloir },
+            { dim: 'Centro de Costo', icon: 'fa-umbrella-beach', color: '#0284c7', bgBadge: '#f0f9ff', borderBadge: '#bae6fd', name: 'Sucursal Pinamar', val: valPinamar, pct: pctPinamar },
+            { dim: 'Centro de Costo', icon: 'fa-handshake', color: '#d97706', bgBadge: '#fffbeb', borderBadge: '#fde68a', name: 'Cuentas de Socios', val: valSocios, pct: pctSocios },
+            { dim: 'Centro de Costo', icon: 'fa-tags', color: '#64748b', bgBadge: '#f8fafc', borderBadge: '#cbd5e1', name: 'Sin Asignar / Pendientes', val: valSinCat, pct: pctSinCat },
+        ];
+
+        let html = '';
+        rows.forEach(r => {
+            const hasMovements = r.val > 0;
+            html += `
+                <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;">
+                    <td style="padding: 0.7rem 0.85rem;">
+                        <span style="display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: ${r.bgBadge}; color: ${r.color}; border: 1px solid ${r.borderBadge};">
+                            ${r.dim}
+                        </span>
+                    </td>
+                    <td style="padding: 0.7rem 0.85rem; font-weight: 700; color: #0f172a;">
+                        <i class="fa-solid ${r.icon}" style="color: ${r.color}; margin-right: 7px; width: 14px; text-align: center;"></i>
+                        ${r.name}
+                    </td>
+                    <td style="padding: 0.7rem 0.85rem; text-align: right; font-weight: 800; font-size: 0.9rem; color: #0f172a;">
+                        ${formatCurrency(r.val)}
+                    </td>
+                    <td style="padding: 0.7rem 0.85rem; text-align: right; font-weight: 700; color: #475569;">
+                        ${r.pct}%
+                    </td>
+                    <td style="padding: 0.7rem 0.85rem;">
+                        <div style="height: 6px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden;">
+                            <div style="height: 100%; width: ${r.pct}%; background: ${r.color}; border-radius: 999px; transition: width 0.5s ease;"></div>
+                        </div>
+                    </td>
+                    <td style="padding: 0.7rem 0.85rem; text-align: center;">
+                        <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px; ${hasMovements ? 'background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;' : 'background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0;'}">
+                            <i class="fa-solid ${hasMovements ? 'fa-check' : 'fa-minus'}"></i> ${hasMovements ? 'Liquidado' : 'Sin mov.'}
+                        </span>
+                    </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+    }
+
+    setElemText('metodos-tbl-total-footer', formatCurrency(totalRef));
+
+    // 7. Instanciar / Actualizar Gráficos Chart.js
+    renderDesgloseCharts({
+        metodos: {
+            labels: ['Banco Galicia', 'Tarjeta de Crédito', 'Mercado Pago', 'Efectivo'],
+            values: [valGalicia, valTarjeta, valMP, valEfectivo],
+            total: totMetodos
+        },
+        categorias: {
+            labels: ['Sede Leloir', 'Sucursal Pinamar', 'Socios', 'Sin Asignar'],
+            values: [valLeloir, valPinamar, valSocios, valSinCat],
+            total: totCategorias
+        }
+    });
+}
+
+function renderDesgloseCharts(payload) {
+    if (typeof Chart === 'undefined') return;
+
+    // 1. Gráfico Métodos
+    const ctxMet = document.getElementById('chart-desglose-metodos');
+    if (ctxMet) {
+        if (chartDesgloseMetodos) chartDesgloseMetodos.destroy();
+        const hasData = payload.metodos.values.some(v => v > 0);
+        chartDesgloseMetodos = new Chart(ctxMet, {
+            type: 'doughnut',
+            data: {
+                labels: hasData ? payload.metodos.labels : ['Sin Desembolsos'],
+                datasets: [{
+                    data: hasData ? payload.metodos.values : [1],
+                    backgroundColor: hasData 
+                        ? ['#ea580c', '#7c3aed', '#2563eb', '#10b981'] 
+                        : ['#e2e8f0'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            boxWidth: 10,
+                            padding: 10,
+                            font: { weight: 'bold', family: "'Albert Sans', sans-serif", size: 11 },
+                            color: '#334155'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                if (!hasData) return 'Sin pagos registrados';
+                                const val = ctx.raw || 0;
+                                const tot = payload.metodos.total || 0;
+                                const p = tot > 0 ? ((val / tot) * 100).toFixed(1) : 0;
+                                return ` ${ctx.label}: ${formatCurrency(val)} (${p}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 2. Gráfico Categorías
+    const ctxCat = document.getElementById('chart-desglose-categorias');
+    if (ctxCat) {
+        if (chartDesgloseCategorias) chartDesgloseCategorias.destroy();
+        const hasData = payload.categorias.values.some(v => v > 0);
+        chartDesgloseCategorias = new Chart(ctxCat, {
+            type: 'doughnut',
+            data: {
+                labels: hasData ? payload.categorias.labels : ['Sin Asignaciones'],
+                datasets: [{
+                    data: hasData ? payload.categorias.values : [1],
+                    backgroundColor: hasData 
+                        ? ['#16a34a', '#0284c7', '#d97706', '#64748b'] 
+                        : ['#e2e8f0'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            boxWidth: 10,
+                            padding: 10,
+                            font: { weight: 'bold', family: "'Albert Sans', sans-serif", size: 11 },
+                            color: '#334155'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                if (!hasData) return 'Sin gastos registrados';
+                                const val = ctx.raw || 0;
+                                const tot = payload.categorias.total || 0;
+                                const p = tot > 0 ? ((val / tot) * 100).toFixed(1) : 0;
+                                return ` ${ctx.label}: ${formatCurrency(val)} (${p}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 }
 

@@ -297,6 +297,42 @@
         .btn-copy-transparent:active {
             transform: scale(0.92);
         }
+
+        /* --- Estilos Institucionales para Desglose por Método & Categoría --- */
+        .desglose-panel-grid {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.75rem;
+            align-items: stretch;
+        }
+
+        .desglose-panel-grid.reversed {
+            grid-template-columns: 1fr 340px;
+        }
+
+        .inst-kpi-card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 1.1rem 1.25rem;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .inst-kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px -4px rgba(15, 23, 42, 0.08);
+            border-color: #cbd5e1;
+        }
+
+        @media (max-width: 960px) {
+            .desglose-panel-grid,
+            .desglose-panel-grid.reversed {
+                grid-template-columns: 1fr !important;
+            }
+        }
     </style>
 </head>
 
@@ -584,83 +620,291 @@
 
         <!-- TAB 3: DESGLOSE POR MÉTODO & CATEGORÍA -->
         <section id="tab-metodos" class="tab-content" style="display: none;">
-            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
-                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Distribución de Pagos por Método</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem; margin-bottom: 2rem;">
-                    <!-- Galicia -->
-                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #ea580c; font-size: 0.95rem;">🟧 Banco Galicia</span>
-                            <i class="fa-solid fa-building-columns" style="color: #ea580c; font-size: 1.2rem;"></i>
+            
+            <!-- 1. BANNER INSTITUCIONAL & CONTROL EJECUTIVO -->
+            <div class="glass-card" style="background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.5rem 1.75rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03), 0 2px 4px -2px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                            <span style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: rgba(37, 99, 235, 0.1); color: #2563eb; font-size: 1rem;">
+                                <i class="fa-solid fa-chart-pie"></i>
+                            </span>
+                            <h2 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.3px;">
+                                Conciliación de Pagos & Centros de Costos
+                            </h2>
+                            <span class="badge" style="background: #e2e8f0; color: #334155; font-size: 0.75rem; font-weight: 700; padding: 3px 9px; border-radius: 9999px;" id="metodos-badge-periodo">Período Actual</span>
                         </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #c2410c;" id="metodo-val-galicia">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #9a3412; font-weight: 600; margin-top: 4px;">Transferencias bancarias</div>
+                        <p style="margin: 0; font-size: 0.85rem; color: #64748b; font-weight: 500;">
+                            Auditoría de egresos cancelados, concentración de liquidez por canal bancario y distribución presupuestaria por sede operativa.
+                        </p>
                     </div>
 
-                    <!-- Mercado Pago -->
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #2563eb; font-size: 0.95rem;">🟦 Mercado Pago</span>
-                            <i class="fa-solid fa-mobile-screen" style="color: #2563eb; font-size: 1.2rem;"></i>
+                    <!-- Mini KPIs Ejecutivos de Cabecera -->
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.6rem 1rem; text-align: right; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                            <div style="font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Total Pagado Auditado</div>
+                            <div style="font-size: 1.25rem; font-weight: 800; color: #059669;" id="metodos-kpi-total-header">$ 0</div>
                         </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #1d4ed8;" id="metodo-val-mp">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #1e40af; font-weight: 600; margin-top: 4px;">Billeteras y fondos digitales</div>
-                    </div>
-
-                    <!-- Efectivo -->
-                    <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #059669; font-size: 0.95rem;">🟩 Efectivo</span>
-                            <i class="fa-solid fa-money-bill-wave" style="color: #059669; font-size: 1.2rem;"></i>
+                        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.6rem 1rem; text-align: right; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                            <div style="font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Canal Predominante</div>
+                            <div style="font-size: 1.05rem; font-weight: 800; color: #0f172a;" id="metodos-kpi-canal-dominante">-</div>
                         </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #047857;" id="metodo-val-efectivo">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #065f46; font-weight: 600; margin-top: 4px;">Caja Chica y fondos en mano</div>
-                    </div>
-
-                    <!-- Tarjetas de Crédito -->
-                    <div style="background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #7c3aed; font-size: 0.95rem;">🟪 Tarjeta de Crédito</span>
-                            <i class="fa-solid fa-credit-card" style="color: #7c3aed; font-size: 1.2rem;"></i>
+                        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.6rem 1rem; text-align: right; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                            <div style="font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Centro de Costo Principal</div>
+                            <div style="font-size: 1.05rem; font-weight: 800; color: #0f172a;" id="metodos-kpi-centro-dominante">-</div>
                         </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #6d28d9;" id="metodo-val-tarjeta">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #581c87; font-weight: 600; margin-top: 4px;">Tarjetas corporativas</div>
-                    </div>
-                </div>
-
-                <h3 style="font-size: 1.1rem; font-weight: 800; margin: 0 0 1rem;">Distribución de Gastos por Categoría</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.2rem;">
-                    <!-- Pinamar -->
-                    <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #0369a1; font-size: 0.95rem;">🏖️ Pinamar</span>
-                            <i class="fa-solid fa-umbrella-beach" style="color: #0369a1; font-size: 1.2rem;"></i>
-                        </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #0284c7;" id="cat-val-pinamar">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #075985; font-weight: 600; margin-top: 4px;">Gastos de la sucursal Pinamar</div>
-                    </div>
-
-                    <!-- Leloir -->
-                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #15803d; font-size: 0.95rem;">🌳 Leloir</span>
-                            <i class="fa-solid fa-tree" style="color: #15803d; font-size: 1.2rem;"></i>
-                        </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #16a34a;" id="cat-val-leloir">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #166534; font-weight: 600; margin-top: 4px;">Gastos de la sede Leloir</div>
-                    </div>
-
-                    <!-- Socios -->
-                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 1.2rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 800; color: #b45309; font-size: 0.95rem;">🤝 Socios</span>
-                            <i class="fa-solid fa-handshake" style="color: #b45309; font-size: 1.2rem;"></i>
-                        </div>
-                        <div style="font-size: 1.45rem; font-weight: 800; color: #d97706;" id="cat-val-socios">$ 0</div>
-                        <div style="font-size: 0.78rem; color: #92400e; font-weight: 600; margin-top: 4px;">Retiros y gastos societarios</div>
                     </div>
                 </div>
             </div>
+
+            <!-- 2. SECCIÓN CANALES Y MEDIOS DE PAGO -->
+            <div class="desglose-panel-grid">
+                
+                <!-- Gráfico de Donut de Medios de Pago -->
+                <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02); display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-credit-card" style="color: #ea580c; font-size: 1.1rem;"></i>
+                            <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin: 0;">Concentración por Medio</h3>
+                        </div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 7px; border-radius: 6px;">Liquidación</span>
+                    </div>
+                    <div style="position: relative; flex: 1; min-height: 230px; display: flex; align-items: center; justify-content: center;">
+                        <canvas id="chart-desglose-metodos"></canvas>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed #e2e8f0; font-size: 0.75rem; color: #64748b; text-align: center;">
+                        Porcentaje de desembolso según el instrumento de cobro
+                    </div>
+                </div>
+
+                <!-- Tarjetas KPI Institucionales de Medios de Pago -->
+                <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02); display: flex; flex-direction: column; justify-content: space-between;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem;">
+                        <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin: 0;">Instrumentos y Cuentas Bancarias</h3>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 3px 8px; border-radius: 9999px;">
+                            <i class="fa-solid fa-shield-check" style="margin-right: 4px;"></i> Conciliado
+                        </span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+                        
+                        <!-- Banco Galicia -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #ea580c;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #ea580c;">Banco Galicia</span>
+                                </div>
+                                <span id="metodo-pct-galicia" style="font-size: 0.75rem; font-weight: 800; color: #c2410c; background: #fff7ed; border: 1px solid #fed7aa; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="metodo-val-galicia">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="metodo-bar-galicia" style="height: 100%; width: 0%; background: #ea580c; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-building-columns" style="color: #ea580c; font-size: 0.8rem;"></i> Transferencias interbanking
+                            </div>
+                        </div>
+
+                        <!-- Tarjeta de Crédito -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #7c3aed;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #7c3aed;">Tarjeta de Crédito</span>
+                                </div>
+                                <span id="metodo-pct-tarjeta" style="font-size: 0.75rem; font-weight: 800; color: #6d28d9; background: #faf5ff; border: 1px solid #e9d5ff; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="metodo-val-tarjeta">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="metodo-bar-tarjeta" style="height: 100%; width: 0%; background: #7c3aed; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-credit-card" style="color: #7c3aed; font-size: 0.8rem;"></i> Tarjetas corporativas
+                            </div>
+                        </div>
+
+                        <!-- Mercado Pago -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #2563eb;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #2563eb;">Mercado Pago</span>
+                                </div>
+                                <span id="metodo-pct-mp" style="font-size: 0.75rem; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="metodo-val-mp">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="metodo-bar-mp" style="height: 100%; width: 0%; background: #2563eb; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-mobile-screen" style="color: #2563eb; font-size: 0.8rem;"></i> Billeteras y fondos virtuales
+                            </div>
+                        </div>
+
+                        <!-- Efectivo -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #059669;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #059669;">Efectivo</span>
+                                </div>
+                                <span id="metodo-pct-efectivo" style="font-size: 0.75rem; font-weight: 800; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="metodo-val-efectivo">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="metodo-bar-efectivo" style="height: 100%; width: 0%; background: #059669; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-money-bill-wave" style="color: #059669; font-size: 0.8rem;"></i> Caja chica y fondos físicos
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 3. SECCIÓN CENTROS DE COSTO / CATEGORÍAS -->
+            <div class="desglose-panel-grid reversed">
+                
+                <!-- Tarjetas KPI Institucionales de Categorías -->
+                <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02); display: flex; flex-direction: column; justify-content: space-between;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-sitemap" style="color: #16a34a; font-size: 1.1rem;"></i>
+                            <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin: 0;">Distribución por Centro de Costos & Sedes</h3>
+                        </div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #3b82f6; background: #eff6ff; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 9999px;">
+                            Imputación Operativa
+                        </span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+                        
+                        <!-- Leloir -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #16a34a;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #16a34a;">Sede Leloir</span>
+                                </div>
+                                <span id="cat-pct-leloir" style="font-size: 0.75rem; font-weight: 800; color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="cat-val-leloir">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="cat-bar-leloir" style="height: 100%; width: 0%; background: #16a34a; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-tree" style="color: #16a34a; font-size: 0.8rem;"></i> Sede central y casa matriz
+                            </div>
+                        </div>
+
+                        <!-- Pinamar -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #0284c7;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #0284c7;">Sucursal Pinamar</span>
+                                </div>
+                                <span id="cat-pct-pinamar" style="font-size: 0.75rem; font-weight: 800; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="cat-val-pinamar">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="cat-bar-pinamar" style="height: 100%; width: 0%; background: #0284c7; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-umbrella-beach" style="color: #0284c7; font-size: 0.8rem;"></i> Sucursal costa atlántica
+                            </div>
+                        </div>
+
+                        <!-- Socios -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #d97706;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #d97706;">Socios / Cuentas</span>
+                                </div>
+                                <span id="cat-pct-socios" style="font-size: 0.75rem; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="cat-val-socios">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="cat-bar-socios" style="height: 100%; width: 0%; background: #d97706; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-handshake" style="color: #d97706; font-size: 0.8rem;"></i> Retiros y asignaciones societarias
+                            </div>
+                        </div>
+
+                        <!-- Sin Categorizar -->
+                        <div class="inst-kpi-card" style="border-left: 4px solid #64748b;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 0.85rem; font-weight: 800; color: #475569;">Sin Asignar</span>
+                                </div>
+                                <span id="cat-pct-sincat" style="font-size: 0.75rem; font-weight: 800; color: #475569; background: #f8fafc; border: 1px solid #cbd5e1; padding: 1px 6px; border-radius: 6px;">0%</span>
+                            </div>
+                            <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; letter-spacing: -0.3px;" id="cat-val-sincat">$ 0</div>
+                            <div style="height: 5px; width: 100%; background: #f1f5f9; border-radius: 999px; overflow: hidden; margin: 6px 0 6px;">
+                                <div id="cat-bar-sincat" style="height: 100%; width: 0%; background: #64748b; border-radius: 999px; transition: width 0.5s ease;"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-tags" style="color: #64748b; font-size: 0.8rem;"></i> Gastos pendientes de asignación
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Gráfico de Donut de Categorías -->
+                <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02); display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-chart-pie" style="color: #16a34a; font-size: 1.1rem;"></i>
+                            <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin: 0;">Impacto por Sede</h3>
+                        </div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 7px; border-radius: 6px;">Centros</span>
+                    </div>
+                    <div style="position: relative; flex: 1; min-height: 230px; display: flex; align-items: center; justify-content: center;">
+                        <canvas id="chart-desglose-categorias"></canvas>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed #e2e8f0; font-size: 0.75rem; color: #64748b; text-align: center;">
+                        Participación proporcional por unidad operativa
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 4. MATRIZ INSTITUCIONAL DE AUDITORÍA Y CONCILIACIÓN -->
+            <div class="glass-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 1.4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <h3 style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin: 0;">
+                            <i class="fa-solid fa-list-check" style="color: #2563eb; margin-right: 6px;"></i> Matriz de Auditoría y Arqueo Consolidado
+                        </h3>
+                        <p style="margin: 3px 0 0; font-size: 0.8rem; color: #64748b;">
+                            Desglose analítico comparativo de canales transaccionales y centros de costos del período.
+                        </p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.8rem; font-weight: 700; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; padding: 5px 12px; border-radius: 8px;">
+                            <i class="fa-solid fa-check-double" style="color: #10b981; margin-right: 6px;"></i> Total Auditado: <strong id="metodos-tbl-total-footer" style="color: #0f172a; font-size: 0.95rem;">$ 0</strong>
+                        </span>
+                    </div>
+                </div>
+
+                <div style="overflow-x: auto;">
+                    <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <thead>
+                            <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;">
+                                <th style="padding: 0.65rem 0.85rem; color: #475569; font-weight: 700; width: 140px;">Dimensión</th>
+                                <th style="padding: 0.65rem 0.85rem; color: #475569; font-weight: 700;">Canal / Centro de Costo</th>
+                                <th style="padding: 0.65rem 0.85rem; color: #475569; font-weight: 700; text-align: right; width: 160px;">Monto Liquidado</th>
+                                <th style="padding: 0.65rem 0.85rem; color: #475569; font-weight: 700; text-align: right; width: 120px;">Participación</th>
+                                <th style="padding: 0.65rem 0.85rem; color: #475569; font-weight: 700; width: 180px;">Distribución Visual</th>
+                                <th style="padding: 0.65rem 0.85rem; color: #475569; font-weight: 700; text-align: center; width: 140px;">Estado Contable</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbl-desglose-resumen-body">
+                            <!-- Inyectado dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </section>
 
         <!-- TAB 4: DASHBOARD DE GRÁFICOS & RANKING DE CONSUMO -->

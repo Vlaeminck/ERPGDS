@@ -2989,14 +2989,14 @@ def api_dashboard_stats():
         }
     }
 
-    tree = db_manager.get_categories_tree()
-    conn.close()
-
     cursor.execute(f"SELECT SUM(monto), COUNT(*) FROM pagos_no_registrados {pnr_mes_where}", pnr_mes_param)
     pnr_r = cursor.fetchone()
     pnr_tot = float(pnr_r[0] or 0) if pnr_r else 0.0
     pnr_cnt = int(pnr_r[1] or 0) if pnr_r else 0
     total_consolidado = gran_total + pnr_tot
+
+    conn.close()
+    tree = db_manager.get_categories_tree()
 
     return jsonify({
         "evolucion_mensual": evolucion_mensual,
