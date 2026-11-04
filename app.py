@@ -726,12 +726,20 @@ def open_scanner():
                 startupinfo.wShowWindow = 0
                 kwargs['startupinfo'] = startupinfo
                 
-                # Ejecutar NAPS2 capturando salida con timeout de seguridad
+                from scanner_helper import get_default_profile_name
+                def_profile = get_default_profile_name()
+                cmd = [naps2_path]
+                if def_profile:
+                    cmd.extend(['-p', def_profile])
+                cmd.extend(['--disableocr', '-v', '-o', output_path])
+
+                # Ejecutar NAPS2 con --disableocr (escaneo rápido en ~18s, OCR lo hace processor.py)
                 naps_res = subprocess.run(
-                    [naps2_path, '-v', '-o', output_path],
+                    cmd,
+                    stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
-                    timeout=90,
+                    timeout=120,
                     **kwargs
                 )
                 

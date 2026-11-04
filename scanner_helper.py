@@ -33,6 +33,29 @@ def get_naps2_profiles_path():
             return p
     return None
 
+def get_default_profile_name():
+    """Retorna el nombre del perfil predeterminado o primer perfil en profiles.xml de NAPS2."""
+    try:
+        profiles_path = get_naps2_profiles_path()
+        if profiles_path and os.path.exists(profiles_path):
+            tree = ET.parse(profiles_path)
+            root = tree.getroot()
+            for p in root.findall('ScanProfile'):
+                is_default = p.find('IsDefault')
+                if is_default is not None and is_default.text and is_default.text.strip().lower() == 'true':
+                    disp = p.find('DisplayName')
+                    if disp is not None and disp.text:
+                        return disp.text.strip()
+            # Fallback al primer perfil configurado
+            first_p = root.find('ScanProfile')
+            if first_p is not None:
+                disp = first_p.find('DisplayName')
+                if disp is not None and disp.text:
+                    return disp.text.strip()
+    except Exception as e:
+        print(f"[SCANNER] Error leyendo perfil NAPS2: {e}", flush=True)
+    return None
+
 def is_escl_online(host_or_ip, timeout=1.8):
     """
     Verifica rápidamente si el endpoint eSCL del escáner responde HTTP 200 en el puerto 443.
