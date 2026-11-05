@@ -564,8 +564,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (bar) bar.style.width = `${currentPct}%`;
             if (pct) pct.textContent = `${currentPct}%`;
 
-            // FASE 1: ESCANEANDO FÍSICAMENTE (Tapa bloqueada)
-            if (data.phase === 'scanning') {
+            // FASE 1: INICIANDO O ESCANEANDO FÍSICAMENTE (Tapa bloqueada)
+            if (data.phase === 'scanning' || data.phase === 'starting') {
                 card.style.borderColor = '#f59e0b';
                 card.style.background = 'rgba(245, 158, 11, 0.04)';
                 if (iconBox) {
@@ -580,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     lidBadge.innerHTML = '<i class="fa-solid fa-lock"></i> NO ABRIR LA TAPA TODAVÍA';
                 }
                 if (substatus) substatus.textContent = 'Digitalizando hoja en el escáner...';
-                if (msg) msg.textContent = 'El carro del escáner está en movimiento.';
+                if (msg) msg.textContent = data.message || 'El carro del escáner está en movimiento.';
                 updateStep('scan-step-1', 'active');
                 updateStep('scan-step-2', 'idle');
                 updateStep('scan-step-3', 'idle');
@@ -716,26 +716,60 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function resetScannerCardUI() {
+        const card = document.getElementById('scanner-progress-card');
+        const iconBox = document.getElementById('scanner-status-icon-box');
+        const icon = document.getElementById('scanner-status-icon');
+        const lidBadge = document.getElementById('scanner-lid-badge');
+        const substatus = document.getElementById('scanner-substatus');
+        const msg = document.getElementById('scanner-status-msg');
+        const bar = document.getElementById('scanner-progress-bar-fill');
+        const pct = document.getElementById('scanner-progress-percent');
+        const timer = document.getElementById('scanner-timer-text');
+
+        if (card) {
+            card.style.display = 'block';
+            card.style.borderColor = '#f59e0b';
+            card.style.background = 'rgba(245, 158, 11, 0.04)';
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        if (iconBox) {
+            iconBox.style.background = 'rgba(245, 158, 11, 0.15)';
+            iconBox.style.color = '#d97706';
+        }
+        if (icon) icon.className = 'fa-solid fa-print fa-bounce';
+        if (lidBadge) {
+            lidBadge.style.background = '#fef3c7';
+            lidBadge.style.color = '#b45309';
+            lidBadge.style.borderColor = '#fde68a';
+            lidBadge.innerHTML = '<i class="fa-solid fa-lock"></i> NO ABRIR LA TAPA TODAVÍA';
+        }
+        if (substatus) substatus.textContent = 'Digitalizando hoja en el escáner...';
+        if (msg) msg.textContent = 'Iniciando escaneo físico... No abras la tapa todavía.';
+        if (bar) {
+            bar.style.width = '10%';
+            bar.style.background = 'linear-gradient(90deg, #f59e0b, #3b82f6)';
+        }
+        if (pct) pct.textContent = '10%';
+        if (timer) timer.textContent = 'Tiempo: 0s';
+
+        updateStep('scan-step-1', 'active');
+        updateStep('scan-step-2', 'idle');
+        updateStep('scan-step-3', 'idle');
+        updateStep('scan-step-4', 'idle');
+    }
+
     if (btnScanner) {
         btnScanner.addEventListener('click', async () => {
             const originalHTML = btnScanner.innerHTML;
             btnScanner.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
             btnScanner.disabled = true;
 
-            const card = document.getElementById('scanner-progress-card');
-            if (card) {
-                card.style.display = 'block';
-                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
+            // Limpiar y resetear inmediatamente el card para que nunca quede el texto de la factura anterior
+            resetScannerCardUI();
             lidReadyAnnounced = false;
             completionHandled = false;
             isPollingScanner = false;
-
-            // Reset UI de pasos
-            updateStep('scan-step-1', 'active');
-            updateStep('scan-step-2', 'idle');
-            updateStep('scan-step-3', 'idle');
-            updateStep('scan-step-4', 'idle');
 
             try {
                 const res = await fetch('/api/open_scanner', { method: 'POST' });

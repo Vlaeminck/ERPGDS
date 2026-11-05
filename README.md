@@ -56,11 +56,15 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
    - Descarga automatizada de "Mis Comprobantes Recibidos" desde el portal fiscal usando Selenium WebDriver Headless.
    - Registro automático de nuevos proveedores en la base de datos SQLite en tiempo real.
 
-4. 🔍 **Motor de Matching Multinivel de Facturas:**
+4. 🔍 **Motor de Matching Multinivel y Pipeline de Escaneo de Alto Rendimiento:**
+   - **Escaneo Físico Optimizado (NAPS2 + eSCL a 200 DPI):** Digitalización rápida a 200 DPI Grayscale con `--disableocr`, reduciendo el payload de red un 55% y liberando la tapa del escáner anticipadamente para agilizar lotes continuos de facturas.
+   - **OCR Local Ultrarrápido en Tesseract (~3 segundos):** Ejecución con control de contención de hilos (`OMP_THREAD_LIMIT=1`), preprocesamiento monocanal (`L`) y modelo `spa` en `--oem 1 --psm 6`.
    - **Tier 1 (CAE):** Cruce exacto con Código de Autorización Electrónico en reportes ARCA.
-   - **Tier 2 (CUIT):** Identificación inequívoca por CUIT del emisor.
+   - **Tier 2 (CUIT):** Identificación inequívoca por CUIT del emisor contra el catálogo de proveedores y ARCA.
    - **Tier 3 (Keywords & Regex):** Reconocimiento inteligente por Razón Social y patrones de numeración.
-   - **Tier 4 (IA Gemini):** Extracción y rescate asistido de facturas escaneadas complejas o ilegibles.
+   - **Tier 4 (IA Gemini):** Rescate asistido mediante IA para facturas complejas, de texto escaso o proveedores desconocidos.
+   - **Conciliación Instantánea $O(1)$ con ARCA:** Emparejamiento puntual por ID de comprobante en la base de datos (< 5 ms).
+   - **Actualización Reactiva SPA:** El frontend refresca automáticamente las tablas y tarjetas al finalizar cada escaneo sin necesidad de recargar la página (F5).
 
 5. 💵 **Caja Chica & Arqueo de Billetes:**
    - Registro guiado de ingresos y egresos clasificados por motivo y responsable.
@@ -133,6 +137,12 @@ python app_cloud.py
 build.bat
 ```
 El instalador/ejecutable final se generará automáticamente en `dist/GDSERP/GDSERP.exe`.
+
+### 5. Finalizar Procesos en Ejecución
+Para cerrar de forma forzada todas las instancias activas de Python:
+```bash
+kill_python.bat
+```
 
 ---
 

@@ -169,7 +169,7 @@ def discover_scanner_ip(known_hostnames=None, mac_hint="e0-d6-e7"):
 
 _last_verified_ip = None
 _last_verified_ts = 0.0
-_SCANNER_CACHE_TTL = 300.0  # 5 minutos de caché para no demorar cada escaneo
+_SCANNER_CACHE_TTL = 60.0  # 60 segundos de caché: permite escaneos seguidos rápidos pero asegura despertar la impresora si reposa
 
 def invalidate_scanner_cache():
     global _last_verified_ip, _last_verified_ts

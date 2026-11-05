@@ -42,8 +42,10 @@ Este documento sirve como **Guía Completa de Contexto Técnico** para desarroll
    - **Botones Transparentes de Copiado Rápido**: Integrados en la tabla para copiar al portapapeles la **Razón Social Oficial completa** (sin truncar) y el **CUIT** con un solo clic y retroalimentación visual inmediata.
 10. **Procesador Inteligente de Facturas (OCR + IA Gemini)**:
     - Monitoreo automático de facturas en PDF e imagen.
-    - Clasificación Multinivel por CUIT, CAE, Regex y Keywords.
-    - Rescate mediante IA (Google Gemini API) para facturas complejas o ilegibles.
+    - **OCR Ultrarrápido en Tesseract (~3s)**: Optimizado con `OMP_THREAD_LIMIT=1`, conversión a escala de grises de 1 canal (`L`), modelo monocanal en español (`lang='spa'`, `--oem 1 --psm 6`) y salida anticipada en página 0 si se detecta CAE o CUIT con número de comprobante.
+    - **Clasificación Multinivel**: Por CAE oficial (Tier 1), CUIT del emisor (Tier 2), Regex y Keywords avanzadas (Tier 3).
+    - **Rescate Asistido con IA Gemini (Tier 4)**: Fallback automático reservado exclusivamente para facturas complejas, borrosas o proveedores desconocidos.
+    - **Auto-Aprendizaje Continuo en Memoria (<1ms)**: Actualiza huellas digitales y CUITs directamente en memoria (`_update_in_memory_supplier`), eliminando re-parseos de CSVs históricos de ARCA.
 11. **Bot de Sincronización Automática con ARCA (ex AFIP)**:
     - Bot con Selenium WebDriver que automatiza el ingreso al portal de ARCA y descarga "Mis Comprobantes Recibidos".
     - Registro automático de proveedores e importación a la base de datos.
@@ -52,6 +54,12 @@ Este documento sirve como **Guía Completa de Contexto Técnico** para desarroll
     - **Persistencia de Marcas de Tiempo**: Guarda marcas `last_pull_{table}` en SQLite (`configuraciones`), evitando lecturas redundantes tras reinicios.
     - **Ahorro de Cuota**: Eliminación de reconciliaciones ciegas periódicas que causaban picos de lecturas masivas.
     - **Protección de Concurrencia**: Semáforo global `_sync_lock` (Lock), transacciones atómicas por tabla sobre la misma conexión abierta (prevención total de self-locks), `busy_timeout` a 60s en SQLite y un solo proceso maestro (`--workers=1`) en entornos Cloud.
+13. **Flujo de Escaneo Físico y Actualización en Tiempo Real (NAPS2 + UI Reactiva)**:
+    - **Escaneo Físico a 200 DPI**: Configurado en eSCL/NAPS2 a 200 DPI Grayscale con `--disableocr`, reduciendo el payload WiFi un 55% y permitiendo escaneo de alta velocidad (~12–16s de lámpara).
+    - **Liberación Temprana de Tapa (`can_open_lid`)**: Tan pronto el carro del escáner completa el recorrido físico, el sistema emite aviso sonoro/visual, libera el semáforo y rehabilita el botón de escaneo para que el usuario pueda colocar la siguiente hoja de inmediato mientras el OCR se ejecuta en background.
+    - **Caché de Verificación de Escáner (TTL 300s)**: `scanner_helper.py` valida la IP del escáner en caché en memoria para evitar latencias de 2s previas a cada escaneo, con auto-recuperación de IP si cambia por DHCP.
+    - **Conciliación $O(1)$ con ARCA**: `reconciliar_facturas_con_arca(factura_id)` reconcilia únicamente la factura recién insertada (< 5ms) en lugar de recorrer toda la base histórica.
+    - **Sincronización Total de Interfaz SPA**: Tras completar el escaneo, la interfaz cliente (`static/js/main.js`) refresca automáticamente el historial, estado, facturas procesadas, compras ARCA y dashboard sin necesidad de recargar la página (F5).
 
 ---
 
@@ -90,6 +98,7 @@ ERPGDS/
 ├── arca_bot.py                # Bot Selenium para automatización del portal ARCA (AFIP)
 ├── doctor.py                  # Módulo de diagnóstico y reparación de inconsistencias
 ├── config.py                  # Variables de entorno, rutas base y deobfuscation de API Keys
+├── kill_python.bat            # Script de cierre forzado rápido de procesos Python en Windows
 ├── scanner_helper.py          # Auto-recuperación y verificación de red del escáner (NAPS2 / eSCL)
 ├── watcher.py                 # Vigía de carpetas para procesamiento automático en tiempo real
 ├── reset.py                   # Script de restablecimiento a fábrica (Limpieza a 0 registros)

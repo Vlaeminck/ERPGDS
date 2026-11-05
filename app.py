@@ -680,10 +680,27 @@ def open_scanner():
         return jsonify({"success": False, "message": "El escáner ya está en uso. Por favor espera a que termine el escaneo actual."})
         
     try:
+        # Resetear el estado inmediatamente para que ninguna consulta devuelva la factura anterior
+        SCANNER_STATE = {
+            "active": True,
+            "phase": "starting",
+            "can_open_lid": False,
+            "message": "Iniciando escáner... Conectando con el equipo.",
+            "progress": 10,
+            "start_time": time.time(),
+            "elapsed": 0,
+            "filename": None,
+            "error": None,
+            "result": None
+        }
+
         # 1. Verificar y auto-recuperar IP del escáner en red antes de lanzar el proceso
         from scanner_helper import ensure_scanner_profile_valid
         sc_ok, sc_target, sc_msg = ensure_scanner_profile_valid()
         if not sc_ok:
+            SCANNER_STATE["phase"] = "error"
+            SCANNER_STATE["active"] = False
+            SCANNER_STATE["message"] = sc_msg
             if scanning_lock.locked():
                 scanning_lock.release()
             return jsonify({"success": False, "message": sc_msg})
@@ -701,18 +718,10 @@ def open_scanner():
         # Iniciar el vigía si no estaba corriendo (durará 5 min sin actividad)
         watcher_manager.start()
         
-        SCANNER_STATE = {
-            "active": True,
-            "phase": "scanning",
-            "can_open_lid": False,
-            "message": "Escaneando hoja en el escáner... No abras la tapa todavía.",
-            "progress": 15,
-            "start_time": time.time(),
-            "elapsed": 0,
-            "filename": filename,
-            "error": None,
-            "result": None
-        }
+        SCANNER_STATE["phase"] = "scanning"
+        SCANNER_STATE["filename"] = filename
+        SCANNER_STATE["progress"] = 15
+        SCANNER_STATE["message"] = "Escaneando hoja en el escáner... No abras la tapa todavía."
         
         def run_scanner():
             global SCANNER_STATE
@@ -733,18 +742,32 @@ def open_scanner():
                     cmd.extend(['-p', def_profile])
                 cmd.extend(['--disableocr', '-v', '-o', output_path])
 
-                # Ejecutar NAPS2 con --disableocr (escaneo rápido en ~18s, OCR lo hace processor.py)
-                naps_res = subprocess.run(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    **kwargs
-                )
-                
-                if naps_res.returncode != 0:
-                    print(f"[SCANNER] NAPS2 finalizó con código {naps_res.returncode}. Stderr: {naps_res.stderr} | Stdout: {naps_res.stdout}", flush=True)
+                naps_res = None
+                max_attempts = 2
+                for attempt in range(1, max_attempts + 1):
+                    naps_res = subprocess.run(
+                        cmd,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        **kwargs
+                    )
+                    
+                    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                        break  # Escaneo físico exitoso
+                    
+                    err_attempt = (naps_res.stderr or naps_res.stdout or "").strip()
+                    print(f"[SCANNER] Intento {attempt} de {max_attempts} finalizó sin archivo. Salida NAPS2: {err_attempt}", flush=True)
+                    
+                    if attempt < max_attempts:
+                        # La impresora pudo estar dormida en reposo o el buffer eSCL se reinició: despertar y reintentar
+                        from scanner_helper import invalidate_scanner_cache, ensure_scanner_profile_valid
+                        invalidate_scanner_cache()
+                        SCANNER_STATE["message"] = "Reintentando escaneo (despertando escáner)..."
+                        SCANNER_STATE["progress"] = 25
+                        ensure_scanner_profile_valid(force=True)
+                        time.sleep(1.5)
                 
                 # Al terminar NAPS2, el escaneo físico terminó y la lámpara volvió a posición de descanso
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -792,13 +815,15 @@ def open_scanner():
                     from scanner_helper import invalidate_scanner_cache
                     invalidate_scanner_cache()
                     err_output = (naps_res.stderr or naps_res.stdout or "").strip()
-                    print(f"[SCANNER] No se generó el archivo de salida. Salida NAPS2: {err_output}", flush=True)
+                    print(f"[SCANNER] No se generó el archivo de salida tras {max_attempts} intentos. Salida NAPS2: {err_output}", flush=True)
                     SCANNER_STATE["phase"] = "error"
                     SCANNER_STATE["can_open_lid"] = True
                     SCANNER_STATE["progress"] = 100
                     SCANNER_STATE["active"] = False
                     if "timed out" in err_output.lower() or "timeout" in err_output.lower():
-                        SCANNER_STATE["message"] = "Tiempo de espera agotado al conectar con el escáner. Verifica que esté encendido."
+                        SCANNER_STATE["message"] = "Tiempo de espera agotado al conectar con el escáner. Verificá que esté encendido y conectado a la red."
+                    elif "no scanned pages" in err_output.lower():
+                        SCANNER_STATE["message"] = "El escáner no digitalizó la hoja. Verificá que la tapa esté cerrada, el papel colocado y que el equipo no esté ocupado."
                     elif err_output:
                         lines = [l.strip() for l in err_output.splitlines() if l.strip()]
                         SCANNER_STATE["message"] = f"Error en escáner: {lines[-1]}"

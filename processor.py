@@ -1479,7 +1479,7 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
     except Exception as e:
         print(f"Error moviendo archivo: {e}", flush=True)
 
-def log_scan_time(original_file_path, dest_path, supplier_name, new_filename, is_duplicate=False, message=None):
+def log_scan_time(original_file_path, dest_path, supplier_name, new_filename, is_duplicate=False, message=None, ocr_duration=None):
     try:
         import os, datetime, re
         file_name = os.path.basename(original_file_path)
@@ -1507,7 +1507,16 @@ def log_scan_time(original_file_path, dest_path, supplier_name, new_filename, is
         used_ai = "(Rescatado IA)" in new_filename
         ia_text = "USO DE IA" if used_ai else "SIN IA"
         
-        log_line = f"Fecha: {fecha} | Hora: {hora} | Proveedor: {supplier_name} | Origen: {origen} | Tiempo de procesamiento: {duration} segundos ({ia_text})\n"
+        desglose = ""
+        if origen == "Botón Escanear" and duration > 0:
+            if ocr_duration is not None and ocr_duration > 0:
+                ocr_sec = round(ocr_duration, 1)
+                scan_sec = max(0, round(duration - ocr_sec, 1))
+                desglose = f" [Escaneo físico Epson: {scan_sec}s | OCR/BD: {ocr_sec}s]"
+            else:
+                desglose = f" [Escaneo físico Epson: ~{max(0, duration-3)}s | OCR/BD: ~3s]"
+        
+        log_line = f"Fecha: {fecha} | Hora: {hora} | Proveedor: {supplier_name} | Origen: {origen} | Tiempo de procesamiento: {duration} segundos{desglose} ({ia_text})\n"
         
         from config import REGISTROS_FOLDER
         if not os.path.exists(REGISTROS_FOLDER):
