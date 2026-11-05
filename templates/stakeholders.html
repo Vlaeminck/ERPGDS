@@ -380,6 +380,12 @@
                 <span id="cloud-sync-text">Cloud Sync Activo</span>
             </div>
 
+            <!-- Botón Acceso a Facturas en Google Drive -->
+            <a href="https://drive.google.com/drive/folders/1ojnwBu4jiiHjAoHvQmFP_M_V2Aur-0rC?usp=sharing" target="_blank" rel="noopener noreferrer" class="btn btn-sm" id="btn-drive-folder" title="Abrir carpeta compartida de facturas digitalizadas en Google Drive" style="background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #1d4ed8; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <i class="fa-brands fa-google-drive" style="color: #ea4335; font-size: 0.95rem;"></i>
+                <span style="font-size: 0.8rem;">Facturas en Drive</span>
+            </a>
+
             <!-- Botón de Modo Privacidad -->
             <button class="btn btn-sm" id="btn-privacy-toggle" onclick="togglePrivacyMode()" title="Modo Privacidad: Ocultar o mostrar montos con asteriscos" style="background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: 700; padding: 0.4rem 0.75rem; border-radius: 8px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                 <i class="fa-solid fa-eye-slash" id="privacy-icon"></i>
@@ -483,6 +489,9 @@
                     </div>
 
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <a href="https://drive.google.com/drive/folders/1ojnwBu4jiiHjAoHvQmFP_M_V2Aur-0rC?usp=sharing" target="_blank" rel="noopener noreferrer" class="btn btn-sm" title="Buscar y ver comprobantes escaneados en Google Drive" style="background: rgba(37, 99, 235, 0.08); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 700; padding: 0.45rem 0.85rem; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                            <i class="fa-brands fa-google-drive" style="color: #ea4335;"></i> Ver Facturas en Drive
+                        </a>
                         <button class="btn btn-sm" onclick="exportarArcaExcelCloud()" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700; padding: 0.45rem 0.85rem; border-radius: 8px;">
                             <i class="fa-solid fa-file-excel"></i> Exportar Excel
                         </button>
