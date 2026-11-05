@@ -103,8 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
         tabPanes.forEach(p => p.style.display = 'none');
 
-        const activeLink = document.querySelector(`[data-tab="${tabName}"]`);
-        if (activeLink) activeLink.classList.add('active');
+        document.querySelectorAll(`[data-tab="${tabName}"]`).forEach(el => el.classList.add('active'));
 
         // Gestionar estado del grupo Facturas
         const facturasSubTabs = ['dashboard', 'processed', 'remitos', 'upload'];
@@ -514,6 +513,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let scannerPollInterval = null;
     let lidReadyAnnounced = false;
+    let isPollingScanner = false;
+    let completionHandled = false;
 
     function updateStep(stepId, state) {
         const el = document.getElementById(stepId);
@@ -537,6 +538,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function pollScannerProgress() {
+        if (isPollingScanner) return;
+        isPollingScanner = true;
         try {
             const res = await fetch('/api/scanner/status');
             const data = await res.json();
@@ -608,6 +611,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast('¡Listo! Ya podés abrir la tapa del escáner.', 'info');
                 }
 
+                // Rehabilitar el botón apenas se libera el escáner físico para permitir escanear otra hoja de inmediato
+                if (btnScanner && btnScanner.disabled) {
+                    btnScanner.innerHTML = '<i class="fa-solid fa-print"></i> Escáner Automático';
+                    btnScanner.disabled = false;
+                }
+
                 updateStep('scan-step-1', 'done');
                 updateStep('scan-step-2', 'done');
                 if (data.phase === 'processing') {
@@ -621,6 +630,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     clearInterval(scannerPollInterval);
                     scannerPollInterval = null;
                 }
+                if (completionHandled) return;
+                completionHandled = true;
                 if (bar) {
                     bar.style.width = '100%';
                     bar.style.background = '#10b981';
@@ -650,13 +661,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 showToast('¡Factura procesada con éxito y registrada en el sistema!', 'success');
 
-                // REFRESCAR INMEDIATAMENTE TODAS LAS LISTAS
+                // REFRESCAR INMEDIATAMENTE TODAS LAS LISTAS Y PESTAÑAS
                 if (typeof fetchUserHistory === 'function') fetchUserHistory();
                 if (typeof fetchStatus === 'function') fetchStatus();
                 if (typeof fetchProcessedInvoices === 'function') fetchProcessedInvoices();
                 if (typeof fetchArcaComprasLocal === 'function') fetchArcaComprasLocal();
                 else if (typeof fetchArcaCompras === 'function') fetchArcaCompras();
                 if (typeof fetchCuentasPorPagar === 'function') fetchCuentasPorPagar();
+                if (typeof fetchProcessedRemitos === 'function') fetchProcessedRemitos();
+                if (typeof fetchUnrecognizedInvoices === 'function') fetchUnrecognizedInvoices();
+                if (currentActiveTab === 'empresa' && typeof fetchDashboardEmpresa === 'function') {
+                    fetchDashboardEmpresa();
+                }
 
                 // Ocultar suavemente después de 14 segundos si el usuario no inicia otro escaneo
                 setTimeout(() => {
@@ -695,6 +711,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (e) {
             console.error("Error polling scanner progress:", e);
+        } finally {
+            isPollingScanner = false;
         }
     }
 
@@ -710,6 +728,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
             lidReadyAnnounced = false;
+            completionHandled = false;
+            isPollingScanner = false;
 
             // Reset UI de pasos
             updateStep('scan-step-1', 'active');
@@ -1618,11 +1638,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchLicenseStatus(); // Initial fetch
     fetchStatus();
     setInterval(() => {
-        const activeTab = document.querySelector('.nav-links li.active');
-        if (activeTab && activeTab.dataset.tab === 'dashboard') {
+        if (currentActiveTab === 'dashboard' && !scannerPollInterval) {
             fetchStatus();
             fetchProgress();
-            // We can also poll license periodically if we want, e.g. every 10 mins
         }
     }, 2000);
 

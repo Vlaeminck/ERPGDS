@@ -58,6 +58,9 @@ MONTHS_ES = {
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
 
+# Evitar contención de hilos OpenMP en Tesseract en Windows (acelera OCR ~2x)
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
 # Ruta al ejecutable de Tesseract (instalado en Windows)
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -72,8 +75,8 @@ def extract_text_via_ocr_image(image_path):
     try:
         pytesseract = get_tesseract()
         img = Image.open(image_path)
-        # lang='spa' para español, '+eng' agrega inglés como fallback
-        text = pytesseract.image_to_string(img, lang='spa+eng', config='--psm 3')
+        gray_img = img.convert('L')
+        text = pytesseract.image_to_string(gray_img, lang='spa', config='--oem 1 --psm 6')
         return text.lower()
     except Exception as e:
         print(f"Error haciendo OCR en la imagen {image_path}: {e}", flush=True)
@@ -90,12 +93,19 @@ def extract_text_via_ocr_pdf(pdf_path):
     try:
         pytesseract = get_tesseract()
         doc = pdfium.PdfDocument(pdf_path)
-        for page in doc:
-            # Renderizar a 200 DPI (scale=200/72)
+        for idx, page in enumerate(doc):
+            # Renderizar a 200 DPI (scale=200/72) y convertir a escala de grises (1 canal)
             bitmap = page.render(scale=200/72)
-            pil_img = bitmap.to_pil()
-            text = pytesseract.image_to_string(pil_img, lang='spa+eng', config='--psm 3')
+            pil_img = bitmap.to_pil().convert('L')
+            text = pytesseract.image_to_string(pil_img, lang='spa', config='--oem 1 --psm 6')
             text_parts.append(text)
+            # Si en la primera página ya se detectó CAE (14 dígitos) o CUIT + N° de comprobante, evitar OCR en anexos
+            if idx == 0 and len(doc) > 1:
+                has_cae = bool(re.search(r'\b\d{14}\b', text))
+                has_inv = bool(re.search(r'\b\d{4,5}[\s-]+\d{8}\b', text))
+                has_cuit = bool(extract_cuits_from_text(text.lower()))
+                if has_cae or (has_inv and has_cuit):
+                    break
     except Exception as e:
         print(f"Error haciendo OCR en el PDF {pdf_path}: {e}", flush=True)
         log_system_error(f"OCR de PDF {pdf_path} falló", str(e))
@@ -517,6 +527,7 @@ def build_cuit_to_supplier_map():
             if not kw_norm.isdigit():
                 kw_to_supplier[kw_norm] = supplier_name
                 
+    checked_csv_cuits = set()
     from config import BASE_DIR
     csv_folder = os.path.join(BASE_DIR, "CSV ARCA")
     if os.path.exists(csv_folder):
@@ -554,9 +565,12 @@ def build_cuit_to_supplier_map():
                     if len(row) <= max(cuit_idx, name_idx):
                         continue
                     cuit = re.sub(r'\D', '', row[cuit_idx].strip().replace('"', ''))
+                    if len(cuit) != 11 or cuit in cuit_map or cuit in checked_csv_cuits:
+                        continue
+                    checked_csv_cuits.add(cuit)
                     name = row[name_idx].strip().replace('"', '')
                     
-                    if len(cuit) == 11 and cuit not in cuit_map:
+                    if True:
                         name_norm = normalize_string(name)
                         if name_norm in kw_to_supplier:
                             cuit_map[cuit] = kw_to_supplier[name_norm]
@@ -903,6 +917,20 @@ def extract_invoice_number_from_text(text, supplier_found=None, csv_info=None):
 
     return None, csv_info
 
+def _update_in_memory_supplier(supplier_name, supplier_data, cuit=None):
+    """Actualiza en memoria (<1ms) los índices de proveedores y CUIT sin re-parsear todos los CSV de ARCA."""
+    global _CUIT_INDEX
+    import config
+    config.SUPPLIERS[supplier_name] = supplier_data
+    if cuit:
+        d = re.sub(r'\D', '', str(cuit))
+        if len(d) == 11:
+            _CUIT_INDEX[d] = supplier_name
+    for kw in supplier_data.get("keywords", []):
+        d = re.sub(r'\D', '', str(kw))
+        if len(d) == 11:
+            _CUIT_INDEX[d] = supplier_name
+
 def learn_from_invoice(supplier_name, filename="", invoice_formatted=None, text="", cuit=None):
     """
     Auto-aprendizaje continuo del OCR:
@@ -969,7 +997,7 @@ def learn_from_invoice(supplier_name, filename="", invoice_formatted=None, text=
                 pass
 
             print(f"  [AUTO-APRENDIZAJE OCR] Huellas enriquecidas para '{target_key}': {new_kws}", flush=True)
-            reload_config()
+            _update_in_memory_supplier(target_key, suppliers[target_key], cuit=cuit)
     except Exception as e:
         print(f"Aviso en auto-aprendizaje OCR: {e}", flush=True)
 
@@ -1415,7 +1443,7 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
                     print(f"  [ALERTA CONFLICTO CAE] El CAE {cae} ya estaba registrado bajo '{prev_conflict['supplier']}'. Queda habilitado en la interfaz para confirmar el correcto y eliminar el error de OCR.", flush=True)
 
             rel_p = os.path.relpath(dest_path, OUTPUT_FOLDER).replace('\\', '/')
-            db_manager.save_processed_invoice(
+            inv_id = db_manager.save_processed_invoice(
                 year=year,
                 month=month_name,
                 supplier=supplier,
@@ -1428,6 +1456,7 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
                 arca_match=0
             )
         except Exception as ex_db:
+            inv_id = None
             print(f"Error al registrar factura en BD: {ex_db}")
 
         # Auto-aprendizaje continuo de OCR para este proveedor
@@ -1439,7 +1468,7 @@ def move_to_processed(file_path, supplier, new_filename, invoice_date=None, invo
         # Hook para conciliación automática con ARCA Compras (Stage de Espera bidireccional)
         try:
             import db_manager
-            res_rec = db_manager.reconciliar_facturas_con_arca()
+            res_rec = db_manager.reconciliar_facturas_con_arca(factura_id=inv_id)
             if res_rec.get("vinculadas_nuevas", 0) > 0:
                 print(f"  [ARCA] ¡Factura vinculada con éxito con Compras ARCA en la DB!", flush=True)
             else:
@@ -2029,10 +2058,7 @@ def save_ai_supplier(nombre, cuit, keywords):
             
         print(f"  [IA] Proveedor '{target_key}' {action_msg} en suppliers.json con huella digital optimizada para futuros escaneos OCR.", flush=True)
         
-        from config import SUPPLIERS
-        SUPPLIERS[target_key] = suppliers[target_key]
-        
-        reload_config()
+        _update_in_memory_supplier(target_key, suppliers[target_key], cuit=cuit_fmt)
     except Exception as e:
         print(f"Error guardando proveedor de IA: {e}", flush=True)
 

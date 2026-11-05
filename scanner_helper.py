@@ -167,7 +167,16 @@ def discover_scanner_ip(known_hostnames=None, mac_hint="e0-d6-e7"):
 
     return None
 
-def ensure_scanner_profile_valid():
+_last_verified_ip = None
+_last_verified_ts = 0.0
+_SCANNER_CACHE_TTL = 300.0  # 5 minutos de caché para no demorar cada escaneo
+
+def invalidate_scanner_cache():
+    global _last_verified_ip, _last_verified_ts
+    _last_verified_ip = None
+    _last_verified_ts = 0.0
+
+def ensure_scanner_profile_valid(force=False):
     """
     Verifica que el perfil de NAPS2 apunte a la IP correcta del escáner en la red.
     Si la IP actual no responde (por ejemplo tras reinicio de router por DHCP),
@@ -175,6 +184,9 @@ def ensure_scanner_profile_valid():
 
     Retorna: (ok: bool, current_or_new_ip: str, message: str)
     """
+    global _last_verified_ip, _last_verified_ts
+    import time
+
     profiles_path = get_naps2_profiles_path()
     if not profiles_path or not os.path.exists(profiles_path):
         return True, "default", "Perfil NAPS2 no encontrado o usando configuración por defecto."
@@ -192,10 +204,16 @@ def ensure_scanner_profile_valid():
             return True, "default", "El perfil actual no utiliza protocolo eSCL de red."
 
         current_target = conn_match.group(1).strip()
+
+        if not force and _last_verified_ip == current_target and (time.time() - _last_verified_ts) < _SCANNER_CACHE_TTL:
+            return True, current_target, f"Escáner en línea (caché) en {current_target}."
+
         print(f"[SCANNER] Verificando conectividad con escáner en {current_target}...", flush=True)
 
         # Si responde inmediatamente, todo en orden
         if is_escl_online(current_target, timeout=2.0):
+            _last_verified_ip = current_target
+            _last_verified_ts = time.time()
             return True, current_target, f"Escáner en línea y listo en {current_target}."
 
         print(f"[SCANNER] ¡Atención! El escáner no responde en {current_target}. Iniciando auto-recuperación de IP...", flush=True)
@@ -244,9 +262,13 @@ def ensure_scanner_profile_valid():
             with open(profiles_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
 
+            _last_verified_ip = new_ip
+            _last_verified_ts = time.time()
             print(f"[SCANNER AUTO-HEAL] Perfil actualizado exitosamente a {new_ip}.", flush=True)
             return True, new_ip, f"IP del escáner actualizada automáticamente a {new_ip}."
         else:
+            _last_verified_ip = new_ip
+            _last_verified_ts = time.time()
             return True, new_ip, f"Escáner verificado en {new_ip}."
 
     except Exception as e:

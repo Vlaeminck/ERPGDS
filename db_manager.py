@@ -978,8 +978,10 @@ def save_processed_invoice(year, month, supplier, filename, filepath, total=0, c
         INSERT INTO facturas_procesadas (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, arca_match, arca_id, match_metodo, match_date, updated_at, sync_status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     ''', (year, month, supplier, filename, filepath, total, cuit, cae, fecha, fecha_procesado, arca_match, arca_id, match_metodo, match_date, now_iso))
+    row_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    return row_id
 
 def marcar_factura_recibida_directa(supplier_name='', pv=None, num=None, cae=None, cuit=None, total=None, fecha=None, filename='', filepath='', conn=None):
     """
@@ -1177,7 +1179,7 @@ def marcar_factura_recibida_directa(supplier_name='', pv=None, num=None, cae=Non
         if close_at_end:
             conn.close()
 
-def reconciliar_facturas_con_arca(conn=None):
+def reconciliar_facturas_con_arca(conn=None, factura_id=None):
     """
     Motor de conciliación retroactiva automática entre facturas físicas escaneadas (facturas_procesadas)
     y compras registradas en ARCA (arca_compras_csv).
@@ -1207,12 +1209,19 @@ def reconciliar_facturas_con_arca(conn=None):
         cursor = conn.cursor()
         now_iso = dt_module.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # Buscar comprobantes en facturas_procesadas que no estén vinculados
-        cursor.execute("""
-            SELECT id, year, month, supplier, filename, filepath, total, cuit, cae, fecha, arca_match, arca_id 
-            FROM facturas_procesadas 
-            WHERE arca_match = 0 OR arca_match IS NULL OR arca_id IS NULL
-        """)
+        # Buscar comprobantes en facturas_procesadas que no estén vinculados (o solo factura_id si se especifica)
+        if factura_id is not None:
+            cursor.execute("""
+                SELECT id, year, month, supplier, filename, filepath, total, cuit, cae, fecha, arca_match, arca_id 
+                FROM facturas_procesadas 
+                WHERE id = ? AND (arca_match = 0 OR arca_match IS NULL OR arca_id IS NULL)
+            """, (factura_id,))
+        else:
+            cursor.execute("""
+                SELECT id, year, month, supplier, filename, filepath, total, cuit, cae, fecha, arca_match, arca_id 
+                FROM facturas_procesadas 
+                WHERE arca_match = 0 OR arca_match IS NULL OR arca_id IS NULL
+            """)
         pending_scanned = [dict(r) for r in cursor.fetchall()]
 
         if not pending_scanned:

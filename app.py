@@ -750,19 +750,19 @@ def open_scanner():
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                     SCANNER_STATE["phase"] = "can_open_lid"
                     SCANNER_STATE["can_open_lid"] = True
-                    SCANNER_STATE["progress"] = 72
+                    SCANNER_STATE["progress"] = 75
                     SCANNER_STATE["message"] = "¡Escaneo físico completado! Ya podés abrir la tapa del escáner."
                     
                     if scanning_lock.locked():
                         scanning_lock.release()
                         
-                    # Procesar la factura digitalizada
-                    SCANNER_STATE["phase"] = "processing"
-                    SCANNER_STATE["progress"] = 85
-                    SCANNER_STATE["message"] = "Procesando documento (OCR / CAE / IA)..."
+                    # Procesar la factura digitalizada en segundo plano
+                    if SCANNER_STATE.get("filename") == filename:
+                        SCANNER_STATE["phase"] = "processing"
+                        SCANNER_STATE["progress"] = 85
+                        SCANNER_STATE["message"] = "Procesando documento (OCR / CAE / IA)..."
                     
                     from processor import process_invoice, get_user_history, unmark_file_processing
-                    time.sleep(0.5)
                     if os.path.exists(output_path):
                         # Liberar reserva previa para que process_invoice tome el lock interno
                         unmark_file_processing(output_path)
@@ -777,17 +777,20 @@ def open_scanner():
                                 res_item = h
                                 break
                                 
-                    SCANNER_STATE["phase"] = "completed"
-                    SCANNER_STATE["progress"] = 100
-                    SCANNER_STATE["can_open_lid"] = True
-                    SCANNER_STATE["active"] = False
-                    SCANNER_STATE["result"] = res_item
-                    
-                    supp = res_item.get('supplier', 'Comprobante') if res_item else 'Comprobante'
-                    num = res_item.get('invoice_number', '') if res_item else ''
-                    msg_txt = f"¡{supp} {num} procesado y guardado!".strip()
-                    SCANNER_STATE["message"] = msg_txt
+                    if SCANNER_STATE.get("filename") == filename:
+                        SCANNER_STATE["phase"] = "completed"
+                        SCANNER_STATE["progress"] = 100
+                        SCANNER_STATE["can_open_lid"] = True
+                        SCANNER_STATE["active"] = False
+                        SCANNER_STATE["result"] = res_item
+                        
+                        supp = res_item.get('supplier', 'Comprobante') if res_item else 'Comprobante'
+                        num = res_item.get('invoice_number', '') if res_item else ''
+                        msg_txt = f"¡{supp} {num} procesado y guardado!".strip()
+                        SCANNER_STATE["message"] = msg_txt
                 else:
+                    from scanner_helper import invalidate_scanner_cache
+                    invalidate_scanner_cache()
                     err_output = (naps_res.stderr or naps_res.stdout or "").strip()
                     print(f"[SCANNER] No se generó el archivo de salida. Salida NAPS2: {err_output}", flush=True)
                     SCANNER_STATE["phase"] = "error"
@@ -805,6 +808,11 @@ def open_scanner():
                     if scanning_lock.locked():
                         scanning_lock.release()
             except Exception as e:
+                try:
+                    from scanner_helper import invalidate_scanner_cache
+                    invalidate_scanner_cache()
+                except Exception:
+                    pass
                 print(f"Error durante el escaneo con NAPS2: {e}", flush=True)
                 SCANNER_STATE["phase"] = "error"
                 SCANNER_STATE["can_open_lid"] = True
