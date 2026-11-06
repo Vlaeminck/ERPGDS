@@ -1681,6 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Doctor Tab Logic ---
     const btnDoctorScan = document.getElementById('btn-doctor-scan');
     const btnDoctorFix = document.getElementById('btn-doctor-fix');
+    const chkDoctorAi = document.getElementById('chk-doctor-ai');
     const doctorResultsContainer = document.getElementById('doctor-results-container');
     const doctorResultsList = document.getElementById('doctor-results-list');
     const doctorCount = document.getElementById('doctor-count');
@@ -1690,16 +1691,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnDoctorScan) {
         btnDoctorScan.addEventListener('click', async () => {
             const originalHTML = btnDoctorScan.innerHTML;
-            btnDoctorScan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Escaneando...';
+            btnDoctorScan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Auditando con Cerebro IA...';
             btnDoctorScan.disabled = true;
             btnDoctorFix.disabled = true;
 
             try {
-                const res = await fetch('/api/doctor/scan');
+                const useAi = chkDoctorAi ? chkDoctorAi.checked : true;
+                const res = await fetch(`/api/doctor/scan?ai=${useAi ? '1' : '0'}`);
                 const data = await res.json();
 
                 if (data.success) {
-                    currentAnomalies = data.anomalies;
+                    currentAnomalies = data.anomalies || [];
                     renderDoctorResults(currentAnomalies);
                 } else {
                     showToast("Error al escanear: " + data.message, "error");
@@ -1718,21 +1720,26 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentAnomalies.length === 0) return;
 
             const originalHTML = btnDoctorFix.innerHTML;
-            btnDoctorFix.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Curando...';
+            btnDoctorFix.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Aplicando Curas Inteligentes...';
             btnDoctorFix.disabled = true;
             btnDoctorScan.disabled = true;
 
             try {
-                const res = await fetch('/api/doctor/fix', { method: 'POST' });
+                const useAi = chkDoctorAi ? chkDoctorAi.checked : true;
+                const res = await fetch('/api/doctor/fix', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enable_ai: useAi })
+                });
                 const data = await res.json();
 
                 if (data.success) {
-                    showToast(`Se aplicaron ${data.fixes} curas automáticas.`, "success");
-                    if (data.errors.length > 0) {
-                        showToast(`Hubo ${data.errors.length} errores al curar. Revisa la consola.`, "warning");
+                    showToast(`¡Se aplicaron ${data.fixes} curas automáticas exitosamente!`, "success");
+                    if (data.errors && data.errors.length > 0) {
+                        showToast(`Hubo ${data.errors.length} observaciones durante la curación. Revisa la consola.`, "warning");
                         console.error("Errores del doctor:", data.errors);
                     }
-                    // Rescan
+                    // Volver a escanear para actualizar el estado
                     btnDoctorScan.click();
                 } else {
                     showToast("Error al aplicar curas: " + data.message, "error");
@@ -1746,43 +1753,147 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Curar anomalía individual con IA
+    window.cureSingleDoctorAnomaly = async function(index) {
+        const anomaly = currentAnomalies[index];
+        if (!anomaly) return;
+
+        const btn = document.getElementById(`btn-cure-anomaly-${index}`);
+        const origBtnText = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Curando...';
+            btn.disabled = true;
+        }
+
+        try {
+            const res = await fetch('/api/doctor/cure-single', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ anomaly: anomaly })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                showToast(data.message || "Cura aplicada correctamente", "success");
+                // Remover de la lista local
+                currentAnomalies.splice(index, 1);
+                renderDoctorResults(currentAnomalies);
+            } else {
+                showToast("Error: " + (data.error || data.message || "No se pudo aplicar la cura"), "error");
+                if (btn) {
+                    btn.innerHTML = origBtnText;
+                    btn.disabled = false;
+                }
+            }
+        } catch (e) {
+            showToast("Error de comunicación al curar anomalía", "error");
+            if (btn) {
+                btn.innerHTML = origBtnText;
+                btn.disabled = false;
+            }
+        }
+    };
+
     function renderDoctorResults(anomalies) {
         doctorResultsContainer.style.display = 'block';
         doctorResultsList.innerHTML = '';
         doctorCount.textContent = `${anomalies.length} anomalías`;
 
         if (anomalies.length === 0) {
-            doctorCount.className = "badge status-active";
-            doctorResultsList.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--success);"><i class="fa-solid fa-check-circle" style="font-size: 2rem; margin-bottom: 0.5rem;"></i><br>¡Todo está perfecto! No se encontraron anomalías.</div>';
+            doctorCount.style.background = "rgba(16, 185, 129, 0.15)";
+            doctorCount.style.color = "#059669";
+            doctorResultsList.innerHTML = `
+                <div style="padding: 2.5rem 1rem; text-align: center; color: #059669; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;">
+                    <i class="fa-solid fa-circle-check" style="font-size: 2.5rem; margin-bottom: 0.75rem;"></i>
+                    <h3 style="margin: 0 0 4px; font-weight: 800; color: #166534;">¡Base de Datos Impecable!</h3>
+                    <p style="margin: 0; font-size: 0.9rem; color: #15803d;">No se encontraron anomalías, carpetas vacías ni proveedores desubicados.</p>
+                </div>
+            `;
             btnDoctorFix.disabled = true;
             return;
         }
 
-        doctorCount.className = "badge status-inactive";
+        doctorCount.style.background = "rgba(239, 68, 68, 0.15)";
+        doctorCount.style.color = "#dc2626";
         btnDoctorFix.disabled = false;
 
-        anomalies.forEach(anom => {
+        anomalies.forEach((anom, idx) => {
             const div = document.createElement('div');
 
-            let color = "var(--text)";
+            let borderColor = "#e2e8f0";
+            let badgeBg = "#f1f5f9";
+            let badgeColor = "#475569";
             let icon = "fa-triangle-exclamation";
 
-            if (anom.severity === 'high') { color = "var(--danger)"; icon = "fa-circle-xmark"; }
-            else if (anom.severity === 'medium') { color = "var(--warning)"; }
-            else if (anom.severity === 'low') { color = "var(--text-secondary)"; icon = "fa-info-circle"; }
+            if (anom.severity === 'high') {
+                borderColor = "#fecaca";
+                badgeBg = "#fef2f2";
+                badgeColor = "#dc2626";
+                icon = "fa-circle-xmark";
+            } else if (anom.severity === 'medium') {
+                borderColor = "#fed7aa";
+                badgeBg = "#fffbeb";
+                badgeColor = "#d97706";
+            } else if (anom.severity === 'low') {
+                borderColor = "#e2e8f0";
+                badgeBg = "#f8fafc";
+                badgeColor = "#64748b";
+                icon = "fa-circle-info";
+            }
 
-            div.style.padding = "1rem";
-            div.style.border = "1px solid rgba(255,255,255,0.1)";
-            div.style.borderRadius = "0.5rem";
-            div.style.background = "rgba(0,0,0,0.2)";
+            const aiDiag = anom.ai_diagnosis;
+            const targetSup = anom.suggested_supplier || (aiDiag ? aiDiag.detected_supplier : null);
+
+            let aiBlockHtml = '';
+            if (aiDiag || targetSup) {
+                const sourceBadge = aiDiag && aiDiag.source === 'ARCA_FISCAL' ? 'Cruce Fiscal ARCA' : 'Gemini AI Vision';
+                aiBlockHtml = `
+                    <div style="margin-top: 0.75rem; padding: 0.75rem 1rem; background: rgba(37, 99, 235, 0.04); border: 1px solid rgba(37, 99, 235, 0.2); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+                                <i class="fa-solid fa-brain" style="color: #2563eb; font-size: 0.9rem;"></i>
+                                <strong style="font-size: 0.82rem; color: #1d4ed8; text-transform: uppercase;">Diagnóstico Inteligente (${sourceBadge})</strong>
+                            </div>
+                            <div style="font-size: 0.88rem; font-weight: 600; color: #0f172a;">
+                                ${aiDiag && aiDiag.message ? aiDiag.message : `Proveedor detectado: <strong>${targetSup}</strong>`}
+                            </div>
+                            ${aiDiag && aiDiag.detected_cuit ? `<small style="color: #64748b; font-size: 0.78rem;">CUIT Emisor: <strong>${aiDiag.detected_cuit}</strong> ${aiDiag.detected_cae ? `| CAE: ${aiDiag.detected_cae}` : ''}</small>` : ''}
+                        </div>
+                        <button id="btn-cure-anomaly-${idx}" class="btn btn-sm btn-primary" onclick="cureSingleDoctorAnomaly(${idx})" style="font-weight: 700; font-size: 0.8rem; padding: 0.4rem 0.85rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Curar con IA
+                        </button>
+                    </div>
+                `;
+            } else if (anom.type === 'carpeta_vacia' || anom.type === 'db_archivo_huerfano') {
+                aiBlockHtml = `
+                    <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end;">
+                        <button id="btn-cure-anomaly-${idx}" class="btn btn-sm btn-secondary" onclick="cureSingleDoctorAnomaly(${idx})" style="font-weight: 700; font-size: 0.78rem; padding: 0.35rem 0.75rem; border-radius: 6px;">
+                            <i class="fa-solid fa-trash-can"></i> Limpiar
+                        </button>
+                    </div>
+                `;
+            }
+
+            div.style.padding = "1rem 1.25rem";
+            div.style.border = `1px solid ${borderColor}`;
+            div.style.borderRadius = "10px";
+            div.style.background = "#ffffff";
+            div.style.boxShadow = "0 1px 2px rgba(0,0,0,0.03)";
 
             div.innerHTML = `
                 <div style="display: flex; align-items: flex-start; gap: 1rem;">
-                    <i class="fa-solid ${icon}" style="color: ${color}; margin-top: 0.2rem;"></i>
-                    <div>
-                        <strong style="color: ${color}; text-transform: uppercase; font-size: 0.8rem;">${anom.type.replace(/_/g, ' ')}</strong>
-                        <p style="margin: 0.2rem 0; font-size: 0.95rem;">${anom.message}</p>
-                        <small style="color: var(--text-secondary); word-break: break-all;"><code>${anom.path}</code></small>
+                    <div style="width: 32px; height: 32px; border-radius: 50%; background: ${badgeBg}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <i class="fa-solid ${icon}" style="color: ${badgeColor}; font-size: 1rem;"></i>
+                    </div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+                            <span style="background: ${badgeBg}; color: ${badgeColor}; font-weight: 800; font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                ${anom.type.replace(/_/g, ' ')}
+                            </span>
+                            <small style="color: #94a3b8; font-family: monospace; font-size: 0.75rem; word-break: break-all;">${anom.path}</small>
+                        </div>
+                        <p style="margin: 0; font-size: 0.92rem; font-weight: 600; color: #1e293b; line-height: 1.4;">${anom.message}</p>
+                        ${aiBlockHtml}
                     </div>
                 </div>
             `;

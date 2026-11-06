@@ -96,7 +96,8 @@ ERPGDS/
 ├── firebase_sync.py           # Motor de sincronización bidireccional en tiempo real con Firestore
 ├── processor.py               # Motor OCR, parsing de facturas, OCR Gemini y organización
 ├── arca_bot.py                # Bot Selenium para automatización del portal ARCA (AFIP)
-├── doctor.py                  # Módulo de diagnóstico y reparación de inconsistencias
+├── doctor.py                  # Módulo de diagnóstico, auditoría inteligente con Visión IA (Gemini) y curación de inconsistencias contables / proveedores inexistentes
+├── DOCTOR_CAPACIDADES_Y_LIMITES.md # Documentación técnica exhaustiva de diagnósticos, capacidades, arquitectura y límites del Doctor
 ├── config.py                  # Variables de entorno, rutas base y deobfuscation de API Keys
 ├── kill_python.bat            # Script de cierre forzado rápido de procesos Python en Windows
 ├── scanner_helper.py          # Auto-recuperación y verificación de red del escáner (NAPS2 / eSCL)
@@ -244,3 +245,20 @@ La base de datos contiene **14 tablas relacionales**:
   - Servicio: `ERPGDS` (rama `main` o `Web`)
   - Comando de inicio (Gunicorn): `gunicorn app_cloud:app --workers=1 --threads=4 --bind=0.0.0.0:$PORT --timeout=120` (gestionado con `sh -c` nativo vía Dockerfile / railway.json).
   - Almacenamiento Persistente: Volumen `erpgds-data` (1 GB) montado en `/app/registros` para persistir `control_interno.db`.
+
+---
+
+## 🔬 8. Casos de Estudio y Diagnósticos del Doctor IA
+
+### Caso #1: Factura Coca-Cola FEMSA guardada como "Empresa Argentina de Bebidas S.A."
+- **Síntoma**: La factura física `0611 - 00314490` (Total $446.237,03, Fecha 05/11/2026) pertenecía a **Coca-Cola FEMSA de Buenos Aires S.A.** pero se archivó en `Facturas_Procesadas/2026/Febrero/EMPRESA ARGENTINA DE BEBIDAS S.A/`.
+- **Causa Raíz**:
+  1. *Falla de OCR local*: La impresión de matriz de puntos y tramas tenues de Coca-Cola generó ruido ilegible en Tesseract, activando el rescate con IA.
+  2. *Inferencia descriptiva en IA*: Gemini infirió en el rescate "EMPRESA ARGENTINA DE BEBIDAS S.A." y asoció un CUIT de embotelladora/distribuidora secundaria, además de confundir la fecha `05.11` con febrero.
+  3. *Contaminación de Keywords*: El motor auto-aprendió el proveedor y le asignó keywords como `"coca-cola"`, `"femsa"`, secuestrando futuras clasificaciones.
+- **Solución y Blindaje implementado**:
+  1. *Reubicación y Base de Datos*: Se reubicó el archivo en `Facturas_Procesadas/2026/Noviembre/Coca Cola Femsa De Buenos Aires S A/0611 - 00314490.pdf`, se eliminó la carpeta vacía de Febrero y se corrigió el registro #138 en la tabla `facturas_procesadas` con CUIT oficial `30525390086`.
+  2. *Depuración de Catálogo*: Se purgó el proveedor fantasma `Empresa Argentina De Bebidas S.A.` de `suppliers.json` y de la tabla `proveedores`.
+  3. *Reglas de Blindaje en `processor.py`*:
+     - Se añadió protección para puntos de venta fiscales `0611` y `0610` (asociados a las 21 facturas ARCA de Coca-Cola FEMSA) para forzar la resolución oficial.
+     - Se reforzó `save_ai_supplier` para impedir que nuevos proveedores reciban keywords de marcas notorias como `coca` o `femsa` si su nombre no corresponde.

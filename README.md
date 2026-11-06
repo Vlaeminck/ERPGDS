@@ -76,6 +76,12 @@ Toda la plataforma utiliza la base de datos **SQLite (`control_interno.db`)** co
      python reset.py --force
      ```
 
+7. 🩺 **Doctor con Cerebro IA (`doctor.py`):**
+   - **Auditoría Integral y Diagnóstico Clínico:** Detección de carpetas vacías, archivos desubicados, facturas guardadas bajo proveedores inexistentes o incongruentes y registros huérfanos en SQLite.
+   - **Cerebro Inteligente (Gemini Vision + ARCA):** Identificación automática del emisor fiscal legítimo mediante cruce determinístico con reportes de ARCA y visión artificial de Google Gemini, reubicando los archivos físicos y actualizando la base de datos de forma simétrica.
+   - **Filtro Anti-Secuestro de Keywords:** Protección de marcas notorias (`coca`, `femsa`) y datos del comprador para evitar falsas asociaciones.
+   - Para más detalles, consulta [DOCTOR_CAPACIDADES_Y_LIMITES.md](file:///c:/Users/Gardenias/Desktop/DEVS/ERPGDS/ERPGDS/DOCTOR_CAPACIDADES_Y_LIMITES.md).
+
 ---
 
 ## 🛠️ Tecnologías Utilizadas

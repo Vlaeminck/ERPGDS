@@ -1900,34 +1900,53 @@
 
             <!-- Tab: Doctor -->
             <section id="tab-doctor" class="tab-pane" style="display: none;">
-                <header class="section-header">
-                    <h1>Doctor 🩺</h1>
-                    <p>Auditoría y corrección automática de la base de datos de facturas.</p>
+                <header class="section-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h1>Doctor con Cerebro IA 🩺🧠</h1>
+                        <p>Auditoría inteligente con Visión IA (Gemini) y cruce fiscal con ARCA/AFIP para detectar y curar inconsistencias contables.</p>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <span class="badge" style="background: rgba(37, 99, 235, 0.1); color: #2563eb; font-weight: 700; border: 1px solid rgba(37, 99, 235, 0.25); padding: 0.45rem 0.85rem; border-radius: 8px;">
+                            <i class="fa-solid fa-brain"></i> Cerebro IA Activo
+                        </span>
+                        <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.45rem 0.85rem; border-radius: 8px;">
+                            <i class="fa-solid fa-building-columns"></i> ARCA / AFIP Fiscal
+                        </span>
+                    </div>
                 </header>
 
-                <div class="card glass-effect" style="margin-bottom: 2rem;">
-                    <h2>Centro de Diagnóstico</h2>
-                    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-                        Esta herramienta escaneará la carpeta de facturas procesadas en busca de anomalías (archivos
-                        desubicados, carpetas vacías o nombres incorrectos) y te permitirá arreglarlos automáticamente.
+                <div class="card glass-effect" style="margin-bottom: 1.5rem; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                    <h2 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">Centro de Diagnóstico & Reparación Contable</h2>
+                    <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 1.25rem; line-height: 1.5;">
+                        Esta herramienta audita la base de datos de facturas procesadas y el disco. Si una factura fue guardada bajo un proveedor que no existe o con un nombre erróneo, el <strong>Cerebro IA</strong> la analiza mediante Gemini Vision y cruce fiscal con ARCA, identificando al emisor legítimo para reubicarla y actualizar automáticamente SQLite.
                     </p>
-                    <div style="display: flex; gap: 1rem;">
-                        <button id="btn-doctor-scan" class="btn btn-primary" style="flex: 1;">
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; padding: 0.75rem 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; font-weight: 700; color: #334155; cursor: pointer; margin: 0;">
+                            <input type="checkbox" id="chk-doctor-ai" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                            <span>Analizar comprobantes no reconocidos con Inteligencia Artificial (Gemini)</span>
+                        </label>
+                        <span style="font-size: 0.8rem; color: #64748b;">Limpia automáticamente archivos residuales (desktop.ini)</span>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <button id="btn-doctor-scan" class="btn btn-primary" style="flex: 1; min-width: 200px; font-weight: 700; padding: 0.65rem 1.25rem;">
                             <i class="fa-solid fa-magnifying-glass"></i> Escanear Base de Datos
                         </button>
-                        <button id="btn-doctor-fix" class="btn btn-secondary" style="flex: 1;" disabled>
+                        <button id="btn-doctor-fix" class="btn btn-secondary" style="flex: 1; min-width: 200px; font-weight: 700; padding: 0.65rem 1.25rem;" disabled>
                             <i class="fa-solid fa-notes-medical"></i> Aplicar Curas Automáticas
                         </button>
                     </div>
                 </div>
 
-                <div class="card glass-effect" id="doctor-results-container" style="display: none;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <h2>Reporte Médico</h2>
-                        <span id="doctor-count" class="badge">0 anomalías</span>
+                <div class="card glass-effect" id="doctor-results-container" style="display: none; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <h2 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin: 0;">Reporte Médico & Diagnóstico</h2>
+                            <span id="doctor-count" class="badge" style="font-weight: 700; font-size: 0.85rem; padding: 0.35rem 0.75rem; border-radius: 6px;">0 anomalías</span>
+                        </div>
                     </div>
-                    <div id="doctor-results-list" style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div id="doctor-results-list" style="display: flex; flex-direction: column; gap: 0.85rem;">
                         <!-- JS renders here -->
                     </div>
                 </div>

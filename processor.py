@@ -1829,6 +1829,12 @@ def resolve_ai_data_with_arca_and_db(data, file_path=None, text=""):
                     resolved_supplier = s_name
                     break
 
+    # Protección de marcas notorias: Coca-Cola FEMSA (Punto de Venta 0611 / 0610 o mención de Coca-Cola / FEMSA)
+    norm_check = (norm_nom if 'norm_nom' in locals() else '') + " " + str(nombre_raw).lower()
+    if 'coca' in norm_check or 'femsa' in norm_check or (parsed_pv in (611, 610)):
+        resolved_supplier = "Coca Cola Femsa De Buenos Aires S A"
+        cuit_raw = cuit_raw or "30525390086"
+
     if not resolved_supplier and nombre_raw:
         resolved_supplier = nombre_raw.replace('/', '-')
 
@@ -2040,6 +2046,11 @@ def save_ai_supplier(nombre, cuit, keywords):
             k for k in final_keywords 
             if not any(b in k for b in buyer_banned) and k != '30714817767' and k != '30-71481776-7'
         ]
+
+        # Si el proveedor no es Coca-Cola ni Femsa, nunca permitir keywords de Coca/Femsa
+        target_norm = target_key.lower()
+        if 'coca' not in target_norm and 'femsa' not in target_norm:
+            final_keywords = [k for k in final_keywords if 'coca' not in k and 'femsa' not in k]
         
         if target_key not in suppliers:
             suppliers[target_key] = {

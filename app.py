@@ -615,15 +615,30 @@ def arca_logs():
 @app.route('/api/doctor/scan', methods=['GET'])
 def doctor_scan():
     try:
-        anomalies = doctor.scan_database()
-        return jsonify({"success": True, "anomalies": anomalies})
+        enable_ai = request.args.get('ai', 'true').lower() in ('true', '1', 'yes')
+        anomalies = doctor.scan_database(enable_ai=enable_ai)
+        return jsonify({"success": True, "anomalies": anomalies, "count": len(anomalies)})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/api/doctor/fix', methods=['POST'])
 def doctor_fix():
     try:
-        result = doctor.fix_database()
+        data = request.json or {}
+        enable_ai = data.get('enable_ai', True)
+        result = doctor.fix_database(enable_ai=enable_ai)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/doctor/cure-single', methods=['POST'])
+def doctor_cure_single():
+    try:
+        data = request.json or {}
+        anomaly = data.get('anomaly')
+        if not anomaly:
+            return jsonify({"success": False, "message": "Falta objeto de anomalía"}), 400
+        result = doctor.fix_single_anomaly(anomaly)
         return jsonify(result)
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
