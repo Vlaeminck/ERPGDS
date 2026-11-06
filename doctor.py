@@ -271,6 +271,17 @@ def diagnose_invoice_with_brain(pdf_path, catalog=None, use_ai=True):
     return None
 
 
+def get_path_mtime_formatted(file_or_dir_path):
+    """Obtiene la fecha y hora de modificación formateada (dd/mm/yyyy hh:mm) de un archivo o carpeta."""
+    try:
+        if os.path.exists(file_or_dir_path):
+            mtime = os.path.getmtime(file_or_dir_path)
+            return datetime.datetime.fromtimestamp(mtime).strftime('%d/%m/%Y %H:%M')
+    except Exception:
+        pass
+    return None
+
+
 def scan_database(enable_ai=True):
     """
     Escanea la base de datos de facturas procesadas y el almacenamiento en disco en busca de:
@@ -311,6 +322,7 @@ def scan_database(enable_ai=True):
                 "severity": "high",
                 "path": item_path,
                 "filename": item,
+                "date": get_path_mtime_formatted(item_path),
                 "message": f"Archivo '{item}' encontrado directamente en la raíz de Facturas Procesadas.",
                 "ai_diagnosis": ai_diag
             })
@@ -323,6 +335,7 @@ def scan_database(enable_ai=True):
                 "severity": "high",
                 "path": item_path,
                 "folder_name": item,
+                "date": get_path_mtime_formatted(item_path),
                 "message": f"Carpeta '{item}' en la raíz que no parece un año válido de 4 dígitos."
             })
             continue
@@ -346,6 +359,7 @@ def scan_database(enable_ai=True):
                     "severity": "high",
                     "path": month_path,
                     "filename": month_folder,
+                    "date": get_path_mtime_formatted(month_path),
                     "message": f"Archivo '{month_folder}' encontrado dentro de la carpeta del año {year} (debe estar dentro de un mes y proveedor).",
                     "ai_diagnosis": ai_diag
                 })
@@ -357,6 +371,7 @@ def scan_database(enable_ai=True):
                     "severity": "medium",
                     "path": month_path,
                     "folder_name": month_folder,
+                    "date": get_path_mtime_formatted(month_path),
                     "message": f"Carpeta '{month_folder}' en año {year} no corresponde a un mes calendario estándar."
                 })
 
@@ -379,6 +394,7 @@ def scan_database(enable_ai=True):
                         "severity": "high",
                         "path": sup_path,
                         "filename": sup_folder,
+                        "date": get_path_mtime_formatted(sup_path),
                         "message": f"Archivo '{sup_folder}' encontrado dentro de {year}/{month_folder} (debe estar dentro de la carpeta de un proveedor).",
                         "ai_diagnosis": ai_diag
                     })
@@ -397,6 +413,7 @@ def scan_database(enable_ai=True):
                         "severity": "low",
                         "path": sup_path,
                         "folder_name": sup_folder,
+                        "date": get_path_mtime_formatted(sup_path),
                         "message": f"Carpeta de proveedor '{sup_folder}' vacía en {year}/{month_folder}."
                     })
                     continue
@@ -426,6 +443,7 @@ def scan_database(enable_ai=True):
                             "filename": f,
                             "year": year,
                             "month": month_folder,
+                            "date": get_path_mtime_formatted(f_path) or (ai_diag.get('detected_fecha') if ai_diag else None),
                             "message": msg,
                             "ai_diagnosis": ai_diag,
                             "suggested_supplier": target_sup,
@@ -435,12 +453,13 @@ def scan_database(enable_ai=True):
                     # Proveedor reconocido: revisar si hay facturas adentro con nombres atípicos
                     for f in files_in_sup:
                         f_path = os.path.join(sup_path, f)
-                        if not re.match(r'^(?:DUPLICADO_)?\d{4,5}\s*-\s*\d{8}(?:\s*\(Rescatado IA\))?', f):
+                        if not re.match(r'^(?:DUPLICAD[AO][_-]?)?\d{4,5}\s*-\s*\d{8}(?:\s*\(Rescatado IA\))?(?:_\d+)?', f, re.IGNORECASE):
                             anomalies.append({
                                 "type": "nombre_atipico",
                                 "severity": "low",
                                 "path": f_path,
                                 "filename": f,
+                                "date": get_path_mtime_formatted(f_path),
                                 "message": f"El archivo '{f}' no sigue el formato estándar '0000 - 00000000'."
                             })
 
@@ -461,6 +480,7 @@ def scan_database(enable_ai=True):
                         "severity": "medium",
                         "path": uf_path,
                         "filename": uf,
+                        "date": get_path_mtime_formatted(uf_path) or (ai_diag.get('detected_fecha') if ai_diag else None),
                         "message": msg,
                         "ai_diagnosis": ai_diag,
                         "suggested_supplier": target_sup
@@ -473,7 +493,7 @@ def scan_database(enable_ai=True):
         import db_manager
         conn = db_manager.get_connection()
         c = conn.cursor()
-        c.execute("SELECT id, year, month, supplier, filename, filepath FROM facturas_procesadas WHERE is_deleted = 0 OR is_deleted IS NULL")
+        c.execute("SELECT id, year, month, supplier, filename, filepath, fecha, fecha_procesado FROM facturas_procesadas WHERE is_deleted = 0 OR is_deleted IS NULL")
         db_invoices = [dict(r) for r in c.fetchall()]
         conn.close()
 
@@ -481,6 +501,20 @@ def scan_database(enable_ai=True):
             rel_path = (inv['filepath'] or '').replace('/', os.sep)
             abs_path = os.path.join(OUTPUT_FOLDER, rel_path)
             if not os.path.exists(abs_path):
+                # Formatear fecha del registro si existe
+                reg_date = inv.get('fecha_procesado') or inv.get('fecha') or ''
+                if reg_date and len(reg_date) >= 10:
+                    try:
+                        # Si viene YYYY-MM-DD HH:MM:SS o YYYY-MM-DD
+                        if ' ' in reg_date:
+                            dt_obj = datetime.datetime.strptime(reg_date[:19], '%Y-%m-%d %H:%M:%S')
+                            reg_date = dt_obj.strftime('%d/%m/%Y %H:%M')
+                        else:
+                            dt_obj = datetime.datetime.strptime(reg_date[:10], '%Y-%m-%d')
+                            reg_date = dt_obj.strftime('%d/%m/%Y')
+                    except Exception:
+                        pass
+
                 anomalies.append({
                     "type": "db_archivo_huerfano",
                     "severity": "medium",
@@ -488,6 +522,7 @@ def scan_database(enable_ai=True):
                     "path": abs_path,
                     "filename": inv['filename'],
                     "supplier": inv['supplier'],
+                    "date": reg_date or None,
                     "message": f"Registro BD #{inv['id']} ('{inv['filename']}', {inv['supplier']}) no se encuentra físicamente en el disco."
                 })
     except Exception as e:
@@ -687,11 +722,52 @@ def fix_single_anomaly(anomaly):
                 cursor.execute("UPDATE facturas_procesadas SET is_deleted = 1, updated_at = ?, sync_status = 0 WHERE id = ?", (now_iso, db_id))
                 conn.commit()
                 conn.close()
-                return {"success": True, "action": "bd_sincronizada", "message": f"Registro #{db_id} marcado como eliminado."}
+                return {"success": True, "action": "bd_sincronizada", "message": f"Registro #{db_id} purgado de la base de datos."}
             except Exception as e:
                 return {"success": False, "error": f"Error actualizando BD: {e}"}
 
+    # 5. Factura no reconocida duplicada o descartable
+    elif a_type == 'factura_no_reconocida_recuperable':
+        # Si se solicita limpiar o purgar una no reconocida
+        if os.path.exists(path) and os.path.isfile(path):
+            try:
+                os.remove(path)
+                return {"success": True, "action": "archivo_eliminado", "message": f"Archivo temporal eliminado: {os.path.basename(path)}"}
+            except Exception as e:
+                return {"success": False, "error": f"No se pudo eliminar archivo: {e}"}
+
     return {"success": False, "error": f"Tipo de anomalía no manejado: {a_type}"}
+
+
+def clear_all_anomalies(purge_unrecognized=False):
+    """
+    Limpia el reporte médico resolviendo o purgando los elementos descartables:
+    - Purga registros huérfanos de la BD (is_deleted = 1).
+    - Elimina carpetas vacías en Facturas_Procesadas.
+    - Opcionalmente limpia archivos no reconocidos duplicados.
+    """
+    anomalies = scan_database(enable_ai=False)
+    cleared = 0
+    errors = []
+
+    for a in anomalies:
+        a_type = a.get('type')
+        if a_type in ('db_archivo_huerfano', 'carpeta_vacia'):
+            res = fix_single_anomaly(a)
+            if res.get('success'):
+                cleared += 1
+            else:
+                errors.append(res.get('error', 'Error limpiando'))
+        elif purge_unrecognized and a_type == 'factura_no_reconocida_recuperable':
+            res = fix_single_anomaly(a)
+            if res.get('success'):
+                cleared += 1
+
+    return {
+        "success": True,
+        "cleared": cleared,
+        "errors": errors
+    }
 
 
 def fix_database(enable_ai=True):

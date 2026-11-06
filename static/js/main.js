@@ -1681,6 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Doctor Tab Logic ---
     const btnDoctorScan = document.getElementById('btn-doctor-scan');
     const btnDoctorFix = document.getElementById('btn-doctor-fix');
+    const btnDoctorClearReport = document.getElementById('btn-doctor-clear-report');
     const chkDoctorAi = document.getElementById('chk-doctor-ai');
     const doctorResultsContainer = document.getElementById('doctor-results-container');
     const doctorResultsList = document.getElementById('doctor-results-list');
@@ -1749,6 +1750,36 @@ document.addEventListener('DOMContentLoaded', () => {
             } finally {
                 btnDoctorFix.innerHTML = originalHTML;
                 btnDoctorScan.disabled = false;
+            }
+        });
+    }
+
+    if (btnDoctorClearReport) {
+        btnDoctorClearReport.addEventListener('click', async () => {
+            const originalHTML = btnDoctorClearReport.innerHTML;
+            btnDoctorClearReport.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Limpiando...';
+            btnDoctorClearReport.disabled = true;
+
+            try {
+                const res = await fetch('/api/doctor/clear-report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ purge_unrecognized: false })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showToast(`Reporte limpiado: ${data.cleared} elementos purgados.`, "success");
+                    // Re-escanear
+                    btnDoctorScan.click();
+                } else {
+                    showToast("Error al limpiar reporte: " + data.message, "error");
+                }
+            } catch (error) {
+                showToast("Error de conexión al limpiar reporte", "error");
+            } finally {
+                btnDoctorClearReport.innerHTML = originalHTML;
+                btnDoctorClearReport.disabled = false;
             }
         });
     }
@@ -1887,9 +1918,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div style="flex: 1; min-width: 0;">
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
-                            <span style="background: ${badgeBg}; color: ${badgeColor}; font-weight: 800; font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
-                                ${anom.type.replace(/_/g, ' ')}
-                            </span>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span style="background: ${badgeBg}; color: ${badgeColor}; font-weight: 800; font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    ${anom.type.replace(/_/g, ' ')}
+                                </span>
+                                ${anom.date ? `
+                                    <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; font-weight: 700; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.18rem 0.5rem; border-radius: 6px;">
+                                        <i class="fa-regular fa-clock" style="color: #64748b;"></i> ${anom.date}
+                                    </span>
+                                ` : ''}
+                            </div>
                             <small style="color: #94a3b8; font-family: monospace; font-size: 0.75rem; word-break: break-all;">${anom.path}</small>
                         </div>
                         <p style="margin: 0; font-size: 0.92rem; font-weight: 600; color: #1e293b; line-height: 1.4;">${anom.message}</p>

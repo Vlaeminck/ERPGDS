@@ -631,6 +631,16 @@ def doctor_fix():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+@app.route('/api/doctor/clear-report', methods=['POST'])
+def doctor_clear_report():
+    try:
+        data = request.json or {}
+        purge_unrec = data.get('purge_unrecognized', False)
+        result = doctor.clear_all_anomalies(purge_unrecognized=purge_unrec)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @app.route('/api/doctor/cure-single', methods=['POST'])
 def doctor_cure_single():
     try:
