@@ -360,6 +360,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const btnForceFullSync = document.getElementById('btn-force-full-sync');
+    if (btnForceFullSync) {
+        btnForceFullSync.addEventListener('click', async () => {
+            if (!confirm('Esta acción descargará todos los datos desde la nube, sobrescribiendo cambios locales no sincronizados si existen. ¿Continuar?')) return;
+            const originalHTML = btnForceFullSync.innerHTML;
+            btnForceFullSync.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sincronizando...';
+            btnForceFullSync.disabled = true;
+
+            try {
+                const res = await fetch('/api/settings/force-sync', { method: 'POST' });
+                const data = await res.json();
+
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    showToast("Error en sincronización: " + data.message, 'error');
+                }
+            } catch (error) {
+                showToast("Error de conexión al sincronizar", 'error');
+            } finally {
+                btnForceFullSync.innerHTML = originalHTML;
+                btnForceFullSync.disabled = false;
+            }
+        });
+    }
+
     // --- Dashboard & Watcher Controls ---
     const btnStart = document.getElementById('btn-start-watcher');
     const btnStop = document.getElementById('btn-stop-watcher');

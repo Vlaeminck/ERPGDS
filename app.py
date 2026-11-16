@@ -528,6 +528,16 @@ def get_cuit():
 # --- Rutas Bot Sincronización ARCA ---
 import arca_bot
 
+@app.route('/api/settings/force-sync', methods=['POST'])
+def force_sync():
+    try:
+        # Pull everything from Firebase
+        import firebase_sync
+        firebase_sync.pull_remote_changes(force_full=True)
+        return jsonify({"success": True, "message": "Sincronización completa desde Firebase realizada."})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error en sincronización: {e}"}), 500
+
 @app.route('/api/arca/credentials', methods=['GET', 'POST'])
 def arca_credentials():
     if request.method == 'GET':
