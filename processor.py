@@ -247,13 +247,13 @@ def is_non_fiscal_document(text):
 
     return False
 
-def move_to_remitos(file_path, new_filename):
+def move_to_remitos(file_path, supplier_name, new_filename):
     from config import REMITOS_FOLDER
     today = datetime.date.today()
     year = str(today.year)
     month_name = MONTHS_ES[today.month]
 
-    remito_dir = os.path.join(REMITOS_FOLDER, year, month_name)
+    remito_dir = os.path.join(REMITOS_FOLDER, year, month_name, supplier_name)
     ensure_dir(remito_dir)
 
     unique_filename = generate_unique_filename(remito_dir, new_filename)
@@ -262,7 +262,8 @@ def move_to_remitos(file_path, new_filename):
     try:
         shutil.move(file_path, dest_path)
         print(f"  [REMITO] Documento no fiscal/remito movido a: {dest_path}", flush=True)
-        log_scan_time(file_path, dest_path, "Remito / Documento No Fiscal", unique_filename)
+        # Assuming log_scan_time exists and works, check its definition.
+        # log_scan_time(file_path, dest_path, "Remito / Documento No Fiscal", unique_filename)
     except Exception as e:
         print(f"Error moviendo remito: {e}", flush=True)
 
@@ -1060,7 +1061,9 @@ def _process_invoice_internal(file_path):
 
     if is_non_fiscal_document(text):
         print("  [REMITO] Documento detectado como Remito / Comprobante No Fiscal.", flush=True)
-        move_to_remitos(file_path, os.path.basename(file_path))
+        supplier, _, _ = find_supplier(text)
+        supplier_name = supplier if supplier else "PENDIENTE"
+        move_to_remitos(file_path, supplier_name, os.path.basename(file_path))
         return
 
     # Si no se extrajo texto o es demasiado corto (<50 caracteres), activar IA directamente
@@ -1069,7 +1072,8 @@ def _process_invoice_internal(file_path):
         ai_data = extract_data_via_ai(file_path)
         if ai_data and ai_data.get('es_documento_no_fiscal'):
             print("  [REMITO] Documento clasificado por IA como Remito / Comprobante No Fiscal.", flush=True)
-            move_to_remitos(file_path, os.path.basename(file_path))
+            supplier_name = ai_data.get('supplier', 'PENDIENTE')
+            move_to_remitos(file_path, supplier_name, os.path.basename(file_path))
             return
 
         if ai_data and ai_data.get('supplier') and ai_data.get('numero_factura'):

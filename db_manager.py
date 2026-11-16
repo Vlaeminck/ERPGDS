@@ -399,6 +399,17 @@ def init_db(seed_samples=False):
     )
     ''')
 
+    # Tabla 15: Mapeo de Remitos
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS remito_mappings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_id INTEGER,
+        cuit_signature TEXT,
+        updated_at TEXT,
+        FOREIGN KEY(supplier_id) REFERENCES proveedores(id)
+    )
+    ''')
+
     # Migración de columnas de pagos_no_registrados si no existen
     cursor.execute("PRAGMA table_info(pagos_no_registrados)")
     pnr_cols = [r[1] for r in cursor.fetchall()]
